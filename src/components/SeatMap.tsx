@@ -111,6 +111,20 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat }) 
           );
         })}
       </div>
+      {selectedSeats.length > 0 && (
+        <div className="price-bar">
+          <div>
+            <div className="price-bar-label">Total Amount</div>
+            <div className="price-bar-detail">{selectedSeats.length} peg{selectedSeats.length !== 1 ? 's' : ''} selected</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div className="price-bar-total">RM {selectedSeats.reduce((a, n) => {
+              const s = pond.seats.find(x => x.num === n);
+              return a + (s ? s.price : 0);
+            }, 0)}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

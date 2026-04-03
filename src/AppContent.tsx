@@ -8,6 +8,7 @@ import SeatMap from './components/SeatMap';
 import BookingForm from './components/BookingForm';
 import LiveResults from './components/LiveResults';
 import AuthModal from './components/AuthModal';
+import CMSModal from './components/CMSModal';
 import Toast from './components/Toast';
 import { useBooking } from './context/BookingContext';
 import { useUI } from './context/UIContext';
@@ -16,8 +17,8 @@ import { useAuth } from './hooks/useAuth';
 import { fmt } from './utils';
 
 const AppContent: React.FC = () => {
-  const { db, selectedPond, selectedSeats, payType, receiptData, user, setPond, toggleSeat, setPayType, setReceiptData, submitBooking } = useBooking();
-  const { addToast, setAuthModalOpen, authModalOpen } = useUI();
+  const { db, selectedPond, selectedSeats, payType, receiptData, user, setPond, toggleSeat, setPayType, setReceiptData, submitBooking, updateDB } = useBooking();
+  const { addToast, setAuthModalOpen, authModalOpen, cmsModalOpen, setCMSModalOpen } = useUI();
   const { currentSection, goToSection, goToBook, goHome, goToMyBookings, goToConfirmed } = useNavigation();
   const { login, register, logout } = useAuth();
 
@@ -94,21 +95,19 @@ const AppContent: React.FC = () => {
         return (
           <div className="booking-layout">
             <BookingSidebar ponds={db.ponds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
-            {bookedPond && <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} />}
-            {bookedPond && (
-              <BookingForm
-                user={user}
-                pond={bookedPond}
-                selectedSeats={selectedSeats}
-                payType={payType}
-                receiptData={receiptData}
-                onSetPayType={setPayType}
-                onHandleReceiptChange={handleReceiptChange}
-                onClearReceipt={() => setReceiptData(null, null)}
-                onSubmitBooking={handleSubmitBooking}
-                onOpenAuth={() => setAuthModalOpen(true)}
-              />
-            )}
+            <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} />
+            <BookingForm
+              user={user}
+              pond={bookedPond}
+              selectedSeats={selectedSeats}
+              payType={payType}
+              receiptData={receiptData}
+              onSetPayType={setPayType}
+              onHandleReceiptChange={handleReceiptChange}
+              onClearReceipt={() => setReceiptData(null, null)}
+              onSubmitBooking={handleSubmitBooking}
+              onOpenAuth={() => setAuthModalOpen(true)}
+            />
           </div>
         );
       case 'live':
@@ -204,17 +203,47 @@ const AppContent: React.FC = () => {
         currentSection={currentSection}
         onSectionChange={goToSection}
         onOpenAuth={() => setAuthModalOpen(true)}
-        onOpenCMS={() => addToast('CMS not implemented yet', 'info')}
+        onOpenCMS={() => setCMSModalOpen(true)}
         onLogout={handleLogout}
       />
       <div className={`section ${currentSection === 'home' ? 'active' : ''}`} id="section-home">
-        {renderSection()}
+        {currentSection === 'home' && renderSection()}
+      </div>
+      <div className={`section ${currentSection === 'book' ? 'active' : ''}`} id="section-book">
+        {currentSection === 'book' && renderSection()}
+      </div>
+      <div className={`section ${currentSection === 'live' ? 'active' : ''}`} id="section-live">
+        {currentSection === 'live' && renderSection()}
+      </div>
+      <div className={`section ${currentSection === 'mybookings' ? 'active' : ''}`} id="section-mybookings">
+        {currentSection === 'mybookings' && renderSection()}
+      </div>
+      <div className={`section ${currentSection === 'confirmed' ? 'active' : ''}`} id="section-confirmed">
+        {currentSection === 'confirmed' && renderSection()}
       </div>
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         onLogin={handleLogin}
         onRegister={handleRegister}
+      />
+      <CMSModal
+        isOpen={cmsModalOpen}
+        onClose={() => setCMSModalOpen(false)}
+        user={user}
+        ponds={db.ponds}
+        comp={db.comp}
+        onUpdateData={({ ponds: updatedPonds, comp: updatedComp }) => {
+          if (updatedPonds || updatedComp) {
+            const newDb = {
+              ...db,
+              ponds: updatedPonds || db.ponds,
+              comp: updatedComp || db.comp
+            };
+            updateDB(newDb);
+            addToast('Settings updated successfully!', 'success');
+          }
+        }}
       />
       <Toast />
     </>
