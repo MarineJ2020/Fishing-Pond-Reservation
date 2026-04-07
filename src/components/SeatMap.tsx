@@ -71,45 +71,65 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat }) 
         </div>
       </div>
       <div id="seat-map-wrap" className="seat-map-wrap">
-        {zones.map((zone, zi) => {
-          const seats = pond.seats
-            .filter(s => s.zone === zone)
-            .sort((a, b) => (zone === 'A' ? b.num - a.num : a.num - b.num));
-          return (
-            <div key={zone} className="seat-zone-wrap">
-              <div className="seat-zone-label">Zone {zone}</div>
-              <div className="seat-col">
-                {seats.map(s => {
-                  const isSelected = selectedSeats.includes(s.num);
-                  const isBooked = s.status === 'booked';
-                  const cls = isBooked ? 'booked' : isSelected ? 'selected' : 'avail';
-                  
-                  return (
-                    <button
-                      key={s.num}
-                      className={`seat-btn ${cls}`}
-                      onClick={() => handleSeatClick(s.num, s.status)}
-                      disabled={isBooked}
-                      title={`Peg #${s.num} - ${s.status}`}
-                      type="button"
-                    >
-                      {s.num}
-                    </button>
-                  );
-                })}
-              </div>
-              {zi === 0 && zones.length > 1 && (
-                <div className="pond-visual">
-                  <div className="pond-ripple"></div>
-                  <div className="pond-ripple"></div>
-                  <div className="pond-ripple"></div>
-                  <div className="pond-visual-emoji">🎣</div>
-                  <div className="pond-visual-text">KOLAM</div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        <div className="seat-zone-wrap left">
+          <div className="seat-zone-label">Zone A</div>
+          <div className="seat-col">
+            {pond.seats
+              .filter(s => s.zone === 'A')
+              .sort((a, b) => b.num - a.num)
+              .map(s => {
+                const isSelected = selectedSeats.includes(s.num);
+                const isBooked = s.status === 'booked';
+                const cls = isBooked ? 'booked' : isSelected ? 'selected' : 'avail';
+                
+                return (
+                  <button
+                    key={s.num}
+                    className={`seat-btn ${cls}`}
+                    onClick={() => handleSeatClick(s.num, s.status)}
+                    disabled={isBooked}
+                    title={`Peg #${s.num} - ${s.status}`}
+                    type="button"
+                  >
+                    {s.num}
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+        <div className="pond-visual">
+          <div className="pond-ripple"></div>
+          <div className="pond-ripple"></div>
+          <div className="pond-ripple"></div>
+          <div className="pond-visual-emoji">🎣</div>
+          <div className="pond-visual-text">KOLAM</div>
+        </div>
+        <div className="seat-zone-wrap right">
+          <div className="seat-zone-label">Zone B</div>
+          <div className="seat-col">
+            {pond.seats
+              .filter(s => s.zone === 'B')
+              .sort((a, b) => a.num - b.num)
+              .map(s => {
+                const isSelected = selectedSeats.includes(s.num);
+                const isBooked = s.status === 'booked';
+                const cls = isBooked ? 'booked' : isSelected ? 'selected' : 'avail';
+                
+                return (
+                  <button
+                    key={s.num}
+                    className={`seat-btn ${cls}`}
+                    onClick={() => handleSeatClick(s.num, s.status)}
+                    disabled={isBooked}
+                    title={`Peg #${s.num} - ${s.status}`}
+                    type="button"
+                  >
+                    {s.num}
+                  </button>
+                );
+              })}
+          </div>
+        </div>
       </div>
       {selectedSeats.length > 0 && (
         <div className="price-bar">

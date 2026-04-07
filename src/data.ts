@@ -1,6 +1,6 @@
 import { DB, Pond, Booking, Score, Competition, Settings, User } from './types';
 
-const gs = (pid: number, st: number, cnt: number, pr: number) => Array.from({ length: cnt }, (_, i) => ({
+export const gs = (pid: number, st: number, cnt: number, pr: number) => Array.from({ length: cnt }, (_, i) => ({
   num: st + i,
   zone: i < Math.ceil(cnt / 2) ? 'A' : 'B',
   price: pr,
@@ -32,17 +32,35 @@ export const initialDB: DB = {
     qrBank: 'DuitNow / Bank Transfer',
     qrName: 'CastBook Sdn Bhd',
     qrAccNo: '3841-2038-491',
-    qrImg: ''
+    qrImg: '',
+    heroLogo: '',
+    whatsapp: 'https://wa.me/60123456789',
+    location: 'Alor Setar, Kedah',
+    openingHours: {
+      days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      timeStart: '06:00',
+      timeEnd: '18:00'
+    },
+    grandOpening: {
+      date: '2026-05-20',
+      time: '08:00'
+    }
   },
   users: [
-    { email: 'user@example.com', name: 'Test User', phone: '', pass: 'test123' }
+    { email: 'user@example.com', name: 'Test User', phone: '', pass: 'test123' },
+    { email: 'user', name: 'User', phone: '', pass: 'user' },
+    { email: 'admin', name: 'Admin', phone: '', pass: 'admin' }
   ]
 };
 
 export const getDB = (): DB => {
   try {
     const v = localStorage.getItem('cb_DB');
-    return v !== null ? JSON.parse(v) : initialDB;
+    if (v) {
+      const parsed = JSON.parse(v);
+      return { ...initialDB, ...parsed, settings: { ...initialDB.settings, ...parsed.settings } };
+    }
+    return initialDB;
   } catch {
     return initialDB;
   }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User, Pond, Competition, Prize } from '../types';
-import { getDB } from '../data';
+import { getDB, setDB, gs } from '../data';
 
 interface CMSModalProps {
   isOpen: boolean;
@@ -12,9 +12,11 @@ interface CMSModalProps {
 }
 
 const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp, onUpdateData }) => {
-  const [tab, setTab] = useState<'ponds' | 'competition' | 'bookings'>('ponds');
+  const [tab, setTab] = useState<'ponds' | 'competition' | 'settings' | 'bookings'>('ponds');
   const [editingPond, setEditingPond] = useState<Pond | null>(null);
   const [compEdit, setCompEdit] = useState<Competition>(comp);
+  const [settingsEdit, setSettingsEdit] = useState(getDB().settings);
+  const [newPond, setNewPond] = useState<Partial<Pond>>({ name: '', date: '', desc: '', seats: [], open: true });
 
   const isStaff = user && (user.email.includes('admin') || user.email.includes('staff'));
 
@@ -27,7 +29,47 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
   };
 
   const handleCompetitionUpdate = () => {
+    const db = getDB();
+    db.comp = compEdit;
+    setDB(db);
     onUpdateData({ comp: compEdit });
+  };
+
+  const handleApproveBooking = (bookingId: string) => {
+    const booking = getDB().bookings.find(b => b.id === bookingId);
+    if (!booking) return;
+    // Set status to confirmed, lock seats
+    booking.status = 'confirmed';
+    booking.seats.forEach(num => {
+      const pond = ponds.find(p => p.id === booking.pondId);
+      const seat = pond?.seats.find(s => s.num === num);
+      if (seat) seat.status = 'booked';
+    });
+    onUpdateData({ ponds });
+  };
+
+  const handleRejectBooking = (bookingId: string) => {
+    const booking = getDB().bookings.find(b => b.id === bookingId);
+    if (!booking) return;
+    // Set status to rejected, free seats
+    booking.status = 'rejected';
+    booking.seats.forEach(num => {
+      const pond = ponds.find(p => p.id === booking.pondId);
+      const seat = pond?.seats.find(s => s.num === num);
+      if (seat && seat.status === 'pending') seat.status = 'available';
+    });
+    onUpdateData({ ponds });
+  };
+
+  const handleViewReceipt = (receiptData: string) => {
+    // Open in new window or modal
+    const img = new Image();
+    img.src = receiptData;
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.write('<img src="' + receiptData + '" style="max-width:100%;max-height:100vh;" />');
+      w.document.close();
+    }
   };
 
   if (!isStaff) {
@@ -72,6 +114,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
             🏆 Competition
           </button>
           <button
+            className={`cms-tab ${tab === 'settings' ? 'active' : ''}`}
+            onClick={() => setTab('settings')}
+          >
+            ⚙️ Settings
+          </button>
+          <button
             className={`cms-tab ${tab === 'bookings' ? 'active' : ''}`}
             onClick={() => setTab('bookings')}
           >
@@ -83,6 +131,78 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
           {tab === 'ponds' && (
             <div>
               <h3 style={{ marginBottom: '16px' }}>Manage Ponds</h3>
+              <div style={{ marginBottom: '20px' }}>
+                <h4>Add New Pond</h4>
+                <div className="cms-form">
+                  <div className="form-group">
+                    <label>Pond Name</label>
+                    <input
+                      type="text"
+                      value={newPond.name}
+                      onChange={e => setNewPond({ ...newPond, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Description</label>
+                    <textarea
+                      value={newPond.desc}
+                      onChange={e => setNewPond({ ...newPond, desc: e.target.value })}
+                      rows={3}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Date</label>
+                    <input
+                      type="date"
+                      value={newPond.date}
+                      onChange={e => setNewPond({ ...newPond, date: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Number of Seats</label>
+                    <input
+                      type="number"
+                      value={newPond.seats?.length || 0}
+                      onChange={e => {
+                        const count = parseInt(e.target.value) || 0;
+                        const price = newPond.seats?.[0]?.price || 100;
+                        setNewPond({ ...newPond, seats: gs(Math.max(...ponds.map(p => p.id)) + 1, 1, count, price) });
+                      }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Price per Seat</label>
+                    <input
+                      type="number"
+                      value={newPond.seats?.[0]?.price || 100}
+                      onChange={e => {
+                        const price = parseInt(e.target.value) || 100;
+                        const count = newPond.seats?.length || 0;
+                        setNewPond({ ...newPond, seats: gs(Math.max(...ponds.map(p => p.id)) + 1, 1, count, price) });
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                    <button className="btn btn-primary" onClick={() => {
+                      if (newPond.name && newPond.date && newPond.seats && newPond.seats.length > 0) {
+                        const pond: Pond = {
+                          id: Math.max(...ponds.map(p => p.id)) + 1,
+                          name: newPond.name,
+                          date: newPond.date,
+                          desc: newPond.desc || '',
+                          seats: newPond.seats,
+                          open: true
+                        };
+                        const updatedPonds = [...ponds, pond];
+                        onUpdateData({ ponds: updatedPonds });
+                        setNewPond({ name: '', date: '', desc: '', seats: [], open: true });
+                      }
+                    }}>
+                      Add Pond
+                    </button>
+                  </div>
+                </div>
+              </div>
               {editingPond ? (
                 <div className="cms-form">
                   <div className="form-group">
@@ -107,6 +227,30 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                       type="date"
                       value={editingPond.date}
                       onChange={e => setEditingPond({ ...editingPond, date: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Number of Seats</label>
+                    <input
+                      type="number"
+                      value={editingPond.seats.length}
+                      onChange={e => {
+                        const count = parseInt(e.target.value) || 0;
+                        const price = editingPond.seats[0]?.price || 100;
+                        setEditingPond({ ...editingPond, seats: gs(editingPond.id, 1, count, price) });
+                      }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Price per Seat</label>
+                    <input
+                      type="number"
+                      value={editingPond.seats[0]?.price || 100}
+                      onChange={e => {
+                        const price = parseInt(e.target.value) || 100;
+                        const count = editingPond.seats.length;
+                        setEditingPond({ ...editingPond, seats: gs(editingPond.id, 1, count, price) });
+                      }}
                     />
                   </div>
                   <div className="form-group">
@@ -135,7 +279,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                       <div>
                         <div className="cms-item-name">{pond.name}</div>
                         <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                          {pond.seats.length} pegs · {pond.date} · {pond.open ? '✅ Open' : '❌ Closed'}
+                          {pond.seats.length} pegs · RM {pond.seats[0]?.price || 0} each · {pond.date} · {pond.open ? '✅ Open' : '❌ Closed'}
                         </div>
                       </div>
                       <button
@@ -204,6 +348,96 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
             </div>
           )}
 
+          {tab === 'settings' && (
+            <div>
+              <h3 style={{ marginBottom: '16px' }}>Site Settings</h3>
+              <div className="cms-form">
+                <div className="form-group">
+                  <label>Hero Logo URL</label>
+                  <input
+                    type="text"
+                    value={settingsEdit.heroLogo}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, heroLogo: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>WhatsApp Number (for booking button)</label>
+                  <input
+                    type="text"
+                    value={settingsEdit.whatsapp}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, whatsapp: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Location</label>
+                  <input
+                    type="text"
+                    value={settingsEdit.location}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, location: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Opening Days</label>
+                  <select
+                    multiple
+                    value={settingsEdit.openingHours.days}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, openingHours: { ...settingsEdit.openingHours, days: Array.from(e.target.selectedOptions, o => o.value) } })}
+                  >
+                    <option value="Monday">Monday</option>
+                    <option value="Tuesday">Tuesday</option>
+                    <option value="Wednesday">Wednesday</option>
+                    <option value="Thursday">Thursday</option>
+                    <option value="Friday">Friday</option>
+                    <option value="Saturday">Saturday</option>
+                    <option value="Sunday">Sunday</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Opening Time Start</label>
+                  <input
+                    type="time"
+                    value={settingsEdit.openingHours.timeStart}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, openingHours: { ...settingsEdit.openingHours, timeStart: e.target.value } })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Opening Time End</label>
+                  <input
+                    type="time"
+                    value={settingsEdit.openingHours.timeEnd}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, openingHours: { ...settingsEdit.openingHours, timeEnd: e.target.value } })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Grand Opening Date</label>
+                  <input
+                    type="date"
+                    value={settingsEdit.grandOpening.date}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, grandOpening: { ...settingsEdit.grandOpening, date: e.target.value } })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Grand Opening Time</label>
+                  <input
+                    type="time"
+                    value={settingsEdit.grandOpening.time}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, grandOpening: { ...settingsEdit.grandOpening, time: e.target.value } })}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                  <button className="btn btn-primary" onClick={() => {
+                    const newDb = getDB();
+                    newDb.settings = settingsEdit;
+                    setDB(newDb);
+                    onUpdateData({});
+                  }}>
+                    Save Settings
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {tab === 'bookings' && (
             <div>
               <h3 style={{ marginBottom: '16px' }}>Pending Bookings</h3>
@@ -220,8 +454,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button className="btn btn-sm btn-primary">Confirm</button>
-                      <button className="btn btn-sm btn-danger">Reject</button>
+                      <button className="btn btn-sm btn-primary" onClick={() => handleViewReceipt(booking.receiptData)}>View Receipt</button>
+                      <button className="btn btn-sm btn-primary" onClick={() => handleApproveBooking(booking.id)}>Approve</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => handleRejectBooking(booking.id)}>Reject</button>
                     </div>
                   </div>
                 ))}

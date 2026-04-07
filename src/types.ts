@@ -60,6 +60,18 @@ export interface Settings {
   qrName: string;
   qrAccNo: string;
   qrImg: string;
+  heroLogo: string;
+  whatsapp: string;
+  location: string;
+  openingHours: {
+    days: string[];
+    timeStart: string;
+    timeEnd: string;
+  };
+  grandOpening: {
+    date: string;
+    time: string;
+  };
 }
 
 export interface User {

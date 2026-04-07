@@ -13,16 +13,17 @@ interface NavbarProps {
 const Navbar: React.FC<NavbarProps> = ({ user, currentSection, onSectionChange, onOpenAuth, onOpenCMS, onLogout }) => {
   const navItems = [
     { label: 'Home', section: 'home' },
-    { label: 'Book a Peg', section: 'book' },
-    ...(user ? [{ label: 'My Bookings', section: 'mybookings' }] : []),
-    { label: '🔴 Live', section: 'live' }
+    { label: 'Tentang', section: 'about' },
+    { label: 'Kolam', section: 'kolam' },
+    { label: 'Event', section: 'event' },
+    { label: 'Lokasi', section: 'lokasi' }
   ];
 
   return (
     <nav>
-      <div className="nav-brand" onClick={() => onSectionChange('home')}>
+      <div className="nav-logo-wrap" onClick={() => onSectionChange('home')}>
         <div className="logo-icon">🎣</div>
-        <span className="logo-text">CastBook</span>
+        <div className="nav-brand">Kolam Keli Sayang <span>KKS — Alor Setar, Kedah</span></div>
       </div>
       <div className="nav-links" id="nav-links">
         {navItems.map(item => (
@@ -37,23 +38,19 @@ const Navbar: React.FC<NavbarProps> = ({ user, currentSection, onSectionChange, 
         ))}
       </div>
       <div className="nav-actions">
-        <button className="btn live-pulse btn-sm" onClick={() => onSectionChange('live')}>
-          <span className="live-dot"></span> LIVE
-        </button>
-        <button className="btn staff-badge btn-sm" onClick={onOpenCMS}>
-          <i className="fa-solid fa-shield-halved" style={{ fontSize: '11px' }}></i> Staff
-        </button>
+        <button className="nav-cta" onClick={() => onSectionChange('book')}>Tempah Slot</button>
+        <button className="btn btn-outline btn-sm" onClick={() => onSectionChange('live')}>Live</button>
         {user ? (
-          <div id="user-chip" className="user-chip">
-            <div className="user-avatar">{user.name.charAt(0).toUpperCase()}</div>
-            <span style={{ fontSize: '12px', fontWeight: 600 }}>{user.name}</span>
-            <span style={{ color: 'var(--muted)', fontSize: '11px', marginLeft: '4px', cursor: 'pointer' }} onClick={onLogout} title="Logout">
-              <i className="fa-solid fa-right-from-bracket"></i>
-            </span>
-          </div>
+          <>
+            <button className="btn btn-outline btn-sm" onClick={() => onSectionChange('mybookings')}>My Bookings</button>
+            <button className="btn btn-outline btn-sm" onClick={onLogout}>Logout</button>
+          </>
         ) : (
           <button id="btn-login" className="btn btn-primary btn-sm" onClick={onOpenAuth}>Login</button>
         )}
+        <button className="btn staff-badge btn-sm" onClick={onOpenCMS}>
+          <i className="fa-solid fa-shield-halved" style={{ fontSize: '11px' }}></i> Staff
+        </button>
       </div>
     </nav>
   );
