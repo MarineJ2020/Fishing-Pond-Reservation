@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { Score, Competition } from '../types';
-import { getDB } from '../data';
 import { getLB } from '../utils';
+import { useBooking } from './BookingContext';
 
 interface LiveScoresContextType {
   scores: Record<number, Score>;
@@ -9,7 +9,6 @@ interface LiveScoresContextType {
   topN: number;
   pondFilter: string;
   
-  // Actions
   setScores: (scores: Record<number, Score>) => void;
   setComp: (comp: Competition) => void;
   setTopN: (n: number) => void;
@@ -21,18 +20,17 @@ interface LiveScoresContextType {
 const LiveScoresContext = createContext<LiveScoresContextType | undefined>(undefined);
 
 export const LiveScoresProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [scores, setScores] = useState<Record<number, Score>>({});
-  const [comp, setComp] = useState<Competition | null>(null);
-  const [topN, setTopN] = useState(20);
+  const { db } = useBooking();
+  const [scores, setScores] = useState<Record<number, Score>>(db.scores || {});
+  const [comp, setComp] = useState<Competition>(db.comp);
+  const [topN, setTopN] = useState(db.comp?.topN || 20);
   const [pondFilter, setPondFilter] = useState('all');
 
-  // Initialize from database
   useEffect(() => {
-    const db = getDB();
-    setScores(db.scores);
+    setScores(db.scores || {});
     setComp(db.comp);
     setTopN(db.comp?.topN || 20);
-  }, []);
+  }, [db.scores, db.comp]);
 
   const addScore = useCallback((peg: number, weight: number, anglerName: string, pondId: number, pondName: string) => {
     setScores(prev => ({
@@ -45,10 +43,6 @@ export const LiveScoresProvider: React.FC<{ children: ReactNode }> = ({ children
     const filterPond = filter && filter !== 'all' ? parseInt(filter) : null;
     return getLB(scores, filterPond);
   }, [scores]);
-
-  if (!comp) {
-    return <>{children}</>;
-  }
 
   return (
     <LiveScoresContext.Provider

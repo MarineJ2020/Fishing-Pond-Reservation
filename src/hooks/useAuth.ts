@@ -1,50 +1,100 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  User as FirebaseUser,
+} from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db as firestoreDb } from '../../lib/firebase';
 import { useBooking } from '../context/BookingContext';
 import { useUI } from '../context/UIContext';
 import { User } from '../types';
 
+const mapFirebaseUser = async (firebaseUser: FirebaseUser | null): Promise<User | null> => {
+  if (!firebaseUser || !firebaseUser.email) return null;
+
+  const profileRef = doc(firestoreDb, 'users', firebaseUser.uid);
+  const profileSnap = await getDoc(profileRef);
+  const profileData = profileSnap.exists() ? profileSnap.data() : null;
+
+  return {
+    uid: firebaseUser.uid,
+    email: firebaseUser.email,
+    name: profileData?.name || firebaseUser.displayName || firebaseUser.email.split('@')[0],
+    phone: profileData?.phone || '',
+    role: profileData?.role || 'CLIENT',
+  };
+};
+
 export const useAuth = () => {
-  const { user, setUser, db, updateDB } = useBooking();
+  const { setUser } = useBooking();
   const { addToast } = useUI();
 
-  const login = useCallback((email: string, pass: string) => {
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      const user = await mapFirebaseUser(firebaseUser);
+      setUser(user);
+      if (!firebaseUser) {
+        localStorage.removeItem('cb_session');
+      }
+    });
+    return () => unsubscribe();
+  }, [setUser]);
+
+  const login = useCallback(async (email: string, pass: string) => {
     if (!email || !pass) {
       addToast('Enter email and password', 'error');
       return false;
     }
-    let foundUser = db.users.find(u => u.email === email && u.pass === pass);
-    if (!foundUser) {
-      foundUser = { email, name: email.split('@')[0], phone: '', pass };
-      updateDB({ ...db, users: [...db.users, foundUser] });
-    }
-    setUser(foundUser);
-    localStorage.setItem('cb_session', JSON.stringify(foundUser));
-    addToast(`Welcome back, ${foundUser.name}!`, 'success');
-    return true;
-  }, [db, updateDB, setUser, addToast]);
 
-  const register = useCallback((name: string, email: string, phone: string, pass: string) => {
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+      addToast('Logged in successfully', 'success');
+      return true;
+    } catch (error) {
+      console.error(error);
+      addToast('Login failed. Check your email and password.', 'error');
+      return false;
+    }
+  }, [addToast]);
+
+  const register = useCallback(async (name: string, email: string, phone: string, pass: string) => {
     if (!name || !email || !pass) {
       addToast('Fill all required fields', 'error');
       return false;
     }
-    if (db.users.find(u => u.email === email)) {
-      addToast('Email already registered', 'error');
+
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, email, pass);
+      const user = credential.user;
+      await setDoc(doc(firestoreDb, 'users', user.uid), {
+        email,
+        name,
+        phone,
+        role: 'CLIENT',
+        createdAt: new Date(),
+      });
+      addToast(`Welcome, ${name}!`, 'success');
+      return true;
+    } catch (error) {
+      console.error(error);
+      addToast('Registration failed. Please try again.', 'error');
       return false;
     }
-    const newUser: User = { email, name, phone, pass };
-    updateDB({ ...db, users: [...db.users, newUser] });
-    setUser(newUser);
-    localStorage.setItem('cb_session', JSON.stringify(newUser));
-    addToast(`Welcome, ${name}!`, 'success');
-    return true;
-  }, [db, updateDB, setUser, addToast]);
+  }, [addToast]);
 
-  const logout = useCallback(() => {
-    setUser(null);
-    localStorage.removeItem('cb_session');
-    addToast('Logged out', 'info');
+  const logout = useCallback(async () => {
+    try {
+      await signOut(auth);
+      setUser(null);
+      addToast('Logged out', 'info');
+    } catch (error) {
+      console.error(error);
+      addToast('Unable to log out.', 'error');
+    }
   }, [setUser, addToast]);
 
-  return { user, login, register, logout, isAuthenticated: !!user };
+  return { login, register, logout };
 };

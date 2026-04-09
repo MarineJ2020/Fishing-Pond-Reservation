@@ -9,9 +9,7 @@ export const gs = (pid: number, st: number, cnt: number, pr: number) => Array.fr
 
 export const initialDB: DB = {
   ponds: [
-    { id: 1, name: 'Pond A — Trophy Bass', date: '28 Mar 2026', desc: 'Deep water bass habitat. Premium pegs along the eastern bank.', seats: gs(1, 1, 40, 150), open: true },
-    { id: 2, name: 'Pond B — Catfish Challenge', date: '28 Mar 2026', desc: 'Evening catfish tournament. Night fishing pegs available.', seats: gs(2, 41, 36, 120), open: true },
-    { id: 3, name: 'Pond C — Tilapia Masters', date: '29 Mar 2026', desc: 'Family-friendly competition. Ideal for all skill levels.', seats: gs(3, 77, 30, 100), open: true }
+    { id: 1, name: 'Kolam Keli Sayang — Grand Opening', date: '28 Mar 2026', desc: '14 premium catfish pegs in natural rice field setting. Ultra smooth terrain with shade shelters.', seats: gs(1, 1, 65, 150), open: true }
   ],
   bookings: [],
   scores: {},

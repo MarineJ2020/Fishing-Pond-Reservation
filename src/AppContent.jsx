@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import './styles.css';
 import Navbar from './components/Navbar';
 import BookingSidebar from './components/BookingSidebar';
@@ -13,175 +13,151 @@ import { useUI } from './context/UIContext';
 import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
 import { fmt } from './utils';
-
-const AppContent: React.FC = () => {
-  const {
-    db,
-    selectedPond,
-    selectedSeats,
-    payType,
-    receiptData,
-    user,
-    setPond,
-    toggleSeat,
-    setPayType,
-    setReceiptData,
-    submitBooking,
-    updateDB,
-    reloadDB
-  } = useBooking();
-  const { addToast, setAuthModalOpen, authModalOpen, cmsModalOpen, setCMSModalOpen } = useUI();
-  const { currentSection, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed } = useNavigation();
-  const { login, register, logout } = useAuth();
-
-  const [homeScrollTarget, setHomeScrollTarget] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState({ days: '--', hours: '--', mins: '--', secs: '--', status: 'upcoming' });
-
-  const availablePegs = useMemo(
-    () => db.ponds.reduce((sum, pond) => sum + pond.seats.filter(s => s.status === 'available').length, 0),
-    [db.ponds]
-  );
-
-  const totalPonds = db.ponds.length;
-  const confirmedBookings = db.bookings.filter(b => b.status === 'confirmed').length;
-  const activePond = selectedPond ? db.ponds.find(p => p.id === selectedPond) ?? null : db.ponds[0] || null;
-
-  useEffect(() => {
-    const updateCountdown = () => {
-      const now = new Date();
-      const start = new Date(db.comp.startDate);
-      const end = new Date(db.comp.endDate);
-      const distance = start.getTime() - now.getTime();
-      if (distance <= 0 && now < end) {
-        setCountdown({ days: '00', hours: '00', mins: '00', secs: '00', status: 'live' });
-        return;
-      }
-      if (distance <= 0) {
-        setCountdown({ days: '00', hours: '00', mins: '00', secs: '00', status: 'ended' });
-        return;
-      }
-      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((distance / (1000 * 60 * 60)) % 24);
-      const mins = Math.floor((distance / (1000 * 60)) % 60);
-      const secs = Math.floor((distance / 1000) % 60);
-      setCountdown({
-        days: String(days).padStart(2, '0'),
-        hours: String(hours).padStart(2, '0'),
-        mins: String(mins).padStart(2, '0'),
-        secs: String(secs).padStart(2, '0'),
-        status: 'upcoming'
-      });
+const AppContent = () => {
+    const { db, selectedPond, selectedSeats, payType, receiptData, user, setPond, toggleSeat, setPayType, setReceiptData, submitBooking, updateDB } = useBooking();
+    const { addToast, setAuthModalOpen, authModalOpen, cmsModalOpen, setCMSModalOpen } = useUI();
+    const { currentSection, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed } = useNavigation();
+    const { login, register, logout, isAuthLoading } = useAuth();
+    const [homeScrollTarget, setHomeScrollTarget] = useState(null);
+    const [countdown, setCountdown] = useState({ days: '--', hours: '--', mins: '--', secs: '--', status: 'upcoming' });
+    const availablePegs = useMemo(() => db.ponds.reduce((sum, pond) => sum + pond.seats.filter(s => s.status === 'available').length, 0), [db.ponds]);
+    const totalPonds = db.ponds.length;
+    const confirmedBookings = db.bookings.filter(b => b.status === 'confirmed').length;
+    const activePond = selectedPond ? db.ponds.find(p => p.id === selectedPond) ?? null : db.ponds[0] || null;
+    useEffect(() => {
+        const updateCountdown = () => {
+            const now = new Date();
+            const start = new Date(db.comp.startDate);
+            const end = new Date(db.comp.endDate);
+            const distance = start.getTime() - now.getTime();
+            if (distance <= 0 && now < end) {
+                setCountdown({ days: '00', hours: '00', mins: '00', secs: '00', status: 'live' });
+                return;
+            }
+            if (distance <= 0) {
+                setCountdown({ days: '00', hours: '00', mins: '00', secs: '00', status: 'ended' });
+                return;
+            }
+            const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((distance / (1000 * 60 * 60)) % 24);
+            const mins = Math.floor((distance / (1000 * 60)) % 60);
+            const secs = Math.floor((distance / 1000) % 60);
+            setCountdown({
+                days: String(days).padStart(2, '0'),
+                hours: String(hours).padStart(2, '0'),
+                mins: String(mins).padStart(2, '0'),
+                secs: String(secs).padStart(2, '0'),
+                status: 'upcoming'
+            });
+        };
+        updateCountdown();
+        const timer = window.setInterval(updateCountdown, 1000);
+        return () => window.clearInterval(timer);
+    }, [db.comp.startDate, db.comp.endDate]);
+    useEffect(() => {
+        if (currentSection === 'home' && homeScrollTarget) {
+            document.getElementById(homeScrollTarget)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setHomeScrollTarget(null);
+        }
+    }, [currentSection, homeScrollTarget]);
+    const handleSelectPond = (id) => {
+        setPond(id);
+        goToBook();
     };
-    updateCountdown();
-    const timer = window.setInterval(updateCountdown, 1000);
-    return () => window.clearInterval(timer);
-  }, [db.comp.startDate, db.comp.endDate]);
-
-  useEffect(() => {
-    if (currentSection === 'home' && homeScrollTarget) {
-      document.getElementById(homeScrollTarget)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setHomeScrollTarget(null);
-    }
-  }, [currentSection, homeScrollTarget]);
-
-  const handleSelectPond = (id: number) => {
-    setPond(id);
-    goToBook();
-  };
-
-  const handleSubmitBooking = async () => {
-    if (!user) {
-      setAuthModalOpen(true);
-      return;
-    }
-    if (!selectedSeats.length) {
-      addToast('Select at least one peg', 'error');
-      return;
-    }
-    if (!receiptData) {
-      addToast('Upload your payment receipt', 'error');
-      return;
-    }
-    if (!selectedPond) return;
-
-    const pond = db.ponds.find(p => p.id === selectedPond);
-    if (!pond) return;
-
-    const booking = await submitBooking(pond);
-    if (booking) {
-      addToast('Booking submitted! Staff will confirm via email.', 'success');
-      goToConfirmed();
-    }
-  };
-
-  const handleReceiptChange = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setReceiptData(e.target?.result as string, file);
+    const handleSubmitBooking = async () => {
+        if (!user) {
+            setAuthModalOpen(true);
+            return;
+        }
+        if (!selectedSeats.length) {
+            addToast('Select at least one peg', 'error');
+            return;
+        }
+        if (!receiptData) {
+            addToast('Upload your payment receipt', 'error');
+            return;
+        }
+        if (!selectedPond)
+            return;
+        const pond = db.ponds.find(p => p.id === selectedPond);
+        if (!pond)
+            return;
+        const booking = await submitBooking(pond);
+        if (booking) {
+            addToast('Booking submitted! Staff will confirm via email.', 'success');
+            goToConfirmed();
+        }
     };
-    reader.readAsDataURL(file);
-  };
-
-  const handleLogin = (email: string, pass: string) => {
-    if (login(email, pass)) {
-      setAuthModalOpen(false);
-      goToMyBookings();
-    }
-  };
-
-  const handleRegister = (name: string, email: string, phone: string, pass: string) => {
-    if (register(name, email, phone, pass)) {
-      setAuthModalOpen(false);
-      goToMyBookings();
-    }
-  };
-
-  const handleLogout = () => {
-    logout();
-    goHome();
-  };
-
-  const userBookings = user ? db.bookings.filter(b => b.userId === user.email) : [];
-
-  const handleNavigation = (section: string) => {
-    const homeAnchors = ['about', 'kolam', 'event', 'lokasi', 'tempah'];
-    if (homeAnchors.includes(section)) {
-      if (currentSection !== 'home') {
-        setHomeScrollTarget(section);
+    const handleReceiptChange = (file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            setReceiptData(e.target?.result, file);
+        };
+        reader.readAsDataURL(file);
+    };
+    const handleLogin = async (email, pass) => {
+        const success = await login(email, pass);
+        if (success) {
+            setAuthModalOpen(false);
+            goToMyBookings();
+        }
+    };
+    const handleRegister = async (name, email, phone, pass) => {
+        const success = await register(name, email, phone, pass);
+        if (success) {
+            setAuthModalOpen(false);
+            goToMyBookings();
+        }
+    };
+    const handleLogout = () => {
+        logout();
         goHome();
-      } else {
-        document.getElementById(section)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-      return;
-    }
-    if (section === 'home') {
-      goHome();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-    if (section === 'book') {
-      goToBook();
-      return;
-    }
-    if (section === 'live') {
-      goToLive();
-      return;
-    }
-    if (section === 'mybookings') {
-      if (user) {
-        goToMyBookings();
-      } else {
-        setAuthModalOpen(true);
-      }
-      return;
-    }
-    goToSection(section);
-  };
-
-  const eventDate = new Date(db.comp.startDate).toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' });
-
-  const renderHome = () => (
-    <div className="home-shell">
+    };
+    const userBookings = user ? db.bookings.filter(b => b.userId === user.email) : [];
+    const handleNavigation = (section) => {
+        const homeAnchors = ['about', 'kolam', 'event', 'lokasi', 'tempah'];
+        if (homeAnchors.includes(section)) {
+            if (currentSection !== 'home') {
+                setHomeScrollTarget(section);
+                goHome();
+            }
+            else {
+                document.getElementById(section)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            return;
+        }
+        if (section === 'home') {
+            goHome();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+        }
+        if (section === 'book') {
+            goToBook();
+            return;
+        }
+        if (section === 'live') {
+            goToLive();
+            return;
+        }
+        if (section === 'mybookings') {
+            if (user) {
+                goToMyBookings();
+            }
+            else {
+                setAuthModalOpen(true);
+                goToMyBookings();
+            }
+            return;
+        }
+        goToSection(section);
+    };
+    useEffect(() => {
+        if (!isAuthLoading && currentSection === 'mybookings' && !user) {
+            setAuthModalOpen(true);
+        }
+    }, [currentSection, user, isAuthLoading, setAuthModalOpen]);
+    const eventDate = new Date(db.comp.startDate).toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' });
+    const renderHome = () => (<div className="home-shell">
       <section className="hero" id="home">
         <div className="hero-logo">KKS</div>
         <div className="hero-eyebrow">Port Pancing Terbaik Kedah — Di Tengah Sawah</div>
@@ -359,8 +335,7 @@ const AppContent: React.FC = () => {
             const availCount = pond.seats.filter(s => s.status === 'available').length;
             const statusLabel = availCount === 0 ? 'Fully Booked' : availCount < pond.seats.length * 0.3 ? 'Limited' : 'Available';
             const statusClass = availCount === 0 ? 'fu' : availCount < pond.seats.length * 0.3 ? 'li' : 'av';
-            return (
-              <div key={pond.id} className={`pond-card ${availCount === 0 ? 'full' : availCount < pond.seats.length * 0.3 ? 'limited' : 'available'}`}>
+            return (<div key={pond.id} className={`pond-card ${availCount === 0 ? 'full' : availCount < pond.seats.length * 0.3 ? 'limited' : 'available'}`}>
                 <div className="pond-num">{pond.id}</div>
                 <div className="pond-size-lbl">{pond.date}</div>
                 <span className={`pond-badge ${statusClass}`}>{statusLabel}</span>
@@ -373,9 +348,8 @@ const AppContent: React.FC = () => {
                 <button className={`pond-btn ${availCount === 0 ? 'disabled' : ''}`} disabled={availCount === 0} onClick={() => handleSelectPond(pond.id)}>
                   {availCount === 0 ? 'Full' : 'Book Now'}
                 </button>
-              </div>
-            );
-          })}
+              </div>);
+        })}
         </div>
       </section>
 
@@ -384,41 +358,22 @@ const AppContent: React.FC = () => {
           <div className="section-label">Pelan Tapak</div>
           <h2 className="section-title">Lokasi &amp; Susun Atur Kolam</h2>
           <div className="section-rule"></div>
-
-          {/* Google Maps Embed */}
-          <div className="map-container" style={{ marginBottom: '2rem' }}>
-            <iframe
-              src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBFw0Qbyq9zTFTd-tUY6dOWTgaN2-2HqOw'}&q=${encodeURIComponent(db.settings?.location || 'Alor Setar, Kedah')}`}
-              width="100%"
-              height="400"
-              style={{ border: 0, borderRadius: '12px' }}
-              allowFullScreen=""
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              title="Location Map"
-            ></iframe>
-          </div>
-
-          <p style={{ color: '#666', marginTop: '0.75rem', fontSize: '0.9rem' }}>
-            📍 {db.settings?.location || 'Alor Setar, Kedah'} — Kolam KKS dikelilingi sawah padi Kedah
-          </p>
+          <p style={{ color: '#666', marginTop: '0.75rem', fontSize: '0.9rem' }}>Latitude: 6.135637 • Longitude: 100.309283 — Kolam KKS dikelilingi sawah padi Kedah</p>
           <div className="map-wrap">
             <div className="map-legend-strip">
               <div className="map-leg"><div className="map-leg-box" style={{ background: '#4a7fa5' }}></div>Kolam Ikan</div>
               <div className="map-leg"><div className="map-leg-box" style={{ background: '#5aaa35' }}></div>Sawah Padi</div>
               <div className="map-leg"><div className="map-leg-box" style={{ background: '#8b7355' }}></div>Jalan Masuk</div>
               <div className="map-leg"><div className="map-leg-box" style={{ background: '#c8a84b' }}></div>Pagar Keselamatan</div>
-              <div className="map-coords">📍 {db.settings?.location || 'Alor Setar, Kedah'}</div>
+              <div className="map-coords">Lat: 6.135637 | Lon: 100.309283</div>
             </div>
             <div className="map-card">
               <div className="map-grid">
-                {db.ponds.filter(pond => pond.open).map(pond => (
-                  <div key={pond.id} className="map-pond">
+                {db.ponds.map(pond => (<div key={pond.id} className="map-pond">
                     <div className="map-pond-title">{pond.name}</div>
                     <div className="map-pond-sub">{pond.date}</div>
                     <div className="map-pond-meta">{pond.seats.filter(s => s.status === 'available').length} available pegs</div>
-                  </div>
-                ))}
+                  </div>))}
               </div>
             </div>
           </div>
@@ -453,43 +408,34 @@ const AppContent: React.FC = () => {
         </div>
       </section>
 
-    </div>
-  );
-
-  const renderSection = () => {
-    switch (currentSection) {
-      case 'home':
-        return renderHome();
-      case 'book': {
-        const bookedPond = activePond;
-        return (
-          <div className="booking-layout">
-            <BookingSidebar ponds={db.ponds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
-            <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} />
-            <BookingForm
-              user={user}
-              pond={bookedPond}
-              selectedSeats={selectedSeats}
-              payType={payType}
-              receiptData={receiptData}
-              onSetPayType={setPayType}
-              onHandleReceiptChange={handleReceiptChange}
-              onClearReceipt={() => setReceiptData(null, null)}
-              onSubmitBooking={handleSubmitBooking}
-              onOpenAuth={() => setAuthModalOpen(true)}
-            />
-          </div>
-        );
-      }
-      case 'live':
-        return <LiveResults comp={db.comp} scores={db.scores} ponds={db.ponds} bookings={db.bookings} user={user} />;
-      case 'mybookings':
-        if (!user) {
-          setAuthModalOpen(true);
-          return null;
-        }
-        return (
-          <div className="bookings-page">
+    </div>);
+    const renderSection = () => {
+        switch (currentSection) {
+            case 'home':
+                return renderHome();
+            case 'book': {
+                const bookedPond = activePond;
+                return (<div className="booking-layout">
+            <BookingSidebar ponds={db.ponds} selectedPond={selectedPond} onSelectPond={handleSelectPond}/>
+            <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat}/>
+            <BookingForm user={user} pond={bookedPond} selectedSeats={selectedSeats} payType={payType} receiptData={receiptData} onSetPayType={setPayType} onHandleReceiptChange={handleReceiptChange} onClearReceipt={() => setReceiptData(null, null)} onSubmitBooking={handleSubmitBooking} onOpenAuth={() => setAuthModalOpen(true)}/>
+          </div>);
+            }
+            case 'live':
+                return <LiveResults comp={db.comp} scores={db.scores} ponds={db.ponds} bookings={db.bookings} user={user}/>;
+            case 'mybookings':
+                if (!user) {
+                    return (<div className="bookings-page">
+                      <div className="empty-state">
+                        <span className="empty-icon">🔐</span>
+                        <div className="empty-text">Please login to view your bookings.</div>
+                        <button className="btn btn-primary" onClick={() => setAuthModalOpen(true)}>
+                          Login / Register
+                        </button>
+                      </div>
+                    </div>);
+                }
+                return (<div className="bookings-page">
             <div className="flex items-center justify-between mb-4" style={{ flexWrap: 'wrap', gap: '10px' }}>
               <div>
                 <div className="section-title" style={{ fontSize: '30px' }}>My Bookings</div>
@@ -499,8 +445,7 @@ const AppContent: React.FC = () => {
                 <i className="fa-solid fa-plus"></i> New Booking
               </button>
             </div>
-            {userBookings.length ? userBookings.map(b => (
-              <div key={b.id} className="card booking-row">
+            {userBookings.length ? userBookings.map(b => (<div key={b.id} className="card booking-row">
                 <div>
                   <div className="booking-id">{b.id}</div>
                   <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>{fmt(b.createdAt)}</div>
@@ -517,67 +462,48 @@ const AppContent: React.FC = () => {
                     {b.status.charAt(0).toUpperCase() + b.status.slice(1)}
                   </span>
                 </div>
-              </div>
-            )) : (
-              <div className="empty-state">
+              </div>)) : (<div className="empty-state">
                 <span className="empty-icon">🎣</span>
                 <div className="empty-text">
                   No bookings yet. <a onClick={() => goToBook()} style={{ color: 'var(--accent)', cursor: 'pointer' }}>Book a peg</a> to get started.
                 </div>
-              </div>
-            )}
-          </div>
-        );
-      case 'confirmed': {
-        const lastBooking = db.bookings[0];
-        return (
-          <div className="confirm-page">
+              </div>)}
+          </div>);
+            case 'confirmed': {
+                const lastBooking = db.bookings[0];
+                return (<div className="confirm-page">
             <div className="confirm-icon">🎣</div>
             <div style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '6px' }}>BOOKING SUBMITTED</div>
             <div className="confirm-id">{lastBooking?.id || 'CB1234567'}</div>
             <div className="confirm-detail">
-              {lastBooking ? (
-                <>
+              {lastBooking ? (<>
                   <strong>{lastBooking.pondName}</strong><br />
                   Pegs: {lastBooking.seats.join(', ')}<br />
                   Amount: RM {lastBooking.amount} ({lastBooking.paymentType === 'deposit' ? '50% deposit' : 'full payment'})<br />
                   <br />
                   Booking is <strong>pending verification</strong>.<br />
                   Staff will confirm via email to <strong>{lastBooking.userId}</strong>.
-                </>
-              ) : (
-                <>
+                </>) : (<>
                   <strong>Pond Name</strong><br />
                   Pegs: 1, 2<br />
                   Amount: RM 100 (full payment)<br />
                   <br />
                   Booking is <strong>pending verification</strong>.<br />
                   Staff will confirm via email.
-                </>
-              )}
+                </>)}
             </div>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '28px', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={() => goToMyBookings()}>View My Bookings</button>
               <button className="btn btn-ghost" onClick={() => goHome()}>Back to Home</button>
             </div>
-          </div>
-        );
-      }
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <>
-      <Navbar
-        user={user}
-        currentSection={currentSection}
-        onSectionChange={handleNavigation}
-        onOpenAuth={() => setAuthModalOpen(true)}
-        onOpenCMS={() => setCMSModalOpen(true)}
-        onLogout={handleLogout}
-      />
+          </div>);
+            }
+            default:
+                return null;
+        }
+    };
+    return (<>
+      <Navbar user={user} currentSection={currentSection} onSectionChange={handleNavigation} onOpenAuth={() => setAuthModalOpen(true)} onOpenCMS={() => setCMSModalOpen(true)} onLogout={handleLogout}/>
       <div className={`section ${currentSection === 'home' ? 'active' : ''}`} id="section-home">
         {currentSection === 'home' && renderSection()}
       </div>
@@ -593,34 +519,19 @@ const AppContent: React.FC = () => {
       <div className={`section ${currentSection === 'confirmed' ? 'active' : ''}`} id="section-confirmed">
         {currentSection === 'confirmed' && renderSection()}
       </div>
-      <AuthModal
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-        onLogin={handleLogin}
-        onRegister={handleRegister}
-      />
-      <CMSModal
-        isOpen={cmsModalOpen}
-        onClose={() => setCMSModalOpen(false)}
-        user={user}
-        ponds={db.ponds}
-        comp={db.comp}
-        onUpdateData={({ ponds: updatedPonds, comp: updatedComp }) => {
-          if (updatedPonds || updatedComp) {
-            const newDb = {
-              ...db,
-              ponds: updatedPonds || db.ponds,
-              comp: updatedComp || db.comp
-            };
-            updateDB(newDb);
-            addToast('Settings updated successfully!', 'success');
-          }
-        }}
-        reloadDB={reloadDB}
-      />
+      <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} onLogin={handleLogin} onRegister={handleRegister}/>
+      <CMSModal isOpen={cmsModalOpen} onClose={() => setCMSModalOpen(false)} user={user} ponds={db.ponds} comp={db.comp} onUpdateData={({ ponds: updatedPonds, comp: updatedComp }) => {
+            if (updatedPonds || updatedComp) {
+                const newDb = {
+                    ...db,
+                    ponds: updatedPonds || db.ponds,
+                    comp: updatedComp || db.comp
+                };
+                updateDB(newDb);
+                addToast('Settings updated successfully!', 'success');
+            }
+        }}/>
       <Toast />
-    </>
-  );
+    </>);
 };
-
 export default AppContent;

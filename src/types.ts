@@ -1,4 +1,5 @@
 export interface Seat {
+  id?: string;
   num: number;
   zone: string;
   price: number;
@@ -16,6 +17,7 @@ export interface Pond {
 
 export interface Booking {
   id: string;
+  bookingRef?: string;
   userId: string;
   userName: string;
   userPhone: string;
@@ -23,6 +25,7 @@ export interface Booking {
   pondName: string;
   pondDate: string;
   seats: number[];
+  seatIds?: string[];
   paymentType: 'full' | 'deposit';
   amount: number;
   totalAmount: number;
@@ -31,6 +34,9 @@ export interface Booking {
   notes: string;
   status: 'pending' | 'confirmed' | 'rejected';
   createdAt: string;
+  updatedAt?: string;
+  createdByStaff?: boolean;
+  checkedIn?: boolean;
 }
 
 export interface Score {
@@ -47,6 +53,7 @@ export interface Prize {
 }
 
 export interface Competition {
+  id?: string;
   name: string;
   startDate: string;
   endDate: string;
@@ -75,10 +82,12 @@ export interface Settings {
 }
 
 export interface User {
+  uid?: string;
   email: string;
   name: string;
   phone: string;
-  pass: string;
+  pass?: string;
+  role?: 'CLIENT' | 'STAFF' | 'ADMIN';
 }
 
 export interface DB {
