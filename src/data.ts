@@ -1,55 +1,48 @@
 import { DB, Pond, Booking, Score, Competition, Settings, User } from './types';
 
+/** Generate seats for CMS pond creation only — all statuses start as 'available' */
 export const gs = (pid: number, st: number, cnt: number, pr: number) => Array.from({ length: cnt }, (_, i) => ({
   num: st + i,
   zone: i < Math.ceil(cnt / 2) ? 'A' : 'B',
   price: pr,
-  status: Math.random() > 0.75 ? 'booked' : 'available' as const
+  status: 'available' as const
 }));
 
-export const initialDB: DB = {
-  ponds: [
-    { id: 1, name: 'Kolam Keli Sayang — Grand Opening', date: '28 Mar 2026', desc: '14 premium catfish pegs in natural rice field setting. Ultra smooth terrain with shade shelters.', seats: gs(1, 1, 65, 150), open: true }
-  ],
+/** Empty DB — no placeholder data. All real data comes from Firestore. */
+export const emptyDB: DB = {
+  ponds: [],
   bookings: [],
   scores: {},
   comp: {
-    name: 'Annual Fishing Competition 2026',
-    startDate: '2026-03-28T08:00',
-    endDate: '2026-03-28T17:00',
+    name: '',
+    startDate: new Date().toISOString(),
+    endDate: new Date().toISOString(),
     topN: 20,
-    prizes: [
-      { rank: 1, label: 'Champion', prize: 'RM 5,000' },
-      { rank: 2, label: '1st Runner-up', prize: 'RM 3,000' },
-      { rank: 3, label: '2nd Runner-up', prize: 'RM 1,500' },
-      { rank: 4, label: 'Top 10', prize: 'RM 500' },
-      { rank: 11, label: 'Top 20', prize: 'RM 200' }
-    ]
+    prizes: []
   },
   settings: {
-    qrBank: 'DuitNow / Bank Transfer',
-    qrName: 'CastBook Sdn Bhd',
-    qrAccNo: '3841-2038-491',
+    qrBank: '',
+    qrName: '',
+    qrAccNo: '',
     qrImg: '',
     heroLogo: '',
-    whatsapp: 'https://wa.me/60123456789',
-    location: 'Alor Setar, Kedah',
+    whatsapp: '',
+    location: '',
     openingHours: {
-      days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      days: [],
       timeStart: '06:00',
       timeEnd: '18:00'
     },
     grandOpening: {
-      date: '2026-05-20',
+      date: new Date().toISOString().slice(0, 10),
       time: '08:00'
     }
   },
-  users: [
-    { email: 'user@example.com', name: 'Test User', phone: '', pass: 'test123' },
-    { email: 'user', name: 'User', phone: '', pass: 'user' },
-    { email: 'admin', name: 'Admin', phone: '', pass: 'admin' }
-  ]
+  users: []
 };
+
+/** @deprecated Use emptyDB. Kept for backwards compat during migration. */
+export const initialDB = emptyDB;
 
 export const getDB = (): DB => {
   try {

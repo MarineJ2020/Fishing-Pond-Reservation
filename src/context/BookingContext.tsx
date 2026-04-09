@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 import { DB, User, Pond, Booking } from '../types';
-import { initialDB, setDB } from '../data';
+import { emptyDB, setDB } from '../data';
 import { loadAppDB } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
 
@@ -24,6 +24,7 @@ interface BookingContextType {
   submitBooking: (pond: Pond) => Promise<Booking | null>;
   clearBooking: () => void;
   updateDB: (newDb: DB) => void;
+  reloadDB: () => Promise<void>;
   calculateTotal: () => number;
 }
 
@@ -53,7 +54,7 @@ const uploadToCloudinary = async (receiptData: string, fileName: string): Promis
 };
 
 export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [db, setDbState] = useState<DB>(initialDB);
+  const [db, setDbState] = useState<DB>(emptyDB);
   const [user, setUser] = useState<User | null>(null);
   const [selectedPond, setSelectedPond] = useState<number | null>(null);
   const [selectedSeats, setSelectedSeats] = useState<number[]>([]);
@@ -78,6 +79,16 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateDB = useCallback((newDb: DB) => {
     setDbState(newDb);
     setDB(newDb);
+  }, []);
+
+  const reloadDB = useCallback(async () => {
+    try {
+      const remoteDb = await loadAppDB();
+      setDbState(remoteDb);
+      setDB(remoteDb);
+    } catch (err) {
+      console.error('reloadDB failed:', err);
+    }
   }, []);
 
   const setPond = useCallback((id: number | null) => {
@@ -144,6 +155,9 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const payload = {
       competitionId: db.comp.id || '',
       pondId: pond.id,
+      userId: user.uid || user.email,
+      userName: user.name,
+      userPhone: user.phone || '',
       seatIds,
       seatNumbers: selectedSeats,
       paymentType: payType,
@@ -217,6 +231,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         submitBooking,
         clearBooking,
         updateDB,
+        reloadDB,
         calculateTotal,
       }}
     >

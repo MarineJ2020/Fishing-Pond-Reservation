@@ -7,12 +7,14 @@ import BookingForm from './components/BookingForm';
 import LiveResults from './components/LiveResults';
 import AuthModal from './components/AuthModal';
 import CMSModal from './components/CMSModal';
+import BookingDetailsModal from './components/BookingDetailsModal';
 import Toast from './components/Toast';
 import { useBooking } from './context/BookingContext';
 import { useUI } from './context/UIContext';
 import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
 import { fmt } from './utils';
+import { Booking } from './types';
 
 const AppContent: React.FC = () => {
   const {
@@ -32,10 +34,12 @@ const AppContent: React.FC = () => {
   } = useBooking();
   const { addToast, setAuthModalOpen, authModalOpen, cmsModalOpen, setCMSModalOpen } = useUI();
   const { currentSection, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed } = useNavigation();
-  const { login, register, logout } = useAuth();
+  const { login, register, logout, authReady } = useAuth();
 
   const [homeScrollTarget, setHomeScrollTarget] = useState<string | null>(null);
   const [countdown, setCountdown] = useState({ days: '--', hours: '--', mins: '--', secs: '--', status: 'upcoming' });
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [bookingDetailsOpen, setBookingDetailsOpen] = useState(false);
 
   const availablePegs = useMemo(
     () => db.ponds.reduce((sum, pond) => sum + pond.seats.filter(s => s.status === 'available').length, 0),
@@ -122,15 +126,15 @@ const AppContent: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleLogin = (email: string, pass: string) => {
-    if (login(email, pass)) {
+  const handleLogin = async (email: string, pass: string) => {
+    if (await login(email, pass)) {
       setAuthModalOpen(false);
       goToMyBookings();
     }
   };
 
-  const handleRegister = (name: string, email: string, phone: string, pass: string) => {
-    if (register(name, email, phone, pass)) {
+  const handleRegister = async (name: string, email: string, phone: string, pass: string) => {
+    if (await register(name, email, phone, pass)) {
       setAuthModalOpen(false);
       goToMyBookings();
     }
@@ -141,7 +145,7 @@ const AppContent: React.FC = () => {
     goHome();
   };
 
-  const userBookings = user ? db.bookings.filter(b => b.userId === user.email) : [];
+  const userBookings = user ? db.bookings.filter(b => b.userId === user.uid || b.userId === user.email) : [];
 
   const handleNavigation = (section: string) => {
     const homeAnchors = ['about', 'kolam', 'event', 'lokasi', 'tempah'];
@@ -205,7 +209,7 @@ const AppContent: React.FC = () => {
           </div>
         </div>
         <div className="hero-btns">
-          <button className="btn-primary" onClick={() => window.open(db.settings.whatsapp, '_blank')}>Tempah Slot Sekarang</button>
+          <button className="btn-primary" onClick={() => db.settings?.whatsapp && (db.settings.whatsapp.startsWith('https://') ? window.open(db.settings.whatsapp, '_blank') : window.open(`https://wa.me/${db.settings.whatsapp}`, '_blank'))}>Tempah Slot Sekarang</button>
           <button className="btn-outline" onClick={() => handleNavigation('lokasi')}>Tengok Lokasi</button>
         </div>
       </section>
@@ -360,7 +364,7 @@ const AppContent: React.FC = () => {
             const statusLabel = availCount === 0 ? 'Fully Booked' : availCount < pond.seats.length * 0.3 ? 'Limited' : 'Available';
             const statusClass = availCount === 0 ? 'fu' : availCount < pond.seats.length * 0.3 ? 'li' : 'av';
             return (
-              <div key={pond.id} className={`pond-card ${availCount === 0 ? 'full' : availCount < pond.seats.length * 0.3 ? 'limited' : 'available'}`}>
+              <div key={pond._docId || pond.id} className={`pond-card ${availCount === 0 ? 'full' : availCount < pond.seats.length * 0.3 ? 'limited' : 'available'}`}>
                 <div className="pond-num">{pond.id}</div>
                 <div className="pond-size-lbl">{pond.date}</div>
                 <span className={`pond-badge ${statusClass}`}>{statusLabel}</span>
@@ -388,11 +392,11 @@ const AppContent: React.FC = () => {
           {/* Google Maps Embed */}
           <div className="map-container" style={{ marginBottom: '2rem' }}>
             <iframe
-              src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBFw0Qbyq9zTFTd-tUY6dOWTgaN2-2HqOw'}&q=${encodeURIComponent(db.settings?.location || 'Alor Setar, Kedah')}`}
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3966.3239255093207!2d100.3092829!3d6.135637!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x31a3b8b8b8b8b8b9%3A0x1234567890abcdef!2sKolam%20Keli%20Sayang!5e0!3m2!1sms!2smy!4v1234567890000"
               width="100%"
               height="400"
               style={{ border: 0, borderRadius: '12px' }}
-              allowFullScreen=""
+              allowFullScreen={true}
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
               title="Location Map"
@@ -413,7 +417,7 @@ const AppContent: React.FC = () => {
             <div className="map-card">
               <div className="map-grid">
                 {db.ponds.filter(pond => pond.open).map(pond => (
-                  <div key={pond.id} className="map-pond">
+                  <div key={pond._docId || pond.id} className="map-pond">
                     <div className="map-pond-title">{pond.name}</div>
                     <div className="map-pond-sub">{pond.date}</div>
                     <div className="map-pond-meta">{pond.seats.filter(s => s.status === 'available').length} available pegs</div>
@@ -484,9 +488,26 @@ const AppContent: React.FC = () => {
       case 'live':
         return <LiveResults comp={db.comp} scores={db.scores} ponds={db.ponds} bookings={db.bookings} user={user} />;
       case 'mybookings':
+        if (!authReady) {
+          return (
+            <div className="bookings-page">
+              <div className="empty-state">
+                <span className="empty-icon">⏳</span>
+                <div className="empty-text">Checking your session...</div>
+              </div>
+            </div>
+          );
+        }
         if (!user) {
-          setAuthModalOpen(true);
-          return null;
+          return (
+            <div className="bookings-page">
+              <div className="empty-state">
+                <span className="empty-icon">🔐</span>
+                <div className="empty-text">Please login to view your bookings.</div>
+                <button className="btn btn-primary" style={{ marginTop: '12px' }} onClick={() => setAuthModalOpen(true)}>Login</button>
+              </div>
+            </div>
+          );
         }
         return (
           <div className="bookings-page">
@@ -500,7 +521,7 @@ const AppContent: React.FC = () => {
               </button>
             </div>
             {userBookings.length ? userBookings.map(b => (
-              <div key={b.id} className="card booking-row">
+              <div key={b.id} className="card booking-row" onClick={() => { setSelectedBooking(b); setBookingDetailsOpen(true); }} style={{ cursor: 'pointer' }}>
                 <div>
                   <div className="booking-id">{b.id}</div>
                   <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>{fmt(b.createdAt)}</div>
@@ -578,19 +599,19 @@ const AppContent: React.FC = () => {
         onOpenCMS={() => setCMSModalOpen(true)}
         onLogout={handleLogout}
       />
-      <div className={`section ${currentSection === 'home' ? 'active' : ''}`} id="section-home">
+      <div key="section-home" className={`section ${currentSection === 'home' ? 'active' : ''}`} id="section-home">
         {currentSection === 'home' && renderSection()}
       </div>
-      <div className={`section ${currentSection === 'book' ? 'active' : ''}`} id="section-book">
+      <div key="section-book" className={`section ${currentSection === 'book' ? 'active' : ''}`} id="section-book">
         {currentSection === 'book' && renderSection()}
       </div>
-      <div className={`section ${currentSection === 'live' ? 'active' : ''}`} id="section-live">
+      <div key="section-live" className={`section ${currentSection === 'live' ? 'active' : ''}`} id="section-live">
         {currentSection === 'live' && renderSection()}
       </div>
-      <div className={`section ${currentSection === 'mybookings' ? 'active' : ''}`} id="section-mybookings">
+      <div key="section-mybookings" className={`section ${currentSection === 'mybookings' ? 'active' : ''}`} id="section-mybookings">
         {currentSection === 'mybookings' && renderSection()}
       </div>
-      <div className={`section ${currentSection === 'confirmed' ? 'active' : ''}`} id="section-confirmed">
+      <div key="section-confirmed" className={`section ${currentSection === 'confirmed' ? 'active' : ''}`} id="section-confirmed">
         {currentSection === 'confirmed' && renderSection()}
       </div>
       <AuthModal
@@ -605,18 +626,19 @@ const AppContent: React.FC = () => {
         user={user}
         ponds={db.ponds}
         comp={db.comp}
+        settings={db.settings}
+        bookings={db.bookings}
         onUpdateData={({ ponds: updatedPonds, comp: updatedComp }) => {
           if (updatedPonds || updatedComp) {
-            const newDb = {
-              ...db,
-              ponds: updatedPonds || db.ponds,
-              comp: updatedComp || db.comp
-            };
-            updateDB(newDb);
             addToast('Settings updated successfully!', 'success');
           }
         }}
         reloadDB={reloadDB}
+      />
+      <BookingDetailsModal
+        isOpen={bookingDetailsOpen}
+        booking={selectedBooking}
+        onClose={() => { setBookingDetailsOpen(false); setSelectedBooking(null); }}
       />
       <Toast />
     </>

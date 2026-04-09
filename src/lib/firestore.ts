@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { DB, Pond, Seat, Booking, Score, Competition, Settings } from '../types';
-import { initialDB } from '../data';
+import { emptyDB } from '../data';
 
 const normalizeTimestamp = (value: any) => {
   if (!value) return null;
@@ -32,6 +32,7 @@ const normalizeSeats = (
   if (seatDocs.length > 0) {
     return seatDocs
       .map((seat) => ({
+        id: seat.id,
         num: seat.seatNumber,
         zone: seat.zone || (seat.seatNumber <= totalSeats / 2 ? 'A' : 'B'),
         price: seat.price ?? 100,
@@ -53,7 +54,7 @@ const normalizeCompetition = (data: any): Competition => ({
   name: data.name || 'Fishing Competition',
   description: data.description || '',
   startDate: normalizeTimestamp(data.eventDate) || new Date().toISOString(),
-  endDate: normalizeTimestamp(data.eventDate) || new Date().toISOString(),
+  endDate: normalizeTimestamp(data.endDate) || normalizeTimestamp(data.eventDate) || new Date().toISOString(),
   topN: data.topN || 20,
   prizes: data.prizes || [],
 });
@@ -79,7 +80,14 @@ const buildBooking = (docSnap: any, seatMap: Map<string, number>, pondMap: Map<s
   const seatNumbers = Array.isArray(data.seatNumbers)
     ? data.seatNumbers
     : Array.isArray(data.seatIds)
-    ? data.seatIds.map((ref: any) => seatMap.get(ref.path)).filter(Boolean)
+    ? data.seatIds
+        .map((ref: any) => {
+          if (typeof ref === 'string') return seatMap.get(ref);
+          if (ref?.path) return seatMap.get(ref.path);
+          if (ref?.id) return seatMap.get(ref.id);
+          return undefined;
+        })
+        .filter(Boolean)
     : [];
 
   const pondIdRef = data.pondId?.id ?? data.pondId;
@@ -138,6 +146,35 @@ export const getActiveCompetition = async (): Promise<Competition | null> => {
   return normalizeCompetition(comps[0]);
 };
 
+export const getOrCreateDefaultCompetition = async (): Promise<Competition> => {
+  const comp = await getActiveCompetition();
+  if (comp) return comp;
+  
+  // Create default competition if none exists
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const competitionsRef = collection(db, 'competitions');
+  const docRef = await addDoc(competitionsRef, {
+    name: 'Fishing Competition 2026',
+    eventDate: tomorrow.toISOString(),
+    endDate: tomorrow.toISOString(),
+    topN: 20,
+    prizes: [{rank: 1, label: 'Champion', prize: 'RM 5,000'}],
+    status: 'ACTIVE',
+    createdAt: serverTimestamp(),
+  });
+  
+  const newComp: Competition = {
+    id: docRef.id,
+    name: 'Fishing Competition 2026',
+    startDate: tomorrow.toISOString(),
+    endDate: tomorrow.toISOString(),
+    topN: 20,
+    prizes: [{rank: 1, label: 'Champion', prize: 'RM 5,000'}],
+  };
+  return newComp;
+};
+
 export const getPondsWithSeats = async (): Promise<Pond[]> => {
   const pondsRef = collection(db, 'ponds');
   const seatsRef = collection(db, 'seats');
@@ -153,12 +190,14 @@ export const getPondsWithSeats = async (): Promise<Pond[]> => {
     seatsByPond.set(pondId.toString(), existing);
   });
 
-  return pondSnapshot.docs.map((pondSnap) => {
+  return pondSnapshot.docs.map((pondSnap, index) => {
     const data = pondSnap.data();
     const totalSeats = data.totalSeats || 30;
     const seatDocs = seatsByPond.get(pondSnap.id) || [];
+    const numId = Number(pondSnap.id);
     return {
-      id: Number(pondSnap.id) || parseInt(pondSnap.id, 10) || 0,
+      id: Number.isFinite(numId) ? numId : (index + 1),
+      _docId: pondSnap.id,
       name: data.name || `Pond ${pondSnap.id}`,
       desc: data.description || '',
       date: normalizeTimestamp(data.eventDate) || new Date().toISOString(),
@@ -170,47 +209,78 @@ export const getPondsWithSeats = async (): Promise<Pond[]> => {
 
 export const getBookings = async (competitionId?: string): Promise<Booking[]> => {
   const bookingsRef = collection(db, 'bookings');
-  const snapshot = competitionId
-    ? await getDocs(query(bookingsRef, where('competitionId', '==', doc(db, 'competitions', competitionId))))
-    : await getDocs(bookingsRef);
+  const snapshot = await getDocs(bookingsRef);
 
   const ponds = await getPondsWithSeats();
-  const pondMap = new Map(ponds.map((pond) => [pond.id.toString(), pond]));
+  const pondMap = new Map<string, Pond>();
+  ponds.forEach((pond) => {
+    pondMap.set(pond.id.toString(), pond);
+    if (pond._docId) pondMap.set(pond._docId, pond);
+  });
 
   const seatSnapshot = await getDocs(collection(db, 'seats'));
   const seatMap = new Map<string, number>();
   seatSnapshot.forEach((seatSnap) => {
     const data = seatSnap.data();
     if (data.seatNumber) {
+      seatMap.set(seatSnap.id, data.seatNumber);
       seatMap.set(seatSnap.ref.path, data.seatNumber);
     }
   });
 
-  return snapshot.docs.map((docSnap) => buildBooking(docSnap, seatMap, pondMap));
+  return snapshot.docs
+    .filter((docSnap) => {
+      if (!competitionId) return true;
+      const data = docSnap.data();
+      const bookingCompetitionId = data.competitionId?.id || data.competitionId || '';
+      return bookingCompetitionId === competitionId;
+    })
+    .map((docSnap) => buildBooking(docSnap, seatMap, pondMap));
 };
 
 export const loadAppDB = async (): Promise<DB> => {
   try {
-    const [competition, ponds] = await Promise.all([getActiveCompetition(), getPondsWithSeats()]);
-    if (!competition || ponds.length === 0) {
-      return initialDB;
+    const [competition, ponds, settings] = await Promise.all([
+      getOrCreateDefaultCompetition(),
+      getPondsWithSeats(),
+      getSettings(),
+    ]);
+
+    // Fetch all bookings (not just for one competition)
+    const bookings = await getBookings();
+
+    // Mark seats as booked/pending based on actual bookings
+    const bookedSeatMap = new Map<string, string>(); // `${pondId}-${seatNum}` -> status
+    for (const b of bookings) {
+      const seatStatus = b.status === 'confirmed' ? 'booked' : b.status === 'pending' ? 'pending' : null;
+      if (!seatStatus) continue;
+      for (const num of b.seats) {
+        bookedSeatMap.set(`${b.pondId}-${num}`, seatStatus);
+      }
     }
 
-    const competitionId = competition.id || '';
-    const bookings = await getBookings(competitionId);
-    const scores = await buildScores(competitionId, bookings);
+    const pondsWithBookingStatus = ponds.map(p => ({
+      ...p,
+      seats: p.seats.map(s => {
+        const key = `${p.id}-${s.num}`;
+        const status = bookedSeatMap.get(key);
+        return status ? { ...s, status: status as 'booked' | 'pending' | 'available' } : s;
+      }),
+    }));
+
+    const scores = competition && competition.id ? await buildScores(competition.id, bookings) : {};
 
     return {
-      ponds,
+      ponds: pondsWithBookingStatus,
       bookings,
       scores,
       comp: competition,
-      settings: normalizeSettings({}),
+      settings,
       users: [],
     };
   } catch (error) {
     console.error('Failed to load Firestore DB:', error);
-    return initialDB;
+    return emptyDB;
   }
 };
 
@@ -243,10 +313,43 @@ export const updatePond = async (pondId: string, updates: Partial<Pond>) => {
 
 export const updateBookingStatus = async (bookingId: string, status: 'pending' | 'confirmed' | 'rejected') => {
   const bookingRef = doc(db, 'bookings', bookingId);
+  const bookingSnap = await getDoc(bookingRef);
   await setDoc(bookingRef, {
     status: status.toUpperCase(),
     updatedAt: serverTimestamp(),
   }, { merge: true });
+
+  if (!bookingSnap.exists()) return;
+  const bookingData = bookingSnap.data() as any;
+  const seatIds: string[] = Array.isArray(bookingData.seatIds)
+    ? bookingData.seatIds
+        .map((seat: any) => (typeof seat === 'string' ? seat : seat?.id || null))
+        .filter(Boolean)
+    : [];
+
+  if (!seatIds.length && Array.isArray(bookingData.seatNumbers)) {
+    const rawPondId = bookingData.pondId;
+    const pondDocId = typeof rawPondId === 'string' ? rawPondId : rawPondId?.id;
+    if (pondDocId) {
+      const seatSnap = await getDocs(query(collection(db, 'seats'), where('pondId', '==', pondDocId)));
+      const seatNumberSet = new Set<number>(bookingData.seatNumbers);
+      seatSnap.forEach((docSnap) => {
+        const seatData = docSnap.data();
+        if (seatNumberSet.has(seatData.seatNumber)) {
+          seatIds.push(docSnap.id);
+        }
+      });
+    }
+  }
+
+  if (!seatIds.length) return;
+
+  const nextSeatStatus = status === 'confirmed' ? 'booked' : status === 'pending' ? 'pending' : 'available';
+  await Promise.all(
+    seatIds.map((seatId) =>
+      setDoc(doc(db, 'seats', seatId), { status: nextSeatStatus, updatedAt: serverTimestamp() }, { merge: true })
+    )
+  );
 };
 
 export const updateSeatStatus = async (seatId: string, status: 'available' | 'pending' | 'booked') => {
@@ -296,19 +399,21 @@ export const createPond = async (pondData: Omit<Pond, 'id' | 'seats'>) => {
 
   // Create seats for the pond
   const seatsRef = collection(db, 'seats');
-  const seats = [];
-  for (let i = 1; i <= (pondData as any).totalSeats || 30; i++) {
-    seats.push({
+  const totalSeats = (pondData as any).totalSeats || 30;
+  const pricePerSeat = (pondData as any).pricePerSeat || 100;
+  const seatPromises = [];
+  for (let i = 1; i <= totalSeats; i++) {
+    seatPromises.push(addDoc(seatsRef, {
       pondId: docRef.id,
       seatNumber: i,
-      zone: i <= ((pondData as any).totalSeats || 30) / 2 ? 'A' : 'B',
-      price: (pondData as any).pricePerSeat || 100,
+      zone: i <= totalSeats / 2 ? 'A' : 'B',
+      price: pricePerSeat,
       status: 'available',
       createdAt: serverTimestamp(),
-    });
+    }));
   }
 
-  await Promise.all(seats.map(seat => addDoc(seatsRef, seat)));
+  await Promise.all(seatPromises);
   return docRef.id;
 };
 

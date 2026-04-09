@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -31,6 +31,7 @@ const mapFirebaseUser = async (firebaseUser: FirebaseUser | null): Promise<User 
 export const useAuth = () => {
   const { setUser } = useBooking();
   const { addToast } = useUI();
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -39,6 +40,7 @@ export const useAuth = () => {
       if (!firebaseUser) {
         localStorage.removeItem('cb_session');
       }
+      setAuthReady(true);
     });
     return () => unsubscribe();
   }, [setUser]);
@@ -96,5 +98,5 @@ export const useAuth = () => {
     }
   }, [setUser, addToast]);
 
-  return { login, register, logout };
+  return { login, register, logout, authReady };
 };

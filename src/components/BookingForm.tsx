@@ -72,7 +72,14 @@ const BookingForm: React.FC<BookingFormProps> = ({
 
   return (
     <div className="card booking-form-card">
-      <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '18px' }}>Your Booking</div>
+      <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Your Booking</span>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: '18px', color: 'var(--accent)' }}>RM {amt}</div>
+          <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{payType === 'deposit' ? '50% deposit' : 'Full amount'}</div>
+        </div>
+      </div>
+      <hr className="divider" />
       <label className="form-label">Selected Pegs</label>
       <div className="selected-pills">
         {selectedSeats.length ? (

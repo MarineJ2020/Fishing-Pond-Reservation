@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
-import { User, Pond, Competition, Prize } from '../types';
-import { getDB, setDB, gs } from '../data';
+import React, { useState, useEffect } from 'react';
+import { User, Pond, Competition, Prize, Settings } from '../types';
+import { gs } from '../data';
+import {
+  createPond as createPondFirestore,
+  updatePond as updatePondFirestore,
+  updateBookingStatus as updateBookingStatusFirestore,
+  updateCompetition as updateCompetitionFirestore,
+  updateSettings as updateSettingsFirestore,
+} from '../lib/firestore';
 
 interface CMSModalProps {
   isOpen: boolean;
@@ -8,57 +15,96 @@ interface CMSModalProps {
   user: User | null;
   ponds: Pond[];
   comp: Competition;
+  settings: Settings;
+  bookings: { id: string; userName: string; pondName: string; seats: number[]; amount: number; userId: string; userPhone: string; receiptData: string; status: string; pondId: number }[];
   onUpdateData: (updates: { ponds?: Pond[]; comp?: Competition }) => void;
+  reloadDB: () => Promise<void>;
 }
 
-const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp, onUpdateData }) => {
-  const [tab, setTab] = useState<'ponds' | 'competition' | 'settings' | 'bookings'>('ponds');
+const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp, settings, bookings, onUpdateData, reloadDB }) => {
+  const [tab, setTab] = useState<'ponds' | 'competition' | 'settings' | 'bookings' | 'content'>('ponds');
   const [editingPond, setEditingPond] = useState<Pond | null>(null);
   const [compEdit, setCompEdit] = useState<Competition>(comp);
-  const [settingsEdit, setSettingsEdit] = useState(getDB().settings);
+  const [settingsEdit, setSettingsEdit] = useState(settings);
   const [newPond, setNewPond] = useState<Partial<Pond>>({ name: '', date: '', desc: '', seats: [], open: true });
+  const [saving, setSaving] = useState(false);
 
-  const isStaff = user && (user.email.includes('admin') || user.email.includes('staff'));
+  useEffect(() => { setCompEdit(comp); }, [comp]);
+  useEffect(() => { setSettingsEdit(settings); }, [settings]);
+
+  const toLocalDatetime = (iso: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+
+  const isStaff = user && (user.role === 'ADMIN' || user.role === 'STAFF');
 
   if (!isOpen) return null;
 
-  const handlePondUpdate = (pond: Pond) => {
-    const updatedPonds = ponds.map(p => p.id === pond.id ? pond : p);
-    onUpdateData({ ponds: updatedPonds });
-    setEditingPond(null);
+  const handlePondUpdate = async (pond: Pond) => {
+    setSaving(true);
+    try {
+      await updatePondFirestore(pond._docId || pond.id.toString(), {
+        name: pond.name,
+        description: pond.desc,
+        eventDate: pond.date,
+        open: pond.open,
+        totalSeats: pond.seats.length,
+        pricePerSeat: pond.seats[0]?.price || 100,
+      } as any);
+      await reloadDB();
+      setEditingPond(null);
+    } catch (err) {
+      console.error('Failed to update pond:', err);
+    }
+    setSaving(false);
   };
 
-  const handleCompetitionUpdate = () => {
-    const db = getDB();
-    db.comp = compEdit;
-    setDB(db);
-    onUpdateData({ comp: compEdit });
+  const handleCompetitionUpdate = async () => {
+    setSaving(true);
+    try {
+      if (!compEdit.id) {
+        console.warn('No competition ID found. Cannot update.');
+        setSaving(false);
+        return;
+      }
+      await updateCompetitionFirestore(compEdit.id, {
+        name: compEdit.name,
+        eventDate: compEdit.startDate,
+        endDate: compEdit.endDate,
+        topN: compEdit.topN,
+        prizes: compEdit.prizes,
+      } as any);
+      await reloadDB();
+      alert('✅ Competition settings saved successfully!');
+    } catch (err) {
+      console.error('Failed to update competition:', err);
+      alert('❌ Failed to save competition settings. Check console.');
+    }
+    setSaving(false);
   };
 
-  const handleApproveBooking = (bookingId: string) => {
-    const booking = getDB().bookings.find(b => b.id === bookingId);
-    if (!booking) return;
-    // Set status to confirmed, lock seats
-    booking.status = 'confirmed';
-    booking.seats.forEach(num => {
-      const pond = ponds.find(p => p.id === booking.pondId);
-      const seat = pond?.seats.find(s => s.num === num);
-      if (seat) seat.status = 'booked';
-    });
-    onUpdateData({ ponds });
+  const handleApproveBooking = async (bookingId: string) => {
+    setSaving(true);
+    try {
+      await updateBookingStatusFirestore(bookingId, 'confirmed');
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to approve booking:', err);
+    }
+    setSaving(false);
   };
 
-  const handleRejectBooking = (bookingId: string) => {
-    const booking = getDB().bookings.find(b => b.id === bookingId);
-    if (!booking) return;
-    // Set status to rejected, free seats
-    booking.status = 'rejected';
-    booking.seats.forEach(num => {
-      const pond = ponds.find(p => p.id === booking.pondId);
-      const seat = pond?.seats.find(s => s.num === num);
-      if (seat && seat.status === 'pending') seat.status = 'available';
-    });
-    onUpdateData({ ponds });
+  const handleRejectBooking = async (bookingId: string) => {
+    setSaving(true);
+    try {
+      await updateBookingStatusFirestore(bookingId, 'rejected');
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to reject booking:', err);
+    }
+    setSaving(false);
   };
 
   const handleViewReceipt = (receiptData: string) => {
@@ -125,6 +171,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
           >
             📋 Bookings
           </button>
+          <button
+            className={`cms-tab ${tab === 'content' ? 'active' : ''}`}
+            onClick={() => setTab('content')}
+          >
+            📝 Content
+          </button>
         </div>
 
         <div className="cms-content">
@@ -183,22 +235,27 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                     />
                   </div>
                   <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                    <button className="btn btn-primary" onClick={() => {
+                    <button className="btn btn-primary" disabled={saving} onClick={async () => {
                       if (newPond.name && newPond.date && newPond.seats && newPond.seats.length > 0) {
-                        const pond: Pond = {
-                          id: Math.max(...ponds.map(p => p.id)) + 1,
-                          name: newPond.name,
-                          date: newPond.date,
-                          desc: newPond.desc || '',
-                          seats: newPond.seats,
-                          open: true
-                        };
-                        const updatedPonds = [...ponds, pond];
-                        onUpdateData({ ponds: updatedPonds });
-                        setNewPond({ name: '', date: '', desc: '', seats: [], open: true });
+                        setSaving(true);
+                        try {
+                          await createPondFirestore({
+                            name: newPond.name,
+                            date: newPond.date,
+                            desc: newPond.desc || '',
+                            open: true,
+                            totalSeats: newPond.seats.length,
+                            pricePerSeat: newPond.seats[0]?.price || 100,
+                          } as any);
+                          await reloadDB();
+                          setNewPond({ name: '', date: '', desc: '', seats: [], open: true });
+                        } catch (err) {
+                          console.error('Failed to add pond:', err);
+                        }
+                        setSaving(false);
                       }
                     }}>
-                      Add Pond
+                      {saving ? 'Saving...' : 'Add Pond'}
                     </button>
                   </div>
                 </div>
@@ -264,8 +321,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                     </select>
                   </div>
                   <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                    <button className="btn btn-primary" onClick={() => handlePondUpdate(editingPond)}>
-                      Save Changes
+                    <button className="btn btn-primary" disabled={saving} onClick={() => handlePondUpdate(editingPond)}>
+                      {saving ? 'Saving...' : 'Save Changes'}
                     </button>
                     <button className="btn btn-ghost" onClick={() => setEditingPond(null)}>
                       Cancel
@@ -274,22 +331,33 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                 </div>
               ) : (
                 <div className="cms-list">
-                  {ponds.map(pond => (
-                    <div key={pond.id} className="cms-list-item">
-                      <div>
-                        <div className="cms-item-name">{pond.name}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                          {pond.seats.length} pegs · RM {pond.seats[0]?.price || 0} each · {pond.date} · {pond.open ? '✅ Open' : '❌ Closed'}
-                        </div>
-                      </div>
-                      <button
-                        className="btn btn-sm btn-primary"
-                        onClick={() => setEditingPond(pond)}
-                      >
-                        Edit
-                      </button>
+                  {ponds.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: 'var(--muted)' }}>
+                      <p>No ponds yet. Create one above.</p>
                     </div>
-                  ))}
+                  ) : (
+                    ponds.map(pond => (
+                      <div key={pond._docId || pond.id} className="cms-list-item" style={{ background: 'var(--surface2)', padding: '14px', borderRadius: '8px', marginBottom: '10px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div className="cms-item-name" style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>{pond.name}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: '1.4' }}>
+                            📍 {pond.date} · 🪑 {pond.seats.length} pegs · 💰 RM {pond.seats[0]?.price || 0} each
+                            <br />
+                            📊 {pond.seats.filter(s => s.status === 'available').length} available · {pond.seats.filter(s => s.status === 'booked').length} booked
+                            <br />
+                            {pond.open ? '✅ Open' : '❌ Closed'}
+                          </div>
+                        </div>
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={() => setEditingPond(pond)}
+                          style={{ marginLeft: '12px', flexShrink: 0 }}
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
@@ -311,16 +379,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                   <label>Start Date & Time</label>
                   <input
                     type="datetime-local"
-                    value={new Date(compEdit.startDate).toISOString().slice(0, 16)}
-                    onChange={e => setCompEdit({ ...compEdit, startDate: new Date(e.target.value).toISOString() })}
+                    value={toLocalDatetime(compEdit.startDate)}
+                    onChange={e => e.target.value && setCompEdit({ ...compEdit, startDate: new Date(e.target.value).toISOString() })}
                   />
                 </div>
                 <div className="form-group">
                   <label>End Date & Time</label>
                   <input
                     type="datetime-local"
-                    value={new Date(compEdit.endDate).toISOString().slice(0, 16)}
-                    onChange={e => setCompEdit({ ...compEdit, endDate: new Date(e.target.value).toISOString() })}
+                    value={toLocalDatetime(compEdit.endDate)}
+                    onChange={e => e.target.value && setCompEdit({ ...compEdit, endDate: new Date(e.target.value).toISOString() })}
                   />
                 </div>
                 <div className="form-group">
@@ -333,15 +401,63 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                 </div>
                 <div className="form-group">
                   <label>Prize Pool</label>
-                  <div style={{ fontSize: '12px', color: 'var(--muted)', padding: '8px', background: 'var(--surface2)', borderRadius: '8px' }}>
-                    {compEdit.prizes.map((p: Prize, i: number) => (
-                      <div key={i}>Rank {p.rank}: {p.prize}</div>
-                    ))}
-                  </div>
+                  {compEdit.prizes.map((p: Prize, i: number) => (
+                    <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '6px', alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        value={p.rank}
+                        onChange={e => {
+                          const prizes = [...compEdit.prizes];
+                          prizes[i] = { ...prizes[i], rank: parseInt(e.target.value) || 1 };
+                          setCompEdit({ ...compEdit, prizes });
+                        }}
+                        style={{ width: '60px' }}
+                        placeholder="Rank"
+                      />
+                      <input
+                        type="text"
+                        value={p.label || ''}
+                        onChange={e => {
+                          const prizes = [...compEdit.prizes];
+                          prizes[i] = { ...prizes[i], label: e.target.value };
+                          setCompEdit({ ...compEdit, prizes });
+                        }}
+                        style={{ width: '100px' }}
+                        placeholder="Label"
+                      />
+                      <input
+                        type="text"
+                        value={p.prize}
+                        onChange={e => {
+                          const prizes = [...compEdit.prizes];
+                          prizes[i] = { ...prizes[i], prize: e.target.value };
+                          setCompEdit({ ...compEdit, prizes });
+                        }}
+                        style={{ flex: 1 }}
+                        placeholder="Prize (e.g. RM500)"
+                      />
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={() => {
+                          const prizes = compEdit.prizes.filter((_: Prize, idx: number) => idx !== i);
+                          setCompEdit({ ...compEdit, prizes });
+                        }}
+                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                      >✕</button>
+                    </div>
+                  ))}
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      const nextRank = compEdit.prizes.length ? Math.max(...compEdit.prizes.map((p: Prize) => p.rank)) + 1 : 1;
+                      setCompEdit({ ...compEdit, prizes: [...compEdit.prizes, { rank: nextRank, label: `#${nextRank}`, prize: '' }] });
+                    }}
+                    style={{ marginTop: '6px' }}
+                  >+ Add Prize</button>
                 </div>
                 <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                  <button className="btn btn-primary" onClick={handleCompetitionUpdate}>
-                    Save Competition
+                  <button className="btn btn-primary" disabled={saving} onClick={handleCompetitionUpdate}>
+                    {saving ? 'Saving...' : 'Save Competition'}
                   </button>
                 </div>
               </div>
@@ -425,13 +541,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                   />
                 </div>
                 <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                  <button className="btn btn-primary" onClick={() => {
-                    const newDb = getDB();
-                    newDb.settings = settingsEdit;
-                    setDB(newDb);
-                    onUpdateData({});
+                  <button className="btn btn-primary" disabled={saving} onClick={async () => {
+                    setSaving(true);
+                    try {
+                      await updateSettingsFirestore(settingsEdit);
+                      await reloadDB();
+                    } catch (err) {
+                      console.error('Failed to save settings:', err);
+                    }
+                    setSaving(false);
                   }}>
-                    Save Settings
+                    {saving ? 'Saving...' : 'Save Settings'}
                   </button>
                 </div>
               </div>
@@ -440,9 +560,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
 
           {tab === 'bookings' && (
             <div>
-              <h3 style={{ marginBottom: '16px' }}>Pending Bookings</h3>
+              <h3 style={{ marginBottom: '16px' }}>All Bookings</h3>
               <div className="cms-list">
-                {getDB().bookings.filter(b => b.status === 'pending').map(booking => (
+                {bookings.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '20px', color: 'var(--muted)' }}>
+                    <div style={{ fontSize: '30px', marginBottom: '12px' }}>📭</div>
+                    <p>No bookings found</p>
+                  </div>
+                )}
+                {[...bookings]
+                  .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+                  .map(booking => (
                   <div key={booking.id} className="cms-booking-item">
                     <div>
                       <div className="cms-item-name">{booking.userName}</div>
@@ -450,16 +578,101 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                         {booking.pondName} • Pegs: {booking.seats.join(', ')} • RM {booking.amount}
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-                        📧 {booking.userId} • ☎️ {booking.userPhone}
+                        📧 {booking.userId} • ☎️ {booking.userPhone} • 🕒 {toLocalDatetime(booking.createdAt || '') || 'N/A'}
+                      </div>
+                      <div style={{ fontSize: '11px', marginTop: '4px' }}>
+                        <span className={`status-badge st-${booking.status}`}>{booking.status.toUpperCase()}</span>
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button className="btn btn-sm btn-primary" onClick={() => handleViewReceipt(booking.receiptData)}>View Receipt</button>
-                      <button className="btn btn-sm btn-primary" onClick={() => handleApproveBooking(booking.id)}>Approve</button>
-                      <button className="btn btn-sm btn-danger" onClick={() => handleRejectBooking(booking.id)}>Reject</button>
+                      {booking.status === 'pending' && (
+                        <>
+                          <button className="btn btn-sm btn-primary" disabled={saving} onClick={() => handleApproveBooking(booking.id)}>Approve</button>
+                          <button className="btn btn-sm btn-danger" disabled={saving} onClick={() => handleRejectBooking(booking.id)}>Reject</button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {tab === 'content' && (
+            <div>
+              <h3 style={{ marginBottom: '16px' }}>Homepage Content</h3>
+              <div className="cms-form">
+                <div className="form-group">
+                  <label>Hero Title</label>
+                  <input
+                    type="text"
+                    value={settingsEdit.heroTitle || ''}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, heroTitle: e.target.value })}
+                    placeholder="e.g. Kolam Keli Sayang (KKS)"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Hero Subtitle</label>
+                  <textarea
+                    value={settingsEdit.heroSubtitle || ''}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, heroSubtitle: e.target.value })}
+                    placeholder="e.g. 14 Kolam Besar • 65 × 480 Kaki • Alor Setar, Kedah"
+                    rows={2}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>About Title</label>
+                  <input
+                    type="text"
+                    value={settingsEdit.aboutTitle || ''}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, aboutTitle: e.target.value })}
+                    placeholder="e.g. Tentang Kami"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>About Content</label>
+                  <textarea
+                    value={settingsEdit.aboutContent || ''}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, aboutContent: e.target.value })}
+                    placeholder="Enter about section content..."
+                    rows={4}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>CTA (Call-to-Action) Title</label>
+                  <input
+                    type="text"
+                    value={settingsEdit.ctaTitle || ''}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, ctaTitle: e.target.value })}
+                    placeholder="e.g. Jangan Tunggu Lama"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>CTA Subtitle</label>
+                  <textarea
+                    value={settingsEdit.ctaSubtitle || ''}
+                    onChange={e => setSettingsEdit({ ...settingsEdit, ctaSubtitle: e.target.value })}
+                    placeholder="Slot cepat penuh terutamanya hujung minggu..."
+                    rows={2}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                  <button className="btn btn-primary" disabled={saving} onClick={async () => {
+                    setSaving(true);
+                    try {
+                      await updateSettingsFirestore(settingsEdit);
+                      await reloadDB();
+                      alert('✅ Homepage content saved successfully!');
+                    } catch (err) {
+                      console.error('Failed to save content:', err);
+                      alert('❌ Failed to save content');
+                    }
+                    setSaving(false);
+                  }}>
+                    {saving ? 'Saving...' : 'Save Content'}
+                  </button>
+                </div>
               </div>
             </div>
           )}

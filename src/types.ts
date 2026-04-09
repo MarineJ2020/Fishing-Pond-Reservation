@@ -8,6 +8,7 @@ export interface Seat {
 
 export interface Pond {
   id: number;
+  _docId?: string;
   name: string;
   date: string;
   desc: string;
@@ -79,6 +80,13 @@ export interface Settings {
     date: string;
     time: string;
   };
+  // Homepage customization
+  heroTitle?: string;
+  heroSubtitle?: string;
+  aboutTitle?: string;
+  aboutContent?: string;
+  ctaTitle?: string;
+  ctaSubtitle?: string;
 }
 
 export interface User {
