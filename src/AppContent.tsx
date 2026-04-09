@@ -48,7 +48,10 @@ const AppContent: React.FC = () => {
 
   const totalPonds = db.ponds.length;
   const confirmedBookings = db.bookings.filter(b => b.status === 'confirmed').length;
-  const activePond = selectedPond ? db.ponds.find(p => p.id === selectedPond) ?? null : db.ponds[0] || null;
+  const bookablePonds = useMemo(() => db.ponds.filter((p) => p.open), [db.ponds]);
+  const activePond = selectedPond
+    ? bookablePonds.find((p) => p.id === selectedPond) ?? null
+    : bookablePonds[0] || null;
 
   useEffect(() => {
     const updateCountdown = () => {
@@ -89,6 +92,11 @@ const AppContent: React.FC = () => {
   }, [currentSection, homeScrollTarget]);
 
   const handleSelectPond = (id: number) => {
+    const pond = db.ponds.find((p) => p.id === id);
+    if (!pond || !pond.open) {
+      addToast('This pond is currently closed for booking.', 'error');
+      return;
+    }
     setPond(id);
     goToBook();
   };
@@ -183,16 +191,19 @@ const AppContent: React.FC = () => {
   };
 
   const eventDate = new Date(db.comp.startDate).toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' });
+  const heroLogo = db.settings?.heroLogo;
 
   const renderHome = () => (
     <div className="home-shell">
       <section className="hero" id="home">
-        <div className="hero-logo">KKS</div>
+        <div className="hero-logo">
+          {heroLogo ? <img src={heroLogo} alt="Hero logo" className="hero-logo-image" /> : 'KKS'}
+        </div>
         <div className="hero-eyebrow">Port Pancing Terbaik Kedah — Di Tengah Sawah</div>
         <h1 className="hero-title">
           Kolam Keli<br />
           <span className="accent">Sayang</span>
-          <span className="kks">(KKS)</span>
+          {heroLogo ? <img src={heroLogo} alt="Hero title logo" className="hero-title-logo" /> : <span className="kks">(KKS)</span>}
         </h1>
         <p className="hero-sub">14 Kolam Besar • 65 × 480 Kaki • Alor Setar, Kedah</p>
         <div className="hero-rule"></div>
@@ -224,7 +235,9 @@ const AppContent: React.FC = () => {
               <div className="logo-rings"></div>
               <div className="logo-rings"></div>
               <div className="logo-rings"></div>
-              <div className="about-logo-img">KKS</div>
+              <div className="about-logo-img">
+                {heroLogo ? <img src={heroLogo} alt="About logo" className="about-logo-image" /> : 'KKS'}
+              </div>
             </div>
             <div>
               <p className="about-text">Terletak di kawasan sawah padi Alor Setar, Kedah, <strong style={{ color: '#fff' }}>Kolam Keli Sayang (KKS)</strong> menawarkan 14 kolam bersaiz besar (65 × 480 kaki) — dikelilingi hamparan padi yang hijau dan menenangkan jiwa.</p>
@@ -297,7 +310,7 @@ const AppContent: React.FC = () => {
               <div className="event-name">{db.comp.name}</div>
               <div className="event-date">📅 {eventDate} • Kolam Keli Sayang, Alor Setar</div>
               <p className="event-desc">Event besar pertama KKS! Bertanding di tepi sawah dengan suasana Kedah yang asli. Hadiah menarik menanti. Tempat terhad — siapa cepat dia dapat.</p>
-              <button className="btn-primary" onClick={() => handleSelectPond(db.ponds[0]?.id ?? 1)}>Daftar Sekarang</button>
+              <button className="btn-primary" onClick={() => handleSelectPond(bookablePonds[0]?.id ?? 1)}>Daftar Sekarang</button>
             </div>
             <div className="event-right">
               <div className="etl">Masa Berbaki</div>
@@ -356,15 +369,19 @@ const AppContent: React.FC = () => {
             <div className="leg"><span className="leg-dot" style={{ background: 'var(--green-bright)' }}></span>Available</div>
             <div className="leg"><span className="leg-dot" style={{ background: 'var(--gold)' }}></span>Limited</div>
             <div className="leg"><span className="leg-dot" style={{ background: '#444' }}></span>Fully Booked</div>
+            <div className="leg"><span className="leg-dot" style={{ background: '#963838' }}></span>Closed</div>
           </div>
         </div>
         <div className="ponds-grid">
           {db.ponds.map((pond) => {
             const availCount = pond.seats.filter(s => s.status === 'available').length;
-            const statusLabel = availCount === 0 ? 'Fully Booked' : availCount < pond.seats.length * 0.3 ? 'Limited' : 'Available';
-            const statusClass = availCount === 0 ? 'fu' : availCount < pond.seats.length * 0.3 ? 'li' : 'av';
+            const isClosed = !pond.open;
+            const isFull = availCount === 0;
+            const isLimited = availCount < pond.seats.length * 0.3;
+            const statusLabel = isClosed ? 'Closed' : isFull ? 'Fully Booked' : isLimited ? 'Limited' : 'Available';
+            const statusClass = isClosed ? 'cl' : isFull ? 'fu' : isLimited ? 'li' : 'av';
             return (
-              <div key={pond._docId || pond.id} className={`pond-card ${availCount === 0 ? 'full' : availCount < pond.seats.length * 0.3 ? 'limited' : 'available'}`}>
+              <div key={pond._docId || pond.id} className={`pond-card ${isClosed ? 'closed' : isFull ? 'full' : isLimited ? 'limited' : 'available'}`}>
                 <div className="pond-num">{pond.id}</div>
                 <div className="pond-size-lbl">{pond.date}</div>
                 <span className={`pond-badge ${statusClass}`}>{statusLabel}</span>
@@ -374,8 +391,8 @@ const AppContent: React.FC = () => {
                   <span className="pond-avail"><span>{availCount}</span> available</span>
                   <span className="pond-price">RM {pond.seats[0]?.price}</span>
                 </div>
-                <button className={`pond-btn ${availCount === 0 ? 'disabled' : ''}`} disabled={availCount === 0} onClick={() => handleSelectPond(pond.id)}>
-                  {availCount === 0 ? 'Full' : 'Book Now'}
+                <button className={`pond-btn ${isClosed || isFull ? 'disabled' : ''}`} disabled={isClosed || isFull} onClick={() => handleSelectPond(pond.id)}>
+                  {isClosed ? 'Closed' : isFull ? 'Full' : 'Book Now'}
                 </button>
               </div>
             );
@@ -468,7 +485,7 @@ const AppContent: React.FC = () => {
         const bookedPond = activePond;
         return (
           <div className="booking-layout">
-            <BookingSidebar ponds={db.ponds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
+            <BookingSidebar ponds={bookablePonds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
             <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} />
             <BookingForm
               user={user}

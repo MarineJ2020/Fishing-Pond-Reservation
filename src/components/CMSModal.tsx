@@ -28,6 +28,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
   const [settingsEdit, setSettingsEdit] = useState(settings);
   const [newPond, setNewPond] = useState<Partial<Pond>>({ name: '', date: '', desc: '', seats: [], open: true });
   const [saving, setSaving] = useState(false);
+  const [uploadingHeroLogo, setUploadingHeroLogo] = useState(false);
 
   useEffect(() => { setCompEdit(comp); }, [comp]);
   useEffect(() => { setSettingsEdit(settings); }, [settings]);
@@ -116,6 +117,45 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
       w.document.write('<img src="' + receiptData + '" style="max-width:100%;max-height:100vh;" />');
       w.document.close();
     }
+  };
+
+  const uploadHeroLogo = async (file: File) => {
+    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
+    if (!cloudName || !uploadPreset) {
+      throw new Error('Cloudinary environment variables are missing.');
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', uploadPreset);
+    formData.append('folder', 'fishing-pond-assets');
+
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!res.ok) {
+      throw new Error('Failed to upload hero logo.');
+    }
+
+    const data = await res.json();
+    return data.secure_url as string;
+  };
+
+  const handleHeroLogoFileChange = async (file: File | null) => {
+    if (!file) return;
+    setUploadingHeroLogo(true);
+    try {
+      const logoUrl = await uploadHeroLogo(file);
+      setSettingsEdit({ ...settingsEdit, heroLogo: logoUrl });
+      alert('✅ Hero logo uploaded. Click Save Settings to publish.');
+    } catch (err) {
+      console.error('Hero logo upload failed:', err);
+      alert('❌ Failed to upload hero logo. Check console or Cloudinary config.');
+    }
+    setUploadingHeroLogo(false);
   };
 
   if (!isStaff) {
@@ -469,12 +509,36 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
               <h3 style={{ marginBottom: '16px' }}>Site Settings</h3>
               <div className="cms-form">
                 <div className="form-group">
-                  <label>Hero Logo URL</label>
+                  <label>Hero Logo Image</label>
                   <input
-                    type="text"
-                    value={settingsEdit.heroLogo}
-                    onChange={e => setSettingsEdit({ ...settingsEdit, heroLogo: e.target.value })}
+                    type="file"
+                    accept="image/*"
+                    disabled={uploadingHeroLogo || saving}
+                    onChange={e => handleHeroLogoFileChange(e.target.files?.[0] || null)}
                   />
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                    Upload a logo image. PNG with transparent background is recommended.
+                  </div>
+                  {settingsEdit.heroLogo && (
+                    <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <img
+                        src={settingsEdit.heroLogo}
+                        alt="Hero logo preview"
+                        style={{ width: '72px', height: '72px', objectFit: 'contain', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--surface2)' }}
+                      />
+                      <button
+                        className="btn btn-sm btn-danger"
+                        type="button"
+                        disabled={uploadingHeroLogo || saving}
+                        onClick={() => setSettingsEdit({ ...settingsEdit, heroLogo: '' })}
+                      >
+                        Remove Logo
+                      </button>
+                    </div>
+                  )}
+                  {uploadingHeroLogo && (
+                    <div style={{ fontSize: '12px', marginTop: '8px', color: 'var(--muted)' }}>Uploading logo...</div>
+                  )}
                 </div>
                 <div className="form-group">
                   <label>WhatsApp Number (for booking button)</label>

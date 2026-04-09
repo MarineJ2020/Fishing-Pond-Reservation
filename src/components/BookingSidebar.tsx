@@ -13,7 +13,7 @@ const BookingSidebar: React.FC<BookingSidebarProps> = ({ ponds, selectedPond, on
       <div style={{ padding: '7px 3px 11px', fontSize: '10px', fontWeight: 600, color: 'var(--muted)', letterSpacing: '1px', textTransform: 'uppercase' }}>
         Ponds
       </div>
-      {ponds.map(p => {
+      {ponds.filter(p => p.open).map(p => {
         const av = p.seats.filter(s => s.status === 'available').length;
         return (
           <div

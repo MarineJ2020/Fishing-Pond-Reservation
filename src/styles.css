@@ -383,6 +383,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;background:rgba(22,42,16,.97
 .pond-card.available{border-left-color:var(--green-bright)}
 .pond-card.limited{border-left-color:var(--gold)}
 .pond-card.full{border-left-color:#444;opacity:.65}
+.pond-card.closed{border-left-color:#963838;opacity:.65}
 .pond-card:hover:not(.full){background:rgba(255,255,255,.07)}
 .pond-num{font-family:'Oswald',sans-serif;font-size:1.7rem;color:#fff;line-height:1}
 .pond-size-lbl{font-size:.68rem;color:rgba(255,255,255,.38);letter-spacing:1px;margin-bottom:.9rem;margin-top:.15rem}
@@ -395,6 +396,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;background:rgba(22,42,16,.97
 .pond-badge.av{background:rgba(90,170,53,.18);color:var(--green-light)}
 .pond-badge.li{background:rgba(200,168,75,.18);color:var(--gold-light)}
 .pond-badge.fu{background:rgba(255,255,255,.05);color:rgba(255,255,255,.3)}
+.pond-badge.cl{background:rgba(150,56,56,.2);color:#ffb4b4}
 .pond-btn{width:100%;background:var(--green-field);color:#fff;border:none;border-radius:3px;padding:.5rem;font-family:'Lato',sans-serif;font-weight:700;font-size:.72rem;text-transform:uppercase;letter-spacing:1px;cursor:pointer;transition:background .2s}
 .pond-btn:hover{background:var(--green-bright)}
 .pond-btn.disabled{background:#2a2a2a;color:#555;cursor:not-allowed}
@@ -429,12 +431,14 @@ footer span{color:var(--green-bright)}
 /* KKS Hero */
 .hero::before{content:'';position:absolute;bottom:-60px;left:50%;transform:translateX(-50%);width:900px;height:220px;border-radius:50%;border:3px solid rgba(74,127,165,.2);pointer-events:none}
 .hero::after{content:'';position:absolute;bottom:-80px;left:50%;transform:translateX(-50%);width:650px;height:160px;border-radius:50%;border:2px solid rgba(74,127,165,.15);pointer-events:none}
-.hero-logo{width:148px;height:148px;border-radius:50%;border:3px solid var(--green-field);box-shadow:0 0 0 10px rgba(45,90,30,.25),0 0 50px rgba(45,90,30,.4);margin-bottom:2rem;background:transparent;animation:logoPulse 4s ease-in-out infinite}
+.hero-logo{width:148px;height:148px;border-radius:50%;border:3px solid var(--green-field);box-shadow:0 0 0 10px rgba(45,90,30,.25),0 0 50px rgba(45,90,30,.4);margin-bottom:2rem;background:transparent;animation:logoPulse 4s ease-in-out infinite;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.hero-logo-image{width:100%;height:100%;object-fit:contain;border-radius:50%}
 @keyframes logoPulse{0%,100%{box-shadow:0 0 0 10px rgba(45,90,30,.25),0 0 50px rgba(45,90,30,.4)}50%{box-shadow:0 0 0 18px rgba(45,90,30,.12),0 0 80px rgba(45,90,30,.55)}}
 .hero-eyebrow{color:var(--gold);font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:4px;margin-bottom:.75rem}
 .hero-title{font-family:'Oswald',sans-serif;font-size:clamp(3.2rem,9vw,7rem);color:#fff;line-height:.92;font-weight:700;text-transform:uppercase;letter-spacing:3px;margin-bottom:.5rem}
 .hero-title .accent{color:var(--green-bright)}
 .hero-title .kks{font-size:42%;letter-spacing:10px;color:var(--gold);display:block;margin-top:.5rem}
+.hero-title-logo{display:block;margin:.6rem auto 0;width:min(220px,52vw);height:auto;max-height:84px;object-fit:contain}
 .hero-sub{color:rgba(255,255,255,.5);font-size:.9rem;letter-spacing:2px;margin-bottom:2rem}
 .hero-rule{width:70px;height:2px;background:var(--green-field);margin:0 auto 2rem}
 .hero-event-box{background:rgba(0,0,0,.35);border:1px solid rgba(74,127,165,.25);border-top:2px solid var(--water);border-radius:8px;padding:1.25rem 2.5rem;margin-bottom:2.5rem;backdrop-filter:blur(8px);max-width:720px}
@@ -465,7 +469,8 @@ section{padding:6rem 2rem}
 .about-grid{display:grid;grid-template-columns:1fr 1fr;gap:4.5rem;align-items:center;margin-top:3.5rem}
 .about-visual{position:relative;background:rgba(74,127,165,.08);border:1px solid rgba(74,127,165,.2);border-radius:12px;padding:2.5rem 2rem;display:flex;align-items:center;justify-content:center}
 .about-visual::before{content:'SAWAH';position:absolute;top:10px;left:14px;font-size:.6rem;font-weight:700;letter-spacing:3px;color:rgba(90,170,53,.4);text-transform:uppercase}
-.about-logo-img{width:240px;height:240px;border-radius:50%;border:3px solid var(--green-field);background:transparent}
+.about-logo-img{width:240px;height:240px;border-radius:50%;border:3px solid var(--green-field);background:transparent;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.about-logo-image{width:100%;height:100%;object-fit:contain;border-radius:50%}
 .logo-rings{position:absolute;width:280px;height:280px;border-radius:50%;border:1px solid rgba(74,127,165,.15);animation:ringExpand 3s ease-out infinite}
 .logo-rings:nth-child(2){width:320px;height:320px;animation-delay:1s}
 .logo-rings:nth-child(3){width:360px;height:360px;animation-delay:2s}
@@ -537,6 +542,7 @@ section{padding:6rem 2rem}
 .pond-card.available{border-left-color:var(--green-bright)}
 .pond-card.limited{border-left-color:var(--gold)}
 .pond-card.full{border-left-color:#444;opacity:.5}
+.pond-card.closed{border-left-color:#963838;opacity:.65}
 .pond-card:hover:not(.full){background:rgba(255,255,255,.07)}
 .pond-num{font-family:'Oswald',sans-serif;font-size:1.7rem;color:#fff;line-height:1}
 .pond-size-lbl{font-size:.68rem;color:rgba(255,255,255,.38);letter-spacing:1px;margin-bottom:.9rem;margin-top:.15rem}
@@ -544,6 +550,7 @@ section{padding:6rem 2rem}
 .pond-badge.av{background:rgba(90,170,53,.18);color:var(--green-light)}
 .pond-badge.li{background:rgba(200,168,75,.18);color:var(--gold-light)}
 .pond-badge.fu{background:rgba(255,255,255,.05);color:rgba(255,255,255,.3)}
+.pond-badge.cl{background:rgba(150,56,56,.2);color:#ffb4b4}
 .pond-btn{width:100%;background:var(--green-field);color:#fff;border:none;border-radius:3px;padding:.5rem;font-family:'Lato',sans-serif;font-weight:700;font-size:.72rem;text-transform:uppercase;letter-spacing:1px;cursor:pointer;transition:background .2s}
 .pond-btn:hover{background:var(--green-bright)}
 .pond-btn.disabled{background:#2a2a2a;color:#555;cursor:not-allowed}
