@@ -7,6 +7,7 @@ import { createBooking as createBookingApi } from '../lib/api';
 interface BookingContextType {
   db: DB;
   user: User | null;
+  selectedCompetitionId: string | null;
   selectedPond: number | null;
   selectedSeats: number[];
   payType: 'full' | 'deposit';
@@ -15,6 +16,7 @@ interface BookingContextType {
   bookingNotes: string;
   
   setPond: (id: number | null) => void;
+  setSelectedCompetitionId: (id: string | null) => void;
   toggleSeat: (num: number) => void;
   setSeats: (seats: number[]) => void;
   setPayType: (type: 'full' | 'deposit') => void;
@@ -56,6 +58,7 @@ const uploadToCloudinary = async (receiptData: string, fileName: string): Promis
 export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [db, setDbState] = useState<DB>(emptyDB);
   const [user, setUser] = useState<User | null>(null);
+  const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
   const [selectedPond, setSelectedPond] = useState<number | null>(null);
   const [selectedSeats, setSelectedSeats] = useState<number[]>([]);
   const [payType, setPayType] = useState<'full' | 'deposit'>('full');
@@ -75,6 +78,12 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     load().catch(() => {});
     return () => { canceled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!selectedCompetitionId && db.comp?.id) {
+      setSelectedCompetitionId(db.comp.id);
+    }
+  }, [db.comp?.id, selectedCompetitionId]);
 
   const updateDB = useCallback((newDb: DB) => {
     setDbState(newDb);
@@ -96,15 +105,30 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     setSelectedSeats([]);
   }, []);
 
+  const seatTakenMap = React.useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const booking of db.bookings) {
+      const competitionId = booking.competitionId || db.comp.id || '';
+      if (!competitionId || competitionId !== (selectedCompetitionId || db.comp.id || '')) continue;
+      if (booking.status !== 'pending' && booking.status !== 'confirmed') continue;
+      for (const seatNum of booking.seats || []) {
+        map.set(`${booking.pondId}-${seatNum}`, true);
+      }
+    }
+    return map;
+  }, [db.bookings, db.comp.id, selectedCompetitionId]);
+
   const toggleSeat = useCallback((num: number) => {
     const pond = db.ponds.find(p => p.id === selectedPond);
     const seat = pond?.seats.find(s => s.num === num);
-    if (!seat || seat.status === 'booked') return;
+    if (!seat) return;
+    const taken = seatTakenMap.get(`${selectedPond}-${num}`);
+    if (taken) return;
     setSelectedSeats(prev => {
       const idx = prev.indexOf(num);
       return idx > -1 ? prev.filter(s => s !== num) : [...prev, num];
     });
-  }, [db.ponds, selectedPond]);
+  }, [db.ponds, selectedPond, seatTakenMap]);
 
   const setSeats = useCallback((seats: number[]) => {
     setSelectedSeats(seats);
@@ -153,7 +177,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const receiptUrl = await uploadToCloudinary(receiptData, receiptFile.name);
 
     const payload = {
-      competitionId: db.comp.id || '',
+      competitionId: selectedCompetitionId || db.comp.id || '',
+      competitionName: db.competitions.find((c) => c.id === (selectedCompetitionId || db.comp.id || ''))?.name || db.comp.name,
       pondId: pond.id,
       userId: user.uid || user.email,
       userName: user.name,
@@ -174,6 +199,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const booking: Booking = {
       id: result.bookingId,
       bookingRef: result.bookingRef,
+      competitionId: selectedCompetitionId || db.comp.id || '',
+      competitionName: db.competitions.find((c) => c.id === (selectedCompetitionId || db.comp.id || ''))?.name || db.comp.name,
       userId: user.uid || user.email,
       userName: user.name,
       userPhone: user.phone || '',
@@ -193,28 +220,18 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       createdByStaff: false,
     };
 
-    const updatedPonds = db.ponds.map((p) => {
-      if (p.id !== pond.id) return p;
-      return {
-        ...p,
-        seats: p.seats.map((seat) => ({
-          ...seat,
-          status: selectedSeats.includes(seat.num) ? 'pending' : seat.status,
-        })),
-      };
-    });
-
-    const newDb = { ...db, bookings: [booking, ...db.bookings], ponds: updatedPonds };
+    const newDb = { ...db, bookings: [booking, ...db.bookings] };
     updateDB(newDb);
     clearBooking();
     return booking;
-  }, [user, selectedSeats, receiptData, receiptFile, payType, bookingNotes, db, updateDB, clearBooking]);
+  }, [user, selectedSeats, receiptData, receiptFile, payType, bookingNotes, db, updateDB, clearBooking, selectedCompetitionId]);
 
   return (
     <BookingContext.Provider
       value={{
         db,
         user,
+        selectedCompetitionId,
         selectedPond,
         selectedSeats,
         payType,
@@ -222,6 +239,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         receiptFile,
         bookingNotes,
         setPond,
+        setSelectedCompetitionId,
         toggleSeat,
         setSeats,
         setPayType,

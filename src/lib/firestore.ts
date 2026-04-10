@@ -57,6 +57,7 @@ const normalizeCompetition = (data: any): Competition => ({
   endDate: normalizeTimestamp(data.endDate) || normalizeTimestamp(data.eventDate) || new Date().toISOString(),
   topN: data.topN || 20,
   prizes: data.prizes || [],
+  activePondIds: Array.isArray(data.activePondIds) ? data.activePondIds.map((id: any) => id?.toString?.() || '').filter(Boolean) : [],
 });
 
 const normalizeSettings = (data: any): Settings => ({
@@ -75,7 +76,12 @@ const normalizeSettings = (data: any): Settings => ({
   grandOpening: data.grandOpening || { date: new Date().toISOString().slice(0, 10), time: '08:00' },
 });
 
-const buildBooking = (docSnap: any, seatMap: Map<string, number>, pondMap: Map<string, Pond>): Booking => {
+const buildBooking = (
+  docSnap: any,
+  seatMap: Map<string, number>,
+  pondMap: Map<string, Pond>,
+  competitionMap: Map<string, Competition>
+): Booking => {
   const data = docSnap.data();
   const seatNumbers = Array.isArray(data.seatNumbers)
     ? data.seatNumbers
@@ -92,9 +98,13 @@ const buildBooking = (docSnap: any, seatMap: Map<string, number>, pondMap: Map<s
 
   const pondIdRef = data.pondId?.id ?? data.pondId;
   const pond = pondMap.get(pondIdRef?.toString() || '') ?? undefined;
+  const competitionIdRef = data.competitionId?.id ?? data.competitionId ?? '';
+  const competition = competitionMap.get(competitionIdRef?.toString() || '');
 
   return {
     id: docSnap.id,
+    competitionId: competitionIdRef?.toString() || undefined,
+    competitionName: competition?.name || data.competitionName || 'Pertandingan',
     userId: data.userId?.id ? data.userId.id : data.userId || '',
     userName: data.userName || data.guestName || 'Guest',
     userPhone: data.userPhone || data.phone || '',
@@ -144,6 +154,30 @@ export const getActiveCompetition = async (): Promise<Competition | null> => {
     .sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime());
   if (!comps.length) return null;
   return normalizeCompetition(comps[0]);
+};
+
+export const getCompetitions = async (): Promise<Competition[]> => {
+  const competitionsRef = collection(db, 'competitions');
+  const snapshot = await getDocs(competitionsRef);
+  return snapshot.docs
+    .map((docSnap) => normalizeCompetition({ id: docSnap.id, ...docSnap.data() }))
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+};
+
+export const createCompetition = async (data: Partial<Competition>) => {
+  const competitionsRef = collection(db, 'competitions');
+  const docRef = await addDoc(competitionsRef, {
+    name: data.name || 'Pertandingan Baru',
+    eventDate: data.startDate || new Date().toISOString(),
+    endDate: data.endDate || data.startDate || new Date().toISOString(),
+    topN: data.topN || 20,
+    prizes: data.prizes || [],
+    activePondIds: data.activePondIds || [],
+    status: 'ACTIVE',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
 };
 
 export const getOrCreateDefaultCompetition = async (): Promise<Competition> => {
@@ -207,7 +241,7 @@ export const getPondsWithSeats = async (): Promise<Pond[]> => {
   });
 };
 
-export const getBookings = async (competitionId?: string): Promise<Booking[]> => {
+export const getBookings = async (competitionId?: string, competitions: Competition[] = []): Promise<Booking[]> => {
   const bookingsRef = collection(db, 'bookings');
   const snapshot = await getDocs(bookingsRef);
 
@@ -228,53 +262,41 @@ export const getBookings = async (competitionId?: string): Promise<Booking[]> =>
     }
   });
 
+  const competitionMap = new Map<string, Competition>();
+  competitions.forEach((competition) => {
+    if (competition.id) competitionMap.set(competition.id, competition);
+  });
+
   return snapshot.docs
     .filter((docSnap) => {
       if (!competitionId) return true;
       const data = docSnap.data();
-      const bookingCompetitionId = data.competitionId?.id || data.competitionId || '';
+      const bookingCompetitionId = (data.competitionId?.id || data.competitionId || '').toString();
       return bookingCompetitionId === competitionId;
     })
-    .map((docSnap) => buildBooking(docSnap, seatMap, pondMap));
+    .map((docSnap) => buildBooking(docSnap, seatMap, pondMap, competitionMap));
 };
 
 export const loadAppDB = async (): Promise<DB> => {
   try {
-    const [competition, ponds, settings] = await Promise.all([
+    const [competition, competitions, ponds, settings] = await Promise.all([
       getOrCreateDefaultCompetition(),
+      getCompetitions(),
       getPondsWithSeats(),
       getSettings(),
     ]);
 
     // Fetch all bookings (not just for one competition)
-    const bookings = await getBookings();
-
-    // Mark seats as booked/pending based on actual bookings
-    const bookedSeatMap = new Map<string, string>(); // `${pondId}-${seatNum}` -> status
-    for (const b of bookings) {
-      const seatStatus = b.status === 'confirmed' ? 'booked' : b.status === 'pending' ? 'pending' : null;
-      if (!seatStatus) continue;
-      for (const num of b.seats) {
-        bookedSeatMap.set(`${b.pondId}-${num}`, seatStatus);
-      }
-    }
-
-    const pondsWithBookingStatus = ponds.map(p => ({
-      ...p,
-      seats: p.seats.map(s => {
-        const key = `${p.id}-${s.num}`;
-        const status = bookedSeatMap.get(key);
-        return status ? { ...s, status: status as 'booked' | 'pending' | 'available' } : s;
-      }),
-    }));
+    const bookings = await getBookings(undefined, competitions);
 
     const scores = competition && competition.id ? await buildScores(competition.id, bookings) : {};
 
     return {
-      ponds: pondsWithBookingStatus,
+      ponds,
       bookings,
       scores,
       comp: competition,
+      competitions: competitions.length ? competitions : [competition],
       settings,
       users: [],
     };
@@ -362,10 +384,21 @@ export const updateSeatStatus = async (seatId: string, status: 'available' | 'pe
 
 export const updateCompetition = async (competitionId: string, updates: Partial<Competition>) => {
   const compRef = doc(db, 'competitions', competitionId);
-  await setDoc(compRef, {
-    ...updates,
+  const payload: any = {
     updatedAt: serverTimestamp(),
-  }, { merge: true });
+  };
+  if (typeof updates.name !== 'undefined') payload.name = updates.name;
+  if (typeof updates.startDate !== 'undefined') payload.eventDate = updates.startDate;
+  if (typeof updates.endDate !== 'undefined') payload.endDate = updates.endDate;
+  if (typeof updates.topN !== 'undefined') payload.topN = updates.topN;
+  if (typeof updates.prizes !== 'undefined') payload.prizes = updates.prizes;
+  if (typeof updates.activePondIds !== 'undefined') payload.activePondIds = updates.activePondIds;
+  await setDoc(compRef, payload, { merge: true });
+};
+
+export const deleteCompetition = async (competitionId: string) => {
+  const compRef = doc(db, 'competitions', competitionId);
+  await deleteDoc(compRef);
 };
 
 export const updateSettings = async (updates: Partial<Settings>) => {

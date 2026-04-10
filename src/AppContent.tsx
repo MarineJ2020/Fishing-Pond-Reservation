@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './styles.css';
 import Navbar from './components/Navbar';
 import BookingSidebar from './components/BookingSidebar';
@@ -20,12 +20,15 @@ const AppContent: React.FC = () => {
   const {
     db,
     selectedPond,
+    selectedCompetitionId,
     selectedSeats,
     payType,
     receiptData,
     user,
     setPond,
+    setSelectedCompetitionId,
     toggleSeat,
+    setSeats,
     setPayType,
     setReceiptData,
     submitBooking,
@@ -37,18 +40,61 @@ const AppContent: React.FC = () => {
   const { login, register, logout, authReady } = useAuth();
 
   const [homeScrollTarget, setHomeScrollTarget] = useState<string | null>(null);
+  const [pondPickerOpen, setPondPickerOpen] = useState(false);
+  const competitionScrollerRef = useRef<HTMLDivElement | null>(null);
+  const competitionInteractionRef = useRef({ isDragging: false, startX: 0, startScrollLeft: 0, blockClick: false });
+  const competitionSnapTimeoutRef = useRef<number | null>(null);
+  const competitionTouchRef = useRef({ isTouching: false, startX: 0, startScrollLeft: 0 });
+  const [isDraggingCompetitions, setIsDraggingCompetitions] = useState(false);
+  const [focusedCompetitionKey, setFocusedCompetitionKey] = useState('');
   const [countdown, setCountdown] = useState({ days: '--', hours: '--', mins: '--', secs: '--', status: 'upcoming' });
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [bookingDetailsOpen, setBookingDetailsOpen] = useState(false);
 
+  const competitions = useMemo(() => {
+    if (db.competitions?.length) return db.competitions;
+    return db.comp?.name ? [db.comp] : [];
+  }, [db.comp, db.competitions]);
+
+  const selectedCompetition = useMemo(() => {
+    const selected = competitions.find((competition) => competition.id === selectedCompetitionId);
+    return selected || competitions[0] || db.comp;
+  }, [competitions, db.comp, selectedCompetitionId]);
+
+  const competitionScopedPonds = useMemo(() => {
+    const activeCompetitionId = selectedCompetition?.id || db.comp?.id || '';
+    const allowedPondIds = selectedCompetition?.activePondIds || [];
+    const occupied = new Set<string>();
+    db.bookings.forEach((booking) => {
+      const bookingCompetitionId = booking.competitionId || db.comp?.id || '';
+      if (bookingCompetitionId !== activeCompetitionId) return;
+      if (booking.status !== 'pending' && booking.status !== 'confirmed') return;
+      booking.seats.forEach((seatNum) => occupied.add(`${booking.pondId}-${seatNum}`));
+    });
+
+    const scopedPonds = db.ponds.map((pond) => ({
+      ...pond,
+      seats: pond.seats.map((seat) => ({
+        ...seat,
+        status: occupied.has(`${pond.id}-${seat.num}`) ? 'booked' : 'available'
+      }))
+    }));
+
+    if (!allowedPondIds.length) return scopedPonds;
+    return scopedPonds.filter((pond) => {
+      const docId = pond._docId || pond.id.toString();
+      return allowedPondIds.includes(docId);
+    });
+  }, [db.bookings, db.comp?.id, db.ponds, selectedCompetition?.activePondIds, selectedCompetition?.id]);
+
   const availablePegs = useMemo(
-    () => db.ponds.reduce((sum, pond) => sum + pond.seats.filter(s => s.status === 'available').length, 0),
-    [db.ponds]
+    () => competitionScopedPonds.reduce((sum, pond) => sum + pond.seats.filter(s => s.status === 'available').length, 0),
+    [competitionScopedPonds]
   );
 
   const totalPonds = db.ponds.length;
   const confirmedBookings = db.bookings.filter(b => b.status === 'confirmed').length;
-  const bookablePonds = useMemo(() => db.ponds.filter((p) => p.open), [db.ponds]);
+  const bookablePonds = useMemo(() => competitionScopedPonds.filter((p) => p.open), [competitionScopedPonds]);
   const activePond = selectedPond
     ? bookablePonds.find((p) => p.id === selectedPond) ?? null
     : bookablePonds[0] || null;
@@ -56,8 +102,8 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const updateCountdown = () => {
       const now = new Date();
-      const start = new Date(db.comp.startDate);
-      const end = new Date(db.comp.endDate);
+      const start = new Date(selectedCompetition?.startDate || db.comp.startDate);
+      const end = new Date(selectedCompetition?.endDate || db.comp.endDate);
       const distance = start.getTime() - now.getTime();
       if (distance <= 0 && now < end) {
         setCountdown({ days: '00', hours: '00', mins: '00', secs: '00', status: 'live' });
@@ -82,7 +128,7 @@ const AppContent: React.FC = () => {
     updateCountdown();
     const timer = window.setInterval(updateCountdown, 1000);
     return () => window.clearInterval(timer);
-  }, [db.comp.startDate, db.comp.endDate]);
+  }, [db.comp.endDate, db.comp.startDate, selectedCompetition?.endDate, selectedCompetition?.startDate]);
 
   useEffect(() => {
     if (currentSection === 'home' && homeScrollTarget) {
@@ -92,12 +138,18 @@ const AppContent: React.FC = () => {
   }, [currentSection, homeScrollTarget]);
 
   const handleSelectPond = (id: number) => {
-    const pond = db.ponds.find((p) => p.id === id);
+    if (!selectedCompetition?.id) {
+      addToast('Sila pilih pertandingan dahulu.', 'error');
+      document.getElementById('competitions')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    const pond = bookablePonds.find((p) => p.id === id);
     if (!pond || !pond.open) {
       addToast('This pond is currently closed for booking.', 'error');
       return;
     }
     setPond(id);
+    setPondPickerOpen(false);
     goToBook();
   };
 
@@ -115,8 +167,12 @@ const AppContent: React.FC = () => {
       return;
     }
     if (!selectedPond) return;
+    if (!selectedCompetition?.id) {
+      addToast('Sila pilih pertandingan terlebih dahulu.', 'error');
+      return;
+    }
 
-    const pond = db.ponds.find(p => p.id === selectedPond);
+    const pond = bookablePonds.find(p => p.id === selectedPond);
     if (!pond) return;
 
     const booking = await submitBooking(pond);
@@ -156,7 +212,7 @@ const AppContent: React.FC = () => {
   const userBookings = user ? db.bookings.filter(b => b.userId === user.uid || b.userId === user.email) : [];
 
   const handleNavigation = (section: string) => {
-    const homeAnchors = ['about', 'kolam', 'event', 'lokasi', 'tempah'];
+    const homeAnchors = ['about', 'competitions', 'prizes', 'contact', 'how', 'tempah'];
     if (homeAnchors.includes(section)) {
       if (currentSection !== 'home') {
         setHomeScrollTarget(section);
@@ -172,6 +228,11 @@ const AppContent: React.FC = () => {
       return;
     }
     if (section === 'book') {
+      if (!selectedCompetition?.id) {
+        goHome();
+        setHomeScrollTarget('competitions');
+        return;
+      }
       goToBook();
       return;
     }
@@ -190,285 +251,443 @@ const AppContent: React.FC = () => {
     goToSection(section);
   };
 
-  const eventDate = new Date(db.comp.startDate).toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' });
-  const heroLogo = db.settings?.heroLogo;
+  const totalRegistered = db.bookings.length;
+  const totalPrizePool = selectedCompetition?.prizes?.reduce((sum: number, prize: any) => {
+    const raw = (prize?.prize || prize?.amount || '').toString();
+    const n = parseFloat(raw.replace(/[^0-9.]/g, ''));
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0) || 0;
+
+  const selectCompetition = (competitionId?: string) => {
+    if (!competitionId) return;
+    setSelectedCompetitionId(competitionId);
+    setPond(null);
+    setSeats([]);
+  };
+
+  const getCompetitionKey = (competition: { id?: string; name?: string }) => competition.id || competition.name || '';
+
+  const updateFocusedCompetition = () => {
+    const track = competitionScrollerRef.current;
+    if (!track || track.scrollWidth <= track.clientWidth) return null;
+    const cards = Array.from(track.querySelectorAll('.comp-card-scroll')) as HTMLElement[];
+    if (!cards.length) return null;
+
+    const viewportCenter = track.scrollLeft + track.clientWidth / 2;
+    let nearest: HTMLElement | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    cards.forEach((card) => {
+      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+      const distance = Math.abs(cardCenter - viewportCenter);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = card;
+      }
+    });
+
+    if (!nearest) return null;
+    const nextFocused = nearest.dataset.competitionKey || '';
+    if (nextFocused && nextFocused !== focusedCompetitionKey) {
+      setFocusedCompetitionKey(nextFocused);
+    }
+    return nearest;
+  };
+
+  const snapCompetitionToCenter = () => {
+    const track = competitionScrollerRef.current;
+    if (!track || track.scrollWidth <= track.clientWidth) return;
+    const nearest = updateFocusedCompetition();
+    if (!nearest) return;
+    const targetLeft = nearest.offsetLeft + nearest.offsetWidth / 2 - track.clientWidth / 2;
+    track.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+  };
+
+  const scheduleCompetitionSnap = (delay = 140) => {
+    if (competitionSnapTimeoutRef.current) {
+      window.clearTimeout(competitionSnapTimeoutRef.current);
+    }
+    competitionSnapTimeoutRef.current = window.setTimeout(() => {
+      snapCompetitionToCenter();
+      competitionSnapTimeoutRef.current = null;
+    }, delay);
+  };
+
+  useEffect(() => {
+    if (!competitions.length) return;
+    scheduleCompetitionSnap(40);
+  }, [competitions.length]);
+
+  useEffect(() => {
+    updateFocusedCompetition();
+  }, [selectedCompetition?.id]);
+
+  useEffect(() => () => {
+    if (competitionSnapTimeoutRef.current) {
+      window.clearTimeout(competitionSnapTimeoutRef.current);
+    }
+  }, []);
+
+  const handleCompetitionWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const track = competitionScrollerRef.current;
+    if (!track) return;
+    const canScroll = track.scrollWidth > track.clientWidth;
+    if (!canScroll) return;
+
+    if (Math.abs(event.deltaY) < Math.abs(event.deltaX)) return;
+    event.preventDefault();
+    track.scrollBy({ left: event.deltaY, behavior: 'auto' });
+    scheduleCompetitionSnap();
+  };
+
+  const handleCompetitionMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!competitionScrollerRef.current) return;
+    competitionInteractionRef.current = {
+      isDragging: true,
+      startX: event.clientX,
+      startScrollLeft: competitionScrollerRef.current.scrollLeft,
+      blockClick: false,
+    };
+    if (competitionSnapTimeoutRef.current) {
+      window.clearTimeout(competitionSnapTimeoutRef.current);
+      competitionSnapTimeoutRef.current = null;
+    }
+    setIsDraggingCompetitions(true);
+  };
+
+  const handleCompetitionMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!competitionInteractionRef.current.isDragging || !competitionScrollerRef.current) return;
+    const delta = event.clientX - competitionInteractionRef.current.startX;
+    if (Math.abs(delta) > 8) {
+      competitionInteractionRef.current.blockClick = true;
+    }
+    competitionScrollerRef.current.scrollLeft = competitionInteractionRef.current.startScrollLeft - delta * 1.15;
+  };
+
+  const stopCompetitionDrag = () => {
+    if (!competitionInteractionRef.current.isDragging) return;
+    competitionInteractionRef.current.isDragging = false;
+    setIsDraggingCompetitions(false);
+    scheduleCompetitionSnap(60);
+  };
+
+  const handleCompetitionTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!competitionScrollerRef.current) return;
+    const touchX = event.touches[0]?.clientX;
+    if (touchX === undefined) return;
+    competitionTouchRef.current = {
+      isTouching: true,
+      startX: touchX,
+      startScrollLeft: competitionScrollerRef.current.scrollLeft,
+    };
+    if (competitionSnapTimeoutRef.current) {
+      window.clearTimeout(competitionSnapTimeoutRef.current);
+      competitionSnapTimeoutRef.current = null;
+    }
+  };
+
+  const handleCompetitionTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!competitionTouchRef.current.isTouching || !competitionScrollerRef.current) return;
+    const touchX = event.touches[0]?.clientX;
+    if (touchX === undefined) return;
+    const delta = touchX - competitionTouchRef.current.startX;
+    competitionScrollerRef.current.scrollLeft = competitionTouchRef.current.startScrollLeft - delta;
+  };
+
+  const handleCompetitionTouchEnd = () => {
+    if (!competitionTouchRef.current.isTouching) return;
+    competitionTouchRef.current.isTouching = false;
+    scheduleCompetitionSnap(80);
+  };
+
+  const handleCompetitionClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!competitionInteractionRef.current.blockClick) return;
+    event.preventDefault();
+    event.stopPropagation();
+    competitionInteractionRef.current.blockClick = false;
+  };
+
+  const handleCompetitionScroll = () => {
+    updateFocusedCompetition();
+  };
 
   const renderHome = () => (
     <div className="home-shell">
+      {/* HERO */}
       <section className="hero" id="home">
-        <div className="hero-logo">
-          {heroLogo ? <img src={heroLogo} alt="Hero logo" className="hero-logo-image" /> : 'KKS'}
-        </div>
-        <div className="hero-eyebrow">Port Pancing Terbaik Kedah — Di Tengah Sawah</div>
-        <h1 className="hero-title">
-          Kolam Keli<br />
-          <span className="accent">Sayang</span>
-          {heroLogo ? <img src={heroLogo} alt="Hero title logo" className="hero-title-logo" /> : <span className="kks">(KKS)</span>}
-        </h1>
-        <p className="hero-sub">14 Kolam Besar • 65 × 480 Kaki • Alor Setar, Kedah</p>
-        <div className="hero-rule"></div>
-        <div className="hero-event-box">
-          <div className="event-box-lbl">🎯 Grand Opening Casting Day — {eventDate}</div>
-          <div className="cd-row">
-            <div className="cd-u"><span className="cd-n">{countdown.days}</span><span className="cd-l">Hari</span></div>
-            <span className="cd-sep">:</span>
-            <div className="cd-u"><span className="cd-n">{countdown.hours}</span><span className="cd-l">Jam</span></div>
-            <span className="cd-sep">:</span>
-            <div className="cd-u"><span className="cd-n">{countdown.mins}</span><span className="cd-l">Minit</span></div>
-            <span className="cd-sep">:</span>
-            <div className="cd-u"><span className="cd-n">{countdown.secs}</span><span className="cd-l">Saat</span></div>
+        <div className="hero-inner">
+          <div className="hero-badge">🎣 Port Pancing #1 Kedah</div>
+          <h1>Kolam Keli /<br /><span>Sayang</span></h1>
+          <p className="hero-subtitle">Kolam pancing keli terbesar di Kedah — 14 kolam, suasana sawah asli, pertandingan setiap bulan.</p>
+          <div className="hero-buttons">
+            <button className="btn btn-primary btn-lg" onClick={() => handleNavigation('competitions')}>Pilih Pertandingan</button>
+            <a className="btn-outline" onClick={() => handleNavigation('competitions')}>Lihat Pertandingan</a>
           </div>
-        </div>
-        <div className="hero-btns">
-          <button className="btn-primary" onClick={() => db.settings?.whatsapp && (db.settings.whatsapp.startsWith('https://') ? window.open(db.settings.whatsapp, '_blank') : window.open(`https://wa.me/${db.settings.whatsapp}`, '_blank'))}>Tempah Slot Sekarang</button>
-          <button className="btn-outline" onClick={() => handleNavigation('lokasi')}>Tengok Lokasi</button>
+          <div className="hero-stats">
+            <div className="hero-stat"><div className="hero-stat-num">{totalPonds}</div><div className="hero-stat-label">Kolam Aktif</div></div>
+            <div className="hero-stat"><div className="hero-stat-num">{availablePegs}</div><div className="hero-stat-label">Tempat Peserta</div></div>
+            <div className="hero-stat"><div className="hero-stat-num">RM{totalPrizePool > 0 ? (totalPrizePool / 1000).toFixed(0) + 'K' : '50K+'}</div><div className="hero-stat-label">Hadiah Setahun</div></div>
+            <div className="hero-stat"><div className="hero-stat-num">{totalRegistered || '200'}+</div><div className="hero-stat-label">Ahli Berdaftar</div></div>
+          </div>
         </div>
       </section>
 
-      <section className="about-section" id="about">
+      {/* ABOUT */}
+      <section className="about" id="about">
         <div className="container">
-          <div className="section-label">Tentang Kami</div>
-          <h2 className="section-title">Di Tengah Sawah,<br />Port Tiada Tandingan</h2>
-          <div className="section-rule"></div>
+          <div className="section-label">Tentang KKS</div>
+          <h2 className="section-title">Kolam Pancing<br />Terbaik Kedah</h2>
+          <p className="section-desc">Terletak di kawasan sawah padi Alor Setar, KKS menawarkan pengalaman memancing yang unik dengan suasana kampung asli.</p>
           <div className="about-grid">
-            <div className="about-visual">
-              <div className="logo-rings"></div>
-              <div className="logo-rings"></div>
-              <div className="logo-rings"></div>
-              <div className="about-logo-img">
-                {heroLogo ? <img src={heroLogo} alt="About logo" className="about-logo-image" /> : 'KKS'}
-              </div>
-            </div>
             <div>
-              <p className="about-text">Terletak di kawasan sawah padi Alor Setar, Kedah, <strong style={{ color: '#fff' }}>Kolam Keli Sayang (KKS)</strong> menawarkan 14 kolam bersaiz besar (65 × 480 kaki) — dikelilingi hamparan padi yang hijau dan menenangkan jiwa.</p>
-              <p className="about-text">Sama ada nak healing sorang-sorang, bawa family, atau test skill dalam pertandingan — sini memang port padu. Hembus angin sawah, bunyi kodok malam, suasana yang tak ternilai.</p>
-              <ul className="check-list">
-                <li>Kawasan luas dikelilingi sawah padi yang tenang</li>
-                <li>14 kolam bersaiz besar, dijaga rapi</li>
-                <li>Sesuai untuk event &amp; pertandingan bertaraf</li>
-                <li>Parking luas, jalan masuk mudah</li>
-                <li>Suasana kampung asli, jauh dari kesibukan</li>
-              </ul>
-              <div className="stat-strip">
-                <div className="stat-b"><div className="stat-n">{db.ponds.length}</div><div className="stat-l">Kolam</div></div>
-                <div className="stat-b"><div className="stat-n">480</div><div className="stat-l">Kaki Panjang</div></div>
-                <div className="stat-b"><div className="stat-n">65</div><div className="stat-l">Kaki Lebar</div></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="features-section">
-        <div className="container">
-          <div className="section-label">Kenapa Pilih KKS</div>
-          <h2 className="section-title">Semua Ada<br />Di Sini</h2>
-          <div className="section-rule"></div>
-          <div className="features-grid">
-            <div className="feat-card">
-              <div className="feat-icon">🎣</div>
-              <div className="feat-title">14 Kolam Besar</div>
-              <div className="feat-desc">Saiz 65 × 480 kaki, cukup luas untuk ramai pancing serentak tanpa sesak.</div>
-            </div>
-            <div className="feat-card">
-              <div className="feat-icon">🌾</div>
-              <div className="feat-title">Di Tengah Sawah</div>
-              <div className="feat-desc">Dikelilingi ladang padi Kedah — suasana tenang yang tak boleh dibeli.</div>
-            </div>
-            <div className="feat-card">
-              <div className="feat-icon">🏆</div>
-              <div className="feat-title">Event &amp; Pertandingan</div>
-              <div className="feat-desc">Setup sempurna untuk pertandingan pancing bertaraf tinggi seluruh Kedah.</div>
-            </div>
-            <div className="feat-card">
-              <div className="feat-icon">🚗</div>
-              <div className="feat-title">Parking Luas</div>
-              <div className="feat-desc">Ruang parking besar, selesa untuk kenderaan persendirian mahupun van.</div>
-            </div>
-            <div className="feat-card">
-              <div className="feat-icon">📱</div>
-              <div className="feat-title">Tempah Online</div>
-              <div className="feat-desc">Tempah slot dalam masa kurang 2 minit, slip confirm terus ke WhatsApp.</div>
-            </div>
-            <div className="feat-card">
-              <div className="feat-icon">🍜</div>
-              <div className="feat-title">Gerai Makan</div>
-              <div className="feat-desc">Pilihan makanan &amp; minuman tersedia sepanjang hari untuk pengunjung.</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="event-section" id="event">
-        <div className="container">
-          <div className="section-label">Jangan Terlepas</div>
-          <h2 className="section-title">Event<br />Akan Datang</h2>
-          <div className="section-rule"></div>
-          <div className="event-card">
-            <div className="event-info">
-              <span className="event-badge">📢 Pendaftaran Dibuka</span>
-              <div className="event-name">{db.comp.name}</div>
-              <div className="event-date">📅 {eventDate} • Kolam Keli Sayang, Alor Setar</div>
-              <p className="event-desc">Event besar pertama KKS! Bertanding di tepi sawah dengan suasana Kedah yang asli. Hadiah menarik menanti. Tempat terhad — siapa cepat dia dapat.</p>
-              <button className="btn-primary" onClick={() => handleSelectPond(bookablePonds[0]?.id ?? 1)}>Daftar Sekarang</button>
-            </div>
-            <div className="event-right">
-              <div className="etl">Masa Berbaki</div>
-              <div className="e-timer">
-                <div className="et"><span className="et-n">{countdown.days}</span><span className="et-l">Hari</span></div>
-                <div className="et"><span className="et-n">{countdown.hours}</span><span className="et-l">Jam</span></div>
-                <div className="et"><span className="et-n">{countdown.mins}</span><span className="et-l">Minit</span></div>
-              </div>
-              <div className="prize-box">
-                <div className="prize-lbl">Hadiah</div>
-                <div className="prize-val">Hadiah Menarik Menanti!</div>
-                <div className="prize-sub">Tempat Terhad</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="steps-section" id="tempah">
-        <div className="container" style={{ textAlign: 'center' }}>
-          <div className="section-label">Mudah Saja</div>
-          <h2 className="section-title">3 Langkah Tempahan</h2>
-          <div className="section-rule" style={{ margin: '1rem auto 0' }}></div>
-          <p style={{ color: '#777', marginTop: '1rem', fontSize: '0.9rem' }}>Tak sampai 2 minit siap.</p>
-          <div className="steps-row">
-            <div className="step">
-              <div className="step-circle s1">1</div>
-              <div className="step-title">Pilih Tarikh &amp; Masa</div>
-              <div className="step-desc">Pilih bila nak datang — weekday ke hujung minggu, semua boleh.</div>
-            </div>
-            <div className="step">
-              <div className="step-circle s2">2</div>
-              <div className="step-title">Pilih Kolam</div>
-              <div className="step-desc">Tengok availability kolam pilihan anda dan terus pilih yang sesuai.</div>
-            </div>
-            <div className="step">
-              <div className="step-circle s3">3</div>
-              <div className="step-title">Bayar &amp; Confirm</div>
-              <div className="step-desc">Bayar dengan selamat, slip tempahan terus dihantar ke WhatsApp anda.</div>
-            </div>
-          </div>
-          <div style={{ textAlign: 'center', marginTop: '3rem' }}>
-            <button className="btn-primary" onClick={() => goToBook()}>Mula Tempahan Sekarang</button>
-          </div>
-        </div>
-      </section>
-
-      <section className="ponds-section" id="kolam">
-        <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '1rem', marginBottom: '0.5rem' }}>
-          <div>
-            <div className="section-label">Pilih Tempat Anda</div>
-            <h2 className="section-title" style={{ color: '#fff' }}>Kolam Tersedia</h2>
-            <div className="section-rule" style={{ background: 'var(--gold)' }}></div>
-          </div>
-          <div className="legend">
-            <div className="leg"><span className="leg-dot" style={{ background: 'var(--green-bright)' }}></span>Available</div>
-            <div className="leg"><span className="leg-dot" style={{ background: 'var(--gold)' }}></span>Limited</div>
-            <div className="leg"><span className="leg-dot" style={{ background: '#444' }}></span>Fully Booked</div>
-            <div className="leg"><span className="leg-dot" style={{ background: '#963838' }}></span>Closed</div>
-          </div>
-        </div>
-        <div className="ponds-grid">
-          {db.ponds.map((pond) => {
-            const availCount = pond.seats.filter(s => s.status === 'available').length;
-            const isClosed = !pond.open;
-            const isFull = availCount === 0;
-            const isLimited = availCount < pond.seats.length * 0.3;
-            const statusLabel = isClosed ? 'Closed' : isFull ? 'Fully Booked' : isLimited ? 'Limited' : 'Available';
-            const statusClass = isClosed ? 'cl' : isFull ? 'fu' : isLimited ? 'li' : 'av';
-            return (
-              <div key={pond._docId || pond.id} className={`pond-card ${isClosed ? 'closed' : isFull ? 'full' : isLimited ? 'limited' : 'available'}`}>
-                <div className="pond-num">{pond.id}</div>
-                <div className="pond-size-lbl">{pond.date}</div>
-                <span className={`pond-badge ${statusClass}`}>{statusLabel}</span>
-                <div className="pond-name">{pond.name}</div>
-                <div className="pond-desc">{pond.desc}</div>
-                <div className="pond-meta">
-                  <span className="pond-avail"><span>{availCount}</span> available</span>
-                  <span className="pond-price">RM {pond.seats[0]?.price}</span>
+              <div className="about-features">
+                <div className="about-feature">
+                  <div className="feature-icon">🐟</div>
+                  <div className="feature-text"><h4>Ikan Keli Berkualiti</h4><p>Keli segar dipelihara dengan baik dalam kolam bersih dan terurus.</p></div>
                 </div>
-                <button className={`pond-btn ${isClosed || isFull ? 'disabled' : ''}`} disabled={isClosed || isFull} onClick={() => handleSelectPond(pond.id)}>
-                  {isClosed ? 'Closed' : isFull ? 'Full' : 'Book Now'}
-                </button>
+                <div className="about-feature">
+                  <div className="feature-icon">🏆</div>
+                  <div className="feature-text"><h4>Hadiah Lumayan</h4><p>Pertandingan bulanan dengan hadiah wang tunai yang menarik.</p></div>
+                </div>
+                <div className="about-feature">
+                  <div className="feature-icon">📱</div>
+                  <div className="feature-text"><h4>Tempahan Online Mudah</h4><p>Tempah dalam 2 minit — pilih kolam, bayar, terus dapat slip.</p></div>
+                </div>
+                <div className="about-feature">
+                  <div className="feature-icon">📍</div>
+                  <div className="feature-text"><h4>Lokasi Strategik</h4><p>Mudah diakses dari Alor Setar, parking luas dan percuma.</p></div>
+                </div>
               </div>
-            );
-          })}
+            </div>
+            <div className="about-visual">
+              <div className="about-visual-text">KKS</div>
+              <div className="about-tag">🎣 Est. 2020</div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="map-section" id="lokasi">
+      {/* COMPETITIONS */}
+      <section className="competitions" id="competitions">
         <div className="container">
-          <div className="section-label">Pelan Tapak</div>
-          <h2 className="section-title">Lokasi &amp; Susun Atur Kolam</h2>
-          <div className="section-rule"></div>
-
-          {/* Google Maps Embed */}
-          <div className="map-container" style={{ marginBottom: '2rem' }}>
-            <iframe
-              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3966.3239255093207!2d100.3092829!3d6.135637!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x31a3b8b8b8b8b8b9%3A0x1234567890abcdef!2sKolam%20Keli%20Sayang!5e0!3m2!1sms!2smy!4v1234567890000"
-              width="100%"
-              height="400"
-              style={{ border: 0, borderRadius: '12px' }}
-              allowFullScreen={true}
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              title="Location Map"
-            ></iframe>
-          </div>
-
-          <p style={{ color: '#666', marginTop: '0.75rem', fontSize: '0.9rem' }}>
-            📍 {db.settings?.location || 'Alor Setar, Kedah'} — Kolam KKS dikelilingi sawah padi Kedah
-          </p>
-          <div className="map-wrap">
-            <div className="map-legend-strip">
-              <div className="map-leg"><div className="map-leg-box" style={{ background: '#4a7fa5' }}></div>Kolam Ikan</div>
-              <div className="map-leg"><div className="map-leg-box" style={{ background: '#5aaa35' }}></div>Sawah Padi</div>
-              <div className="map-leg"><div className="map-leg-box" style={{ background: '#8b7355' }}></div>Jalan Masuk</div>
-              <div className="map-leg"><div className="map-leg-box" style={{ background: '#c8a84b' }}></div>Pagar Keselamatan</div>
-              <div className="map-coords">📍 {db.settings?.location || 'Alor Setar, Kedah'}</div>
-            </div>
-            <div className="map-card">
-              <div className="map-grid">
-                {db.ponds.filter(pond => pond.open).map(pond => (
-                  <div key={pond._docId || pond.id} className="map-pond">
-                    <div className="map-pond-title">{pond.name}</div>
-                    <div className="map-pond-sub">{pond.date}</div>
-                    <div className="map-pond-meta">{pond.seats.filter(s => s.status === 'available').length} available pegs</div>
-                  </div>
-                ))}
+          <div className="section-label">Pertandingan</div>
+          <h2 className="section-title">Sertai &amp;<br />Menang Besar</h2>
+          <p className="section-desc">Pertandingan pancing keli setiap bulan dengan hadiah wang tunai. Terbuka untuk semua peringkat.</p>
+          <div className="comp-carousel-shell">
+            <div
+              className={`comp-scroll-track ${isDraggingCompetitions ? 'is-dragging' : ''}`}
+              ref={competitionScrollerRef}
+              onWheel={handleCompetitionWheel}
+              onMouseDown={handleCompetitionMouseDown}
+              onMouseMove={handleCompetitionMouseMove}
+              onMouseUp={stopCompetitionDrag}
+              onMouseLeave={stopCompetitionDrag}
+              onTouchStart={handleCompetitionTouchStart}
+              onTouchMove={handleCompetitionTouchMove}
+              onTouchEnd={handleCompetitionTouchEnd}
+              onScroll={handleCompetitionScroll}
+              onClickCapture={handleCompetitionClickCapture}
+              role="region"
+              aria-label="Carousel pertandingan"
+            >
+            {competitions.map((competition) => {
+              const isSelectedCompetition = competition.id === selectedCompetition?.id;
+              const competitionKey = getCompetitionKey(competition);
+              const isFocused = competitionKey === focusedCompetitionKey;
+              const compPrize = competition.prizes?.[0] as any;
+              const compPrizeText = compPrize?.prize || compPrize?.amount || 'Hadiah Menarik';
+              const compDate = competition.startDate ? new Date(competition.startDate) : null;
+              const compDateText = compDate && !Number.isNaN(compDate.getTime())
+                ? compDate.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                : 'Tarikh akan diumumkan';
+              return (
+              <div key={competitionKey} data-competition-key={competitionKey} className={`comp-card comp-card-scroll ${isFocused ? 'is-focused' : ''}`} style={{ outline: isSelectedCompetition ? '2px solid var(--gold)' : undefined }}>
+                <div className="comp-header">
+                  <h3>{competition.name}</h3>
+                  <span className="comp-status status-open">{countdown.status === 'live' ? '🔴 Live' : countdown.status === 'ended' ? 'Selesai' : 'Pendaftaran Dibuka'}</span>
+                </div>
+                <div className="comp-body">
+                  <div className="comp-detail"><span className="comp-detail-icon">📅</span> {compDateText}</div>
+                  <div className="comp-detail"><span className="comp-detail-icon">📍</span> Kolam Keli Sayang, Alor Setar</div>
+                  <div className="comp-detail"><span className="comp-detail-icon">👥</span> {availablePegs} tempat tersedia</div>
+                  <div className="comp-prize"><span>Hadiah: </span>{compPrizeText}</div>
+                </div>
+                <div className="comp-footer">
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => {
+                      selectCompetition(competition.id);
+                      setPondPickerOpen(true);
+                    }}
+                  >
+                    {isSelectedCompetition ? 'Tukar Kolam' : 'Pilih Pertandingan'}
+                  </button>
+                </div>
               </div>
+            )})}
             </div>
           </div>
-          <p style={{ color: '#888', fontSize: '0.8rem', marginTop: '1rem', textAlign: 'center' }}>* Pelan tapak berdasarkan susun atur seminar — susun atur sebenar boleh berubah sedikit semasa operasi.</p>
         </div>
       </section>
 
-      <section className="cta-section" id="cta">
-        <div className="container">
-          <div className="cta-logo">KKS</div>
-          <div className="section-label" style={{ color: 'var(--gold-light)' }}>Jom Pancing!</div>
-          <h2 className="section-title" style={{ color: '#fff' }}>Jangan Tunggu Lama</h2>
-          <p className="cta-sub">Slot cepat penuh terutamanya hujung minggu. Tempah sekarang sebelum terlepas peluang pancing di sawah.</p>
-          <div className="cta-btns">
-            <button className="btn-primary" onClick={() => handleSelectPond(db.ponds[0]?.id ?? 1)}>Tempah Sekarang</button>
-            <button className="btn-outline" onClick={() => handleNavigation('about')}>Hubungi Kami</button>
+      {pondPickerOpen && (
+        <div className="modal-overlay open" onClick={() => setPondPickerOpen(false)}>
+          <div className="modal" style={{ maxWidth: '920px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Pilih Kolam Untuk {selectedCompetition?.name || 'Pertandingan'}</div>
+              <button className="modal-close" onClick={() => setPondPickerOpen(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="ponds-grid">
+                {competitionScopedPonds.map((pond, idx) => {
+                  const availCount = pond.seats.filter((seat) => seat.status === 'available').length;
+                  const letterIdx = String.fromCharCode(65 + idx);
+                  const isClosed = !pond.open;
+                  const isFull = availCount === 0;
+                  const statusLabel = isClosed ? 'Ditutup' : isFull ? 'Penuh' : `${availCount} tempat kosong`;
+                  return (
+                    <div
+                      key={pond._docId || pond.id}
+                      className="pond-card"
+                      onClick={() => !isClosed && !isFull && handleSelectPond(pond.id)}
+                      style={{ cursor: isClosed || isFull ? 'default' : 'pointer', opacity: isClosed ? 0.65 : 1 }}
+                    >
+                      <div className="pond-num">{letterIdx}</div>
+                      <div className="pond-name">{pond.name}</div>
+                      <div className="pond-seats">{pond.seats.length} tempat duduk · RM{pond.seats[0]?.price || 0}/peg</div>
+                      <div className="pond-badge">{statusLabel}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-          <div className="info-strip">
-            <div className="info-item">
-              <div className="info-lbl">WhatsApp</div>
-              <div className="info-val">+60 1X-XXX XXXX</div>
+        </div>
+      )}
+
+      {/* HOW IT WORKS */}
+      <section className="how" id="how">
+        <div className="container">
+          <div className="section-label">Cara Tempah</div>
+          <h2 className="section-title">4 Langkah<br />Mudah</h2>
+          <p className="section-desc">Proses tempahan yang simple dan cepat — kurang dari 2 minit siap.</p>
+          <div className="steps">
+            <div className="step">
+              <div className="step-num">01</div>
+              <div className="step-icon">📋</div>
+              <h3>Pilih Pertandingan</h3>
+              <p>Tengok senarai pertandingan yang available dan pilih yang berkenan.</p>
             </div>
-            <div className="info-item">
-              <div className="info-lbl">Lokasi</div>
-              <div className="info-val">Alor Setar, Kedah</div>
+            <div className="step">
+              <div className="step-num">02</div>
+              <div className="step-icon">🎯</div>
+              <h3>Pilih Kolam &amp; Tempat</h3>
+              <p>Pilih kolam dan nombor tempat duduk yang anda suka.</p>
             </div>
-            <div className="info-item">
-              <div className="info-lbl">Waktu Buka</div>
-              <div className="info-val">Isnin–Ahad 7am–7pm</div>
+            <div className="step">
+              <div className="step-num">03</div>
+              <div className="step-icon">💳</div>
+              <h3>Buat Bayaran</h3>
+              <p>Bayar melalui transfer bank atau deposit 50%. Upload resit.</p>
+            </div>
+            <div className="step">
+              <div className="step-num">04</div>
+              <div className="step-icon">✅</div>
+              <h3>Dapat Pengesahan</h3>
+              <p>Staff akan sahkan tempahan. Anda akan terima notifikasi.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* PRIZES */}
+      <section className="prizes" id="prizes">
+        <div className="container">
+          <div className="section-label">Ganjaran</div>
+          <h2 className="section-title">Hadiah &amp;<br />Ganjaran</h2>
+          <p className="section-desc">Hadiah wang tunai untuk pemenang setiap pertandingan.</p>
+          <table className="prizes-table">
+            <thead>
+              <tr><th>Tempat</th><th>Kategori</th><th>Hadiah</th></tr>
+            </thead>
+            <tbody>
+              {selectedCompetition?.prizes?.length ? selectedCompetition.prizes.map((p: any, i: number) => (
+                <tr key={i} className={i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : ''}>
+                  <td>#{i + 1}</td>
+                  <td>{p.label || `Tempat ${i + 1}`}</td>
+                  <td className="prize-amount">{p.prize || (p.amount ? `RM ${p.amount}` : 'RM ???')}</td>
+                </tr>
+              )) : (
+                <>
+                  <tr className="rank-1"><td>🥇 #1</td><td>Juara</td><td className="prize-amount">RM ??? </td></tr>
+                  <tr className="rank-2"><td>🥈 #2</td><td>Naib Juara</td><td className="prize-amount">RM ???</td></tr>
+                  <tr className="rank-3"><td>🥉 #3</td><td>Ketiga</td><td className="prize-amount">RM ???</td></tr>
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* PAYMENT */}
+      <section className="payment">
+        <div className="container">
+          <div className="section-label">Bayaran</div>
+          <h2 className="section-title">Cara<br />Pembayaran</h2>
+          <p className="section-desc">Pilih kaedah bayaran yang sesuai. Semua transaksi selamat dan dilindungi.</p>
+          <div className="payment-cards">
+            <div className="payment-card payment-highlight">
+              <div className="payment-icon">📱</div>
+              <h3>QR Transfer</h3>
+              <p>Scan QR code dan buat pembayaran terus dari aplikasi bank anda.</p>
+            </div>
+            <div className="payment-card">
+              <div className="payment-icon">💵</div>
+              <h3>Tunai</h3>
+              <p>Bayar secara tunai di kaunter pada hari pertandingan.</p>
+            </div>
+            <div className="payment-card">
+              <div className="payment-icon">💳</div>
+              <h3>Deposit 50%</h3>
+              <p>Bayar separuh untuk mengesahkan tempahan. Baki pada hari event.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CONTACT */}
+      <section className="contact" id="contact">
+        <div className="container">
+          <div className="section-label" style={{ color: 'var(--gold)' }}>Hubungi Kami</div>
+          <h2 className="section-title" style={{ color: '#fff' }}>Ada Soalan?</h2>
+          <p className="section-desc" style={{ color: '#8B6A4F' }}>Jangan segan untuk hubungi kami. Kami sedia membantu.</p>
+          <div className="contact-info">
+            <div className="contact-item">
+              <div className="contact-item-icon">📞</div>
+              <h4>Telefon</h4>
+              <p>{db.settings?.whatsapp || '+60 1X-XXX XXXX'}</p>
+            </div>
+            <div className="contact-item">
+              <div className="contact-item-icon">💬</div>
+              <h4>WhatsApp</h4>
+              <p><a href={`https://wa.me/${(db.settings?.whatsapp || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer">{db.settings?.whatsapp || '+60 1X-XXX XXXX'}</a></p>
+            </div>
+            <div className="contact-item">
+              <div className="contact-item-icon">📧</div>
+              <h4>Emel</h4>
+              <p>{db.settings?.email || 'info@kks.com'}</p>
+            </div>
+            <div className="contact-item">
+              <div className="contact-item-icon">📍</div>
+              <h4>Alamat</h4>
+              <p>{db.settings?.location || 'Alor Setar, Kedah'}</p>
+            </div>
+          </div>
+          <div className="cta-block">
+            <p>Jom sertai komuniti pemancing KKS!</p>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary btn-lg" onClick={() => handleNavigation('competitions')}>Pilih Pertandingan</button>
+              <a className="btn-outline" href={`https://wa.me/${(db.settings?.whatsapp || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer">WhatsApp Kami</a>
             </div>
           </div>
         </div>
@@ -482,28 +701,104 @@ const AppContent: React.FC = () => {
       case 'home':
         return renderHome();
       case 'book': {
+        if (!selectedCompetition?.id) {
+          return (
+            <div className="booking-layout">
+              <div className="booking-main">
+                <div className="panel" style={{ textAlign: 'center', padding: '2rem' }}>
+                  <div className="panel-title">Pilih Pertandingan Dahulu</div>
+                  <div className="panel-subtitle">Sebelum memilih kolam dan tempat, sila pilih satu pertandingan dari halaman utama.</div>
+                  <button className="btn btn-primary mt-4" onClick={() => { goHome(); setHomeScrollTarget('competitions'); }}>Pergi Ke Pertandingan</button>
+                </div>
+              </div>
+            </div>
+          );
+        }
         const bookedPond = activePond;
         return (
           <div className="booking-layout">
-            <BookingSidebar ponds={bookablePonds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
-            <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} />
-            <BookingForm
-              user={user}
-              pond={bookedPond}
-              selectedSeats={selectedSeats}
-              payType={payType}
-              receiptData={receiptData}
-              onSetPayType={setPayType}
-              onHandleReceiptChange={handleReceiptChange}
-              onClearReceipt={() => setReceiptData(null, null)}
-              onSubmitBooking={handleSubmitBooking}
-              onOpenAuth={() => setAuthModalOpen(true)}
-            />
+            <div className="booking-main">
+              <div className="progress-bar">
+                <div className={`progress-step ${!selectedPond ? 'active' : 'completed'}`} onClick={() => {}}>
+                  <div className="step-circle-sm">1</div>
+                  <div className="step-info"><div className="step-label">Langkah 1</div><div className="step-name">Pilih Kolam</div></div>
+                </div>
+                <div className={`progress-step ${selectedPond && !selectedSeats.length ? 'active' : selectedSeats.length ? 'completed' : ''}`}>
+                  <div className="step-circle-sm">2</div>
+                  <div className="step-info"><div className="step-label">Langkah 2</div><div className="step-name">Pilih Tempat</div></div>
+                </div>
+                <div className={`progress-step ${selectedSeats.length && !receiptData ? 'active' : receiptData ? 'completed' : ''}`}>
+                  <div className="step-circle-sm">3</div>
+                  <div className="step-info"><div className="step-label">Langkah 3</div><div className="step-name">Maklumat</div></div>
+                </div>
+                <div className={`progress-step ${receiptData ? 'active' : ''}`}>
+                  <div className="step-circle-sm">4</div>
+                  <div className="step-info"><div className="step-label">Langkah 4</div><div className="step-name">Bayaran</div></div>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="panel-title">Pilih Kolam & Tempat Duduk</div>
+                <div className="panel-subtitle">Pilih kolam yang anda inginkan, kemudian pilih tempat duduk yang tersedia.</div>
+                <BookingSidebar ponds={bookablePonds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
+              </div>
+
+              {bookedPond && (
+                <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} />
+              )}
+
+              {selectedSeats.length > 0 && (
+                <BookingForm
+                  user={user}
+                  pond={bookedPond}
+                  selectedSeats={selectedSeats}
+                  payType={payType}
+                  receiptData={receiptData}
+                  onSetPayType={setPayType}
+                  onHandleReceiptChange={handleReceiptChange}
+                  onClearReceipt={() => setReceiptData(null, null)}
+                  onSubmitBooking={handleSubmitBooking}
+                  onOpenAuth={() => setAuthModalOpen(true)}
+                />
+              )}
+            </div>
+
+            <div className="summary-card">
+              <div className="summary-title">Ringkasan Tempahan</div>
+              {selectedCompetition?.name && <div className="timer-chip">🏆 {selectedCompetition.name}</div>}
+              <div className="divider"></div>
+              <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                <strong style={{ color: 'var(--text)' }}>Kolam:</strong> {bookedPond?.name || 'Belum dipilih'}
+              </div>
+              <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                <strong style={{ color: 'var(--text)' }}>Pegs:</strong>{' '}
+                {selectedSeats.length ? (
+                  <span className="selected-pills" style={{ display: 'inline-flex' }}>
+                    {selectedSeats.map(s => <span key={s} className="seat-pill">{s}</span>)}
+                  </span>
+                ) : 'Belum dipilih'}
+              </div>
+              <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                <strong style={{ color: 'var(--text)' }}>Bayaran:</strong> {payType === 'deposit' ? '50% Deposit' : 'Penuh'}
+              </div>
+              <div className="divider"></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 700, fontSize: '.85rem' }}>Jumlah</span>
+                <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.5rem', color: 'var(--gold)' }}>
+                  RM {bookedPond && selectedSeats.length
+                    ? (selectedSeats.reduce((sum, seatNum) => {
+                        const seat = bookedPond.seats.find(s => s.num === seatNum);
+                        return sum + (seat?.price || 0);
+                      }, 0) * (payType === 'deposit' ? 0.5 : 1)).toFixed(0)
+                    : '0'}
+                </span>
+              </div>
+            </div>
           </div>
         );
       }
       case 'live':
-        return <LiveResults comp={db.comp} scores={db.scores} ponds={db.ponds} bookings={db.bookings} user={user} />;
+        return <LiveResults comp={selectedCompetition || db.comp} scores={db.scores} ponds={competitionScopedPonds} bookings={db.bookings.filter((booking) => (booking.competitionId || db.comp.id) === (selectedCompetition?.id || db.comp.id))} user={user} />;
       case 'mybookings':
         if (!authReady) {
           return (
@@ -528,25 +823,31 @@ const AppContent: React.FC = () => {
         }
         return (
           <div className="bookings-page">
-            <div className="flex items-center justify-between mb-4" style={{ flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px', marginBottom: '28px' }}>
               <div>
-                <div className="section-title" style={{ fontSize: '30px' }}>My Bookings</div>
-                <div style={{ color: 'var(--muted)', fontSize: '12px' }}>{user.name} ({user.email})</div>
+                <div style={{ fontFamily: 'var(--fd)', fontSize: '28px', fontWeight: 800, letterSpacing: '.5px', marginBottom: '4px' }}>My Bookings</div>
+                <div style={{ color: 'var(--muted)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green-bright)' }}></span>
+                  {user.name} · {user.email}
+                </div>
               </div>
-              <button className="btn btn-primary" onClick={() => goToBook()}>
+              <button className="btn btn-primary" onClick={() => goToBook()} style={{ borderRadius: '12px' }}>
                 <i className="fa-solid fa-plus"></i> New Booking
               </button>
             </div>
             {userBookings.length ? userBookings.map(b => (
-              <div key={b.id} className="card booking-row" onClick={() => { setSelectedBooking(b); setBookingDetailsOpen(true); }} style={{ cursor: 'pointer' }}>
+              <div key={b.id} className="card booking-row" onClick={() => { setSelectedBooking(b); setBookingDetailsOpen(true); }}>
                 <div>
                   <div className="booking-id">{b.id}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>{fmt(b.createdAt)}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>{fmt(b.createdAt)}</div>
                 </div>
                 <div>
                   <div className="booking-pond">{b.pondName}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--gold)', marginTop: '2px', fontWeight: 600 }}>{b.competitionName || selectedCompetition?.name || db.comp.name}</div>
                   <div className="booking-meta">
-                    📍 Pegs: {b.seats.join(', ')} &nbsp;|&nbsp; 💰 RM {b.amount} &nbsp;|&nbsp; {b.paymentType === 'deposit' ? 'Deposit' : 'Full'}
+                    <span>📍 Pegs: {b.seats.join(', ')}</span>
+                    <span>💰 RM {b.amount}</span>
+                    <span>{b.paymentType === 'deposit' ? '💳 Deposit' : '💳 Full'}</span>
                   </div>
                 </div>
                 <div>
@@ -577,6 +878,7 @@ const AppContent: React.FC = () => {
               {lastBooking ? (
                 <>
                   <strong>{lastBooking.pondName}</strong><br />
+                  Competition: {lastBooking.competitionName || selectedCompetition?.name || db.comp.name}<br />
                   Pegs: {lastBooking.seats.join(', ')}<br />
                   Amount: RM {lastBooking.amount} ({lastBooking.paymentType === 'deposit' ? '50% deposit' : 'full payment'})<br />
                   <br />
@@ -631,6 +933,12 @@ const AppContent: React.FC = () => {
       <div key="section-confirmed" className={`section ${currentSection === 'confirmed' ? 'active' : ''}`} id="section-confirmed">
         {currentSection === 'confirmed' && renderSection()}
       </div>
+      {currentSection === 'home' && (
+        <footer>
+          <div className="footer-logo">KKS Fishing</div>
+          <div className="footer-copy">&copy; {new Date().getFullYear()} Kolam Keli Sayang. Semua hak terpelihara.</div>
+        </footer>
+      )}
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
@@ -643,6 +951,7 @@ const AppContent: React.FC = () => {
         user={user}
         ponds={db.ponds}
         comp={db.comp}
+        competitions={db.competitions}
         settings={db.settings}
         bookings={db.bookings}
         onUpdateData={({ ponds: updatedPonds, comp: updatedComp }) => {

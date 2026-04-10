@@ -19,6 +19,8 @@ export interface Pond {
 export interface Booking {
   id: string;
   bookingRef?: string;
+  competitionId?: string;
+  competitionName?: string;
   userId: string;
   userName: string;
   userPhone: string;
@@ -61,6 +63,7 @@ export interface Competition {
   topN: number;
   _spf?: number;
   prizes: Prize[];
+  activePondIds?: string[];
 }
 
 export interface Settings {
@@ -103,6 +106,7 @@ export interface DB {
   bookings: Booking[];
   scores: Record<number, Score>;
   comp: Competition;
+  competitions: Competition[];
   settings: Settings;
   users: User[];
 }

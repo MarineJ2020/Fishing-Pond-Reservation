@@ -57,12 +57,13 @@ const BookingForm: React.FC<BookingFormProps> = ({
 
   if (!user) {
     return (
-      <div className="card booking-form-card">
-        <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '18px' }}>Your Booking</div>
-        <div id="booking-login-prompt" style={{ display: 'block', textAlign: 'center', padding: '18px 0' }}>
-          <div style={{ fontSize: '30px', marginBottom: '10px' }}>🔐</div>
-          <div style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '14px' }}>
-            Login or register to complete your booking
+      <div className="panel">
+        <div className="panel-title">Maklumat & Bayaran</div>
+        <div className="panel-subtitle">Login atau daftar untuk meneruskan tempahan anda</div>
+        <div style={{ textAlign: 'center', padding: '24px 0' }}>
+          <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔐</div>
+          <div style={{ fontSize: '.85rem', color: 'var(--text-muted)', marginBottom: '18px', lineHeight: 1.6 }}>
+            Login atau register untuk buat tempahan
           </div>
           <button className="btn btn-primary w-full" onClick={onOpenAuth}>Login / Register</button>
         </div>
@@ -71,34 +72,38 @@ const BookingForm: React.FC<BookingFormProps> = ({
   }
 
   return (
-    <div className="card booking-form-card">
-      <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Your Booking</span>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '18px', color: 'var(--accent)' }}>RM {amt}</div>
-          <div style={{ fontSize: '10px', color: 'var(--muted)' }}>{payType === 'deposit' ? '50% deposit' : 'Full amount'}</div>
-        </div>
-      </div>
-      <hr className="divider" />
+    <div className="panel">
+      <div className="panel-title">Maklumat & Bayaran</div>
+      <div className="panel-subtitle">Lengkapkan butiran di bawah untuk menempah tempat anda</div>
+
       <label className="form-label">Selected Pegs</label>
       <div className="selected-pills">
         {selectedSeats.length ? (
           selectedSeats.map(n => <span key={n} className="seat-pill">#{n}</span>)
         ) : (
-          <div style={{ fontSize: '11px', color: 'var(--muted)' }}>No pegs selected yet</div>
+          <div style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>No pegs selected yet</div>
         )}
       </div>
       <hr className="divider" />
-      <label className="form-label">Payment Type</label>
+      <label className="form-label">Jenis Bayaran</label>
       <div className="payment-opts">
         <div className={`payment-opt ${payType === 'full' ? 'active' : ''}`} onClick={() => onSetPayType('full')}>
-          Full<div className="opt-sub">Pay in full</div>
+          Penuh<div className="opt-sub">Bayar sepenuhnya</div>
         </div>
         <div className={`payment-opt ${payType === 'deposit' ? 'active' : ''}`} onClick={() => onSetPayType('deposit')}>
-          Deposit<div className="opt-sub">50% now</div>
+          Deposit<div className="opt-sub">50% dahulu</div>
         </div>
       </div>
-      <label className="form-label">Upload Receipt <span style={{ color: 'var(--accent3)' }}>*</span></label>
+
+      <div className="price-bar" style={{ marginBottom: '16px' }}>
+        <div>
+          <div className="price-bar-label">Jumlah Bayaran</div>
+          <div className="price-bar-detail">{selectedSeats.length} tempat × {payType === 'deposit' ? '50% deposit' : 'bayaran penuh'}</div>
+        </div>
+        <div className="price-bar-total">RM {amt}</div>
+      </div>
+
+      <label className="form-label">Muat Naik Resit <span style={{ color: 'var(--red)' }}>*</span></label>
       <div
         className="upload-zone"
         onClick={() => fileInputRef.current?.click()}
@@ -113,41 +118,36 @@ const BookingForm: React.FC<BookingFormProps> = ({
           onChange={handleFileChange}
           style={{ display: 'none' }}
         />
-        <div className="upload-icon">
-          <i className="fa-solid fa-cloud-arrow-up"></i>
-        </div>
+        <div className="upload-icon">📤</div>
         <div className="upload-text">
-          Click or drag receipt<br />
-          <span style={{ fontSize: '10px', color: 'var(--muted)' }}>JPG, PNG or PDF</span>
+          Klik atau tarik resit ke sini<br />
+          <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>JPG, PNG atau PDF</span>
         </div>
       </div>
       {receiptData && (
         <div className="upload-preview">
-          <i className="fa-solid fa-check-circle"></i>
-          <span>Receipt uploaded</span>
-          <span style={{ marginLeft: 'auto', cursor: 'pointer', color: 'var(--muted)' }} onClick={onClearReceipt}>
-            <i className="fa-solid fa-xmark"></i>
-          </span>
+          ✅ <span>Resit telah dimuat naik</span>
+          <span style={{ marginLeft: 'auto', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={onClearReceipt}>✕</span>
         </div>
       )}
-      <label className="form-label">Notes (optional)</label>
+      <label className="form-label">Nota (pilihan)</label>
       <textarea
         className="form-input"
         rows={2}
-        placeholder="Any special requests..."
+        placeholder="Sebarang permintaan khas..."
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
       />
       <button
         id="btn-submit"
-        className="btn btn-primary w-full btn-lg mt-3"
+        className="btn btn-primary w-full btn-lg mt-4"
         onClick={onSubmitBooking}
         disabled={!selectedSeats.length || !receiptData}
       >
-        <i className="fa-solid fa-paper-plane"></i> Submit Booking
+        Hantar Tempahan
       </button>
-      <div style={{ fontSize: '10px', color: 'var(--muted)', textAlign: 'center', marginTop: '7px' }}>
-        Staff will verify and confirm via email
+      <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '7px' }}>
+        Staff akan sahkan dan maklumkan melalui email
       </div>
     </div>
   );

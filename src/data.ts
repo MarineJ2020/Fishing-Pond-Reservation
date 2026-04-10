@@ -20,6 +20,7 @@ export const emptyDB: DB = {
     topN: 20,
     prizes: []
   },
+  competitions: [],
   settings: {
     qrBank: '',
     qrName: '',
