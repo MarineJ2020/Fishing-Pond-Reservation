@@ -27,7 +27,9 @@ export const emptyDB: DB = {
     qrAccNo: '',
     qrImg: '',
     heroLogo: '',
+    phone: '',
     whatsapp: '',
+    email: '',
     location: '',
     openingHours: {
       days: [],

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Pond } from '../types';
+import { Pond, Seat } from '../types';
 
 interface SeatMapProps {
   pond: Pond | null;
@@ -8,9 +8,14 @@ interface SeatMapProps {
 }
 
 const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat }) => {
-  const zones = useMemo(() => {
-    if (!pond) return [];
-    return [...new Set(pond.seats.map(s => s.zone))].sort();
+  const splitSeats = useMemo(() => {
+    if (!pond) return { left: [] as Seat[], right: [] as Seat[] };
+    const ordered = [...pond.seats].sort((a, b) => a.num - b.num);
+    const leftCount = Math.ceil(ordered.length / 2);
+    return {
+      left: ordered.slice(0, leftCount),
+      right: ordered.slice(leftCount),
+    };
   }, [pond]);
 
   if (!pond) {
@@ -72,12 +77,9 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat }) 
       </div>
       <div id="seat-map-wrap" className="seat-map-wrap">
         <div className="seat-zone-wrap left">
-          <div className="seat-zone-label">Zone A</div>
+          <div className="seat-zone-label">Kiri</div>
           <div className="seat-col">
-            {pond.seats
-              .filter(s => s.zone === 'A')
-              .sort((a, b) => b.num - a.num)
-              .map(s => {
+            {splitSeats.left.map(s => {
                 const isSelected = selectedSeats.includes(s.num);
                 const isBooked = s.status === 'booked';
                 const cls = isBooked ? 'booked' : isSelected ? 'selected' : 'avail';
@@ -108,12 +110,9 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat }) 
           <div className="pond-visual-text">KOLAM</div>
         </div>
         <div className="seat-zone-wrap right">
-          <div className="seat-zone-label">Zone B</div>
+          <div className="seat-zone-label">Kanan</div>
           <div className="seat-col">
-            {pond.seats
-              .filter(s => s.zone === 'B')
-              .sort((a, b) => a.num - b.num)
-              .map(s => {
+            {splitSeats.right.map(s => {
                 const isSelected = selectedSeats.includes(s.num);
                 const isBooked = s.status === 'booked';
                 const cls = isBooked ? 'booked' : isSelected ? 'selected' : 'avail';

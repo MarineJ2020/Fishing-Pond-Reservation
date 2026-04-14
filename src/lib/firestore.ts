@@ -13,7 +13,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { DB, Pond, Seat, Booking, Score, Competition, Settings } from '../types';
+import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry } from '../types';
 import { emptyDB } from '../data';
 
 const normalizeTimestamp = (value: any) => {
@@ -58,6 +58,7 @@ const normalizeCompetition = (data: any): Competition => ({
   topN: data.topN || 20,
   prizes: data.prizes || [],
   activePondIds: Array.isArray(data.activePondIds) ? data.activePondIds.map((id: any) => id?.toString?.() || '').filter(Boolean) : [],
+  pondSeats: data.pondSeats && typeof data.pondSeats === 'object' ? data.pondSeats : undefined,
 });
 
 const normalizeSettings = (data: any): Settings => ({
@@ -66,7 +67,9 @@ const normalizeSettings = (data: any): Settings => ({
   qrAccNo: data.qrAccNo || '3841-2038-491',
   qrImg: data.qrImg || '',
   heroLogo: data.heroLogo || '',
+  phone: data.phone || '',
   whatsapp: data.whatsapp || 'https://wa.me/60123456789',
+  email: data.email || 'info@kks.com',
   location: data.location || 'Alor Setar, Kedah',
   openingHours: data.openingHours || {
     days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
@@ -74,6 +77,8 @@ const normalizeSettings = (data: any): Settings => ({
     timeEnd: '18:00',
   },
   grandOpening: data.grandOpening || { date: new Date().toISOString().slice(0, 10), time: '08:00' },
+  contactTitle: data.contactTitle || 'Ada Soalan?',
+  contactSubtitle: data.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.',
 });
 
 const buildBooking = (
@@ -173,6 +178,7 @@ export const createCompetition = async (data: Partial<Competition>) => {
     topN: data.topN || 20,
     prizes: data.prizes || [],
     activePondIds: data.activePondIds || [],
+    pondSeats: data.pondSeats || {},
     status: 'ACTIVE',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -393,7 +399,50 @@ export const updateCompetition = async (competitionId: string, updates: Partial<
   if (typeof updates.topN !== 'undefined') payload.topN = updates.topN;
   if (typeof updates.prizes !== 'undefined') payload.prizes = updates.prizes;
   if (typeof updates.activePondIds !== 'undefined') payload.activePondIds = updates.activePondIds;
+  if (typeof updates.pondSeats !== 'undefined') payload.pondSeats = updates.pondSeats;
   await setDoc(compRef, payload, { merge: true });
+};
+
+export const syncPondSeats = async (pondId: string, targetCount: number, pricePerSeat: number) => {
+  const seatsRef = collection(db, 'seats');
+  const seatsQuery = query(seatsRef, where('pondId', '==', pondId));
+  const seatsSnapshot = await getDocs(seatsQuery);
+  const existingSeats = seatsSnapshot.docs
+    .map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) }))
+    .sort((a, b) => (a.seatNumber || 0) - (b.seatNumber || 0));
+
+  const safeTarget = Math.max(0, Math.floor(targetCount));
+  const safePrice = Math.max(0, Number(pricePerSeat || 0));
+  const currentCount = existingSeats.length;
+
+  if (currentCount < safeTarget) {
+    const addPromises: Promise<any>[] = [];
+    for (let i = currentCount + 1; i <= safeTarget; i += 1) {
+      addPromises.push(addDoc(seatsRef, {
+        pondId,
+        seatNumber: i,
+        zone: i <= safeTarget / 2 ? 'A' : 'B',
+        price: safePrice,
+        status: 'available',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }));
+    }
+    await Promise.all(addPromises);
+  }
+
+  if (currentCount > safeTarget) {
+    const removeSeats = existingSeats.slice(safeTarget);
+    await Promise.all(removeSeats.map((seat) => deleteDoc(doc(db, 'seats', seat.id))));
+  }
+
+  const keepSeats = existingSeats.slice(0, Math.min(currentCount, safeTarget));
+  if (keepSeats.length) {
+    await Promise.all(keepSeats.map((seat) => setDoc(doc(db, 'seats', seat.id), {
+      price: safePrice,
+      updatedAt: serverTimestamp(),
+    }, { merge: true })));
+  }
 };
 
 export const deleteCompetition = async (competitionId: string) => {
@@ -460,4 +509,74 @@ export const deletePond = async (pondId: string) => {
   // Delete pond
   const pondRef = doc(db, 'ponds', pondId);
   await deleteDoc(pondRef);
+};
+
+export const getScoresForCompetition = async (competitionId: string): Promise<ScoreEntry[]> => {
+  const resultsRef = collection(db, 'eventResults');
+  const [snapStr, snapRef] = await Promise.all([
+    getDocs(query(resultsRef, where('competitionId', '==', competitionId))),
+    getDocs(query(resultsRef, where('competitionId', '==', doc(db, 'competitions', competitionId)))),
+  ]);
+  const seenIds = new Set<string>();
+  const entries: ScoreEntry[] = [];
+  [...snapStr.docs, ...snapRef.docs].forEach((d) => {
+    if (seenIds.has(d.id)) return;
+    seenIds.add(d.id);
+    const data = d.data();
+    const rawBookingId = data.bookingId;
+    const bookingId = rawBookingId && typeof rawBookingId === 'object'
+      ? rawBookingId?.id
+      : rawBookingId || undefined;
+    entries.push({
+      id: d.id,
+      competitionId,
+      bookingId,
+      anglerName: data.anglerName || '',
+      pondId: typeof data.pondId === 'number' ? data.pondId : 0,
+      pondName: data.pondName || '',
+      seatNum: data.seatNum || data.seatNumber || 0,
+      weight: parseFloat(data.weight ?? data.totalWeight ?? 0),
+    });
+  });
+  return entries;
+};
+
+export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<string> => {
+  const resultsRef = collection(db, 'eventResults');
+  if (entry.bookingId) {
+    const q = query(
+      resultsRef,
+      where('competitionId', '==', entry.competitionId),
+      where('bookingId', '==', entry.bookingId),
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const existingId = snap.docs[0].id;
+      await setDoc(doc(db, 'eventResults', existingId), {
+        anglerName: entry.anglerName,
+        pondId: entry.pondId,
+        pondName: entry.pondName,
+        seatNum: entry.seatNum,
+        weight: entry.weight,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      return existingId;
+    }
+  }
+  const docRef = await addDoc(resultsRef, {
+    competitionId: entry.competitionId,
+    bookingId: entry.bookingId || null,
+    anglerName: entry.anglerName,
+    pondId: entry.pondId,
+    pondName: entry.pondName,
+    seatNum: entry.seatNum,
+    weight: entry.weight,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return docRef.id;
+};
+
+export const deleteScoreEntry = async (id: string): Promise<void> => {
+  await deleteDoc(doc(db, 'eventResults', id));
 };

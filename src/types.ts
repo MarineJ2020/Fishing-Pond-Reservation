@@ -49,6 +49,17 @@ export interface Score {
   pondName: string;
 }
 
+export interface ScoreEntry {
+  id?: string;
+  competitionId: string;
+  bookingId?: string;
+  anglerName: string;
+  pondId: number;
+  pondName: string;
+  seatNum: number;
+  weight: number;
+}
+
 export interface Prize {
   rank: number;
   label: string;
@@ -64,6 +75,7 @@ export interface Competition {
   _spf?: number;
   prizes: Prize[];
   activePondIds?: string[];
+  pondSeats?: Record<string, number>;
 }
 
 export interface Settings {
@@ -72,7 +84,9 @@ export interface Settings {
   qrAccNo: string;
   qrImg: string;
   heroLogo: string;
+  phone?: string;
   whatsapp: string;
+  email?: string;
   location: string;
   openingHours: {
     days: string[];
@@ -88,6 +102,8 @@ export interface Settings {
   heroSubtitle?: string;
   aboutTitle?: string;
   aboutContent?: string;
+  contactTitle?: string;
+  contactSubtitle?: string;
   ctaTitle?: string;
   ctaSubtitle?: string;
 }

@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { User, Pond, Competition, Prize, Settings } from '../types';
+import { User, Pond, Competition, Prize, Settings, ScoreEntry } from '../types';
 import { gs } from '../data';
 import {
   createPond as createPondFirestore,
   createCompetition as createCompetitionFirestore,
   deleteCompetition as deleteCompetitionFirestore,
+  syncPondSeats as syncPondSeatsFirestore,
   updatePond as updatePondFirestore,
   updateBookingStatus as updateBookingStatusFirestore,
   updateCompetition as updateCompetitionFirestore,
   updateSettings as updateSettingsFirestore,
+  getScoresForCompetition,
+  saveScoreEntry,
+  deleteScoreEntry,
 } from '../lib/firestore';
 
-type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'users';
+type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'users';
 
 interface CMSModalProps {
   isOpen: boolean;
@@ -35,12 +39,30 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
   const [competitionEditorOpen, setCompetitionEditorOpen] = useState(false);
   const [competitionDeleteTarget, setCompetitionDeleteTarget] = useState<Competition | null>(null);
   const [settingsEdit, setSettingsEdit] = useState(settings);
-  const [newPond, setNewPond] = useState<Partial<Pond>>({ name: '', date: '', desc: '', seats: [], open: true });
+  const [newPond, setNewPond] = useState<Partial<Pond>>({ name: '', desc: '', seats: [], open: true });
   const [newPondSeatPrice, setNewPondSeatPrice] = useState(100);
   const [saving, setSaving] = useState(false);
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'rejected'>('all');
   const [checkinRef, setCheckinRef] = useState('');
   const [checkinResult, setCheckinResult] = useState<any>(null);
+
+  // Results / Live page state
+  const [resultsCompId, setResultsCompId] = useState<string>(comp.id || '');
+  const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
+  const [pendingWeights, setPendingWeights] = useState<Record<string, string>>({});
+  const [savingEntry, setSavingEntry] = useState<string | null>(null);
+  const [manualEntry, setManualEntry] = useState({ anglerName: '', pondId: '', seatNum: '', weight: '' });
+  const [anglerSuggestOpen, setAnglerSuggestOpen] = useState(false);
+
+  useEffect(() => {
+    if (!resultsCompId && comp.id) setResultsCompId(comp.id);
+    else if (!resultsCompId && competitions.length) setResultsCompId(competitions[0].id || '');
+  }, [comp.id, competitions]);
+
+  useEffect(() => {
+    if (page !== 'results' || !resultsCompId) return;
+    getScoresForCompetition(resultsCompId).then(setScoreEntries);
+  }, [page, resultsCompId]);
 
   useEffect(() => {
     setCompEdit(comp);
@@ -70,10 +92,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
   const handlePondUpdate = async (pond: Pond) => {
     setSaving(true);
     try {
-      await updatePondFirestore(pond._docId || pond.id.toString(), {
-        name: pond.name, description: pond.desc, eventDate: pond.date,
-        open: pond.open, totalSeats: pond.seats.length, pricePerSeat: pond.seats[0]?.price || 100,
+      const pondDocId = pond._docId || pond.id.toString();
+      const safePrice = pond.seats[0]?.price || 100;
+      await updatePondFirestore(pondDocId, {
+        name: pond.name,
+        description: pond.desc,
+        open: pond.open,
+        totalSeats: pond.seats.length,
+        pricePerSeat: safePrice,
       } as any);
+      await syncPondSeatsFirestore(pondDocId, pond.seats.length, safePrice);
       await reloadDB();
       setEditingPond(null);
     } catch (err) { console.error('Failed to update pond:', err); }
@@ -147,8 +175,70 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
     setCheckinResult(found || null);
   };
 
+  const handleContactSettingsSave = async () => {
+    setSaving(true);
+    try {
+      await updateSettingsFirestore({
+        phone: settingsEdit.phone || '',
+        whatsapp: settingsEdit.whatsapp || '',
+        email: settingsEdit.email || '',
+        location: settingsEdit.location || '',
+        contactTitle: settingsEdit.contactTitle || 'Ada Soalan?',
+        contactSubtitle: settingsEdit.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.',
+      });
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to update contact settings:', err);
+    }
+    setSaving(false);
+  };
+
+  const handleSaveScore = async (booking: { id: string; userName: string; pondId: number; pondName: string; seats: number[] }) => {
+    const weight = parseFloat(pendingWeights[booking.id] || '');
+    if (isNaN(weight) || weight < 0) return;
+    setSavingEntry(booking.id);
+    try {
+      await saveScoreEntry({
+        competitionId: resultsCompId,
+        bookingId: booking.id,
+        anglerName: booking.userName,
+        pondId: booking.pondId,
+        pondName: booking.pondName,
+        seatNum: booking.seats[0] || 0,
+        weight,
+      });
+      setScoreEntries(await getScoresForCompetition(resultsCompId));
+    } catch (err) { console.error(err); }
+    setSavingEntry(null);
+  };
+
+  const handleDeleteEntry = async (id: string) => {
+    try {
+      await deleteScoreEntry(id);
+      setScoreEntries(prev => prev.filter(e => e.id !== id));
+    } catch (err) { console.error(err); }
+  };
+
+  const handleManualSave = async () => {
+    if (!manualEntry.anglerName || !manualEntry.weight) return;
+    setSaving(true);
+    try {
+      const pond = ponds.find(p => (p._docId || p.id.toString()) === manualEntry.pondId);
+      await saveScoreEntry({
+        competitionId: resultsCompId,
+        anglerName: manualEntry.anglerName,
+        pondId: pond?.id || 0,
+        pondName: pond?.name || '',
+        seatNum: parseInt(manualEntry.seatNum) || 0,
+        weight: parseFloat(manualEntry.weight) || 0,
+      });
+      setScoreEntries(await getScoresForCompetition(resultsCompId));
+      setManualEntry({ anglerName: '', pondId: '', seatNum: '', weight: '' });
+    } catch (err) { console.error(err); }
+    setSaving(false);
+  };
+
   const openCreatePondModal = () => {
-    setNewPond({ name: '', date: '', desc: '', seats: [], open: true });
     setNewPondSeatPrice(100);
     setEditingPond({} as any);
   };
@@ -163,7 +253,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
     return Math.max(0, Number(n));
   };
 
-  const applySeatPrice = (price: number) => {
+  const applySeatPrice = (price: string | number) => {
     const safePrice = normalizeSeatPrice(price);
     if (editingPond?.id) {
       const currentSeats = editingPond.seats || [];
@@ -221,7 +311,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
       { id: 'checkin' as CMSPage, icon: '📲', text: 'Check-In' },
       { id: 'results' as CMSPage, icon: '⚖️', text: 'Keputusan & Live' },
     ]},
-    { label: 'Admin', items: [{ id: 'users' as CMSPage, icon: '👥', text: 'Pengguna' }] },
+    { label: 'Admin', items: [
+      { id: 'contact-settings' as CMSPage, icon: '☎️', text: 'Contact Us' },
+      { id: 'users' as CMSPage, icon: '👥', text: 'Pengguna' },
+    ] },
   ];
 
   const pageTitle = navSections.flatMap(s => s.items).find(i => i.id === page)?.text || 'Dashboard';
@@ -342,7 +435,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                         <td className="td-name">{competition.name}</td>
                         <td>{competition.startDate ? new Date(competition.startDate).toLocaleDateString('ms-MY') : '-'}</td>
                         <td>{competition.activePondIds?.length ? competition.activePondIds.length : ponds.length} kolam</td>
-                        <td>{ponds.filter((pond) => !competition.activePondIds?.length || competition.activePondIds.includes(pond._docId || pond.id.toString())).reduce((s, p) => s + p.seats.length, 0)}</td>
+                        <td>{ponds.filter((pond) => !competition.activePondIds?.length || competition.activePondIds.includes(pond._docId || pond.id.toString())).reduce((s, p) => {
+                          const pondKey = p._docId || p.id.toString();
+                          const configured = competition.pondSeats?.[pondKey];
+                          const safeConfigured = typeof configured === 'number' ? Math.max(0, Math.min(p.seats.length, Math.floor(configured))) : p.seats.length;
+                          return s + safeConfigured;
+                        }, 0)}</td>
                         <td><span className="badge badge-open">Aktif</span></td>
                         <td>
                           <div style={{ display: 'flex', gap: '6px' }}>
@@ -498,27 +596,225 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
               {checkinRef && !checkinResult && <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Tempahan tidak dijumpai.</div>}
             </div>
           )}
-          {page === 'results' && (
+          {page === 'results' && (() => {
+            const resultsComp = compList.find(c => c.id === resultsCompId) || comp;
+            const activePonds = resultsComp.activePondIds?.length
+              ? ponds.filter(p => resultsComp.activePondIds!.includes(p._docId || p.id.toString()))
+              : ponds;
+            const sortedEntries = [...scoreEntries].sort((a, b) => b.weight - a.weight);
+            return (
+              <div className="page active">
+                <div className="page-header">
+                  <div>
+                    <div className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span className="live-dot"></span> Keputusan &amp; Live
+                    </div>
+                    <div className="page-sub">Input berat peserta &amp; papan markah langsung</div>
+                  </div>
+                </div>
+
+                {/* Competition Selector */}
+                <div className="card" style={{ marginBottom: '16px' }}>
+                  <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <label style={{ fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Pertandingan:</label>
+                    <select
+                      className="form-input"
+                      style={{ flex: '1', minWidth: '200px', maxWidth: '360px' }}
+                      value={resultsCompId}
+                      onChange={(e) => { setResultsCompId(e.target.value); setScoreEntries([]); setPendingWeights({}); }}
+                    >
+                      {compList.map(c => <option key={c.id} value={c.id || ''}>{c.name}</option>)}
+                    </select>
+                    <button className="btn btn-sm" onClick={() => getScoresForCompetition(resultsCompId).then(setScoreEntries)}>🔄 Muat Semula</button>
+                  </div>
+                </div>
+
+                {/* Manual Entry Form */}
+                <div className="card" style={{ marginBottom: '16px' }}>
+                  <div className="card-header"><div className="card-title">Tambah Rekod Manual</div></div>
+                  <div className="card-body">
+                    {(() => {
+                      const query = manualEntry.anglerName.toLowerCase();
+                      const seen = new Set<string>();
+                      const knownAnglers = bookings
+                        .filter(b => b.userName)
+                        .reduce<{ name: string; email: string; userId: string }[]>((acc, b) => {
+                          const key = b.userId || b.userName;
+                          if (!seen.has(key)) {
+                            seen.add(key);
+                            acc.push({ name: b.userName, email: b.userId, userId: b.userId });
+                          }
+                          return acc;
+                        }, []);
+                      const suggestions = query.length >= 1
+                        ? knownAnglers.filter(a =>
+                            a.name.toLowerCase().includes(query) ||
+                            a.email.toLowerCase().includes(query)
+                          ).slice(0, 8)
+                        : [];
+                      return (
+                        <div className="form-grid">
+                          <div className="form-group" style={{ position: 'relative' }}>
+                            <label className="form-label">Nama Peserta</label>
+                            <input
+                              className="form-input"
+                              value={manualEntry.anglerName}
+                              autoComplete="off"
+                              onChange={(e) => { setManualEntry(m => ({ ...m, anglerName: e.target.value })); setAnglerSuggestOpen(true); }}
+                              onFocus={() => setAnglerSuggestOpen(true)}
+                              onBlur={() => setTimeout(() => setAnglerSuggestOpen(false), 160)}
+                              placeholder="Nama Pemancing"
+                            />
+                            {anglerSuggestOpen && suggestions.length > 0 && (
+                              <div style={{
+                                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                                background: 'var(--white)', border: '1px solid var(--border)',
+                                borderRadius: '0 0 8px 8px', boxShadow: '0 8px 24px rgba(0,0,0,.12)',
+                                overflow: 'hidden', marginTop: '2px',
+                              }}>
+                                {suggestions.map(a => (
+                                  <div
+                                    key={a.userId}
+                                    onMouseDown={() => {
+                                      setManualEntry(m => ({ ...m, anglerName: a.name }));
+                                      setAnglerSuggestOpen(false);
+                                    }}
+                                    style={{
+                                      padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
+                                      display: 'flex', flexDirection: 'column', gap: '2px',
+                                    }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--gold-pale)')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = '')}
+                                  >
+                                    <span style={{ fontWeight: 600, fontSize: '0.86rem' }}>{a.name}</span>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--fm)' }}>
+                                      {a.email}{a.userId !== a.email ? ` · ID: ${a.userId}` : ''}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                      <div className="form-group">
+                        <label className="form-label">Kolam</label>
+                        <select
+                          className="form-input"
+                          value={manualEntry.pondId}
+                          onChange={(e) => setManualEntry(m => ({ ...m, pondId: e.target.value }))}
+                        >
+                          <option value="">-- Pilih Kolam --</option>
+                          {activePonds.map(p => (
+                            <option key={p._docId || p.id} value={p._docId || p.id.toString()}>{p.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">No. Peg / Tempat</label>
+                        <input
+                          className="form-input"
+                          type="number" min="1"
+                          value={manualEntry.seatNum}
+                          onChange={(e) => setManualEntry(m => ({ ...m, seatNum: e.target.value }))}
+                          placeholder="1"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Berat (kg)</label>
+                        <input
+                          className="form-input"
+                          type="number" step="0.01" min="0"
+                          value={manualEntry.weight}
+                          onChange={(e) => setManualEntry(m => ({ ...m, weight: e.target.value }))}
+                          placeholder="0.00"
+                        />
+                      </div>
+                        </div>
+                      );
+                    })()}
+                    <div className="form-actions" style={{ marginTop: '12px' }}>
+                      <button
+                        className="btn btn-primary"
+                        disabled={saving || !manualEntry.anglerName || !manualEntry.weight}
+                        onClick={handleManualSave}
+                      >
+                        {saving ? 'Menyimpan...' : '+ Tambah Rekod'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Leaderboard */}
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title">Papan Markah Semasa ({scoreEntries.length} rekod)</div>
+                  </div>
+                  <div className="card-body">
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th style={{ width: '50px' }}>#</th>
+                            <th>Peserta</th>
+                            <th>Kolam</th>
+                            <th>Peg</th>
+                            <th style={{ textAlign: 'right' }}>Berat (kg)</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedEntries.map((e, i) => (
+                            <tr key={e.id}>
+                              <td>
+                                <span className={`result-rank ${i < 3 ? 'rank-' + (i + 1) : ''}`}>
+                                  {i < 3 ? ['🥇', '🥈', '🥉'][i] : '#' + (i + 1)}
+                                </span>
+                              </td>
+                              <td className="td-name">{e.anglerName}</td>
+                              <td>{e.pondName}</td>
+                              <td>{e.seatNum}</td>
+                              <td style={{ textAlign: 'right' }}>
+                                <span className="w-cell">{e.weight.toFixed(2)}</span> kg
+                              </td>
+                              <td>
+                                <button
+                                  className="btn btn-sm"
+                                  style={{ color: '#ef4444' }}
+                                  onClick={() => e.id && handleDeleteEntry(e.id)}
+                                >🗑</button>
+                              </td>
+                            </tr>
+                          ))}
+                          {scoreEntries.length === 0 && (
+                            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                              Tiada rekod untuk pertandingan ini
+                            </td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+          {page === 'contact-settings' && (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span className="live-dot"></span> Keputusan &amp; Live</div><div className="page-sub">Papan markah langsung</div></div></div>
+              <div className="page-header"><div><div className="page-title">Contact Us</div><div className="page-sub">Sesuaikan maklumat hubungan yang dipaparkan di laman utama</div></div></div>
               <div className="card">
-                <div className="card-header"><div className="card-title">Papan Markah — {comp.name || 'Tiada Pertandingan'}</div></div>
-                <div className="card-body"><div className="table-wrap"><table>
-                  <thead><tr><th>#</th><th>Peserta</th><th>Kolam</th><th>Peg</th><th>Berat (kg)</th><th>Ranking</th></tr></thead>
-                  <tbody>
-                    {bookings.filter(b => b.status === 'confirmed').map((b, i) => (
-                      <tr key={b.id}>
-                        <td>{i + 1}</td>
-                        <td className="td-name">{b.userName}</td>
-                        <td>{b.pondName}</td>
-                        <td>{b.seats.join(', ')}</td>
-                        <td><input className="weight-input" type="number" step="0.01" placeholder="0.00" /></td>
-                        <td><span className={`result-rank ${i < 3 ? 'rank-' + (i + 1) : ''}`}>{i < 3 ? ['🥇', '🥈', '🥉'][i] : '#' + (i + 1)}</span></td>
-                      </tr>
-                    ))}
-                    {bookings.filter(b => b.status === 'confirmed').length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada peserta yang disahkan</td></tr>}
-                  </tbody>
-                </table></div></div>
+                <div className="card-header"><div className="card-title">Maklumat Hubungan</div></div>
+                <div className="card-body">
+                  <div className="form-grid">
+                    <div className="form-group"><label className="form-label">Tajuk Seksyen</label><input className="form-input" value={settingsEdit.contactTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, contactTitle: e.target.value })} placeholder="Ada Soalan?" /></div>
+                    <div className="form-group"><label className="form-label">Telefon</label><input className="form-input" value={settingsEdit.phone || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, phone: e.target.value })} placeholder="+60 12-345 6789" /></div>
+                    <div className="form-group"><label className="form-label">WhatsApp</label><input className="form-input" value={settingsEdit.whatsapp || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, whatsapp: e.target.value })} placeholder="+60 12-345 6789" /></div>
+                    <div className="form-group"><label className="form-label">Email</label><input className="form-input" value={settingsEdit.email || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, email: e.target.value })} placeholder="info@kks.com" /></div>
+                    <div className="form-group form-span"><label className="form-label">Alamat</label><input className="form-input" value={settingsEdit.location || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, location: e.target.value })} placeholder="Alor Setar, Kedah" /></div>
+                    <div className="form-group form-span"><label className="form-label">Penerangan Ringkas</label><textarea className="form-textarea" value={settingsEdit.contactSubtitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, contactSubtitle: e.target.value })} placeholder="Jangan segan untuk hubungi kami. Kami sedia membantu." /></div>
+                  </div>
+                  <div className="form-actions" style={{ marginTop: '12px' }}>
+                    <button className="btn btn-primary" disabled={saving} onClick={handleContactSettingsSave}>{saving ? 'Menyimpan...' : 'Simpan Contact Us'}</button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -562,29 +858,56 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                 <div className="card" style={{ marginTop: '12px' }}>
                   <div className="card-header"><div className="card-title">Active Ponds For This Competition</div></div>
                   <div className="card-body">
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '8px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '10px' }}>
                       {ponds.map((pond) => {
                         const pondKey = pond._docId || pond.id.toString();
                         const checked = (compEdit.activePondIds || []).includes(pondKey);
+                        const openSeats = Math.max(0, Math.min(pond.seats.length, Math.floor(compEdit.pondSeats?.[pondKey] ?? pond.seats.length)));
                         return (
-                          <label key={pondKey} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                const next = new Set(compEdit.activePondIds || []);
-                                if (e.target.checked) next.add(pondKey);
-                                else next.delete(pondKey);
-                                setCompEdit({ ...compEdit, activePondIds: Array.from(next) });
-                              }}
-                            />
-                            <span>{pond.name}</span>
-                          </label>
+                          <div key={pondKey} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '10px', background: checked ? 'var(--cream)' : 'transparent' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', marginBottom: '8px' }}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const next = new Set(compEdit.activePondIds || []);
+                                  if (e.target.checked) next.add(pondKey);
+                                  else next.delete(pondKey);
+                                  setCompEdit({ ...compEdit, activePondIds: Array.from(next) });
+                                }}
+                              />
+                              <span>{pond.name}</span>
+                            </label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: checked ? 1 : 0.45 }}>
+                              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Seat available</label>
+                              <input
+                                className="form-input"
+                                type="number"
+                                min={0}
+                                max={pond.seats.length}
+                                disabled={!checked}
+                                style={{ width: '86px', padding: '6px 8px' }}
+                                value={openSeats}
+                                onChange={(e) => {
+                                  const raw = parseInt(e.target.value) || 0;
+                                  const safe = Math.max(0, Math.min(pond.seats.length, raw));
+                                  setCompEdit({
+                                    ...compEdit,
+                                    pondSeats: {
+                                      ...(compEdit.pondSeats || {}),
+                                      [pondKey]: safe,
+                                    },
+                                  });
+                                }}
+                              />
+                              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>/ {pond.seats.length}</span>
+                            </div>
+                          </div>
                         );
                       })}
                     </div>
                     <div style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                      Leave all unchecked to allow all ponds for this competition.
+                      Leave all unchecked to allow all ponds for this competition. Seat available limits how many pegs are open for this competition.
                     </div>
                   </div>
                 </div>
@@ -609,7 +932,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                 <div className="form-grid">
                   <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={editingPond.id ? editingPond.name : newPond.name} onChange={e => editingPond.id ? setEditingPond({ ...editingPond, name: e.target.value }) : setNewPond({ ...newPond, name: e.target.value })} /></div>
                   <div className="form-group"><label className="form-label">Keterangan</label><input className="form-input" value={editingPond.id ? editingPond.desc : newPond.desc} onChange={e => editingPond.id ? setEditingPond({ ...editingPond, desc: e.target.value }) : setNewPond({ ...newPond, desc: e.target.value })} /></div>
-                  <div className="form-group"><label className="form-label">Tarikh</label><div className="date-input-wrap"><input className="form-input" type="date" value={editingPond.id ? editingPond.date : newPond.date} onChange={e => editingPond.id ? setEditingPond({ ...editingPond, date: e.target.value }) : setNewPond({ ...newPond, date: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
                   <div className="form-group"><label className="form-label">Bilangan Tempat</label><input className="form-input" type="number" value={editingPond.id ? editingPond.seats?.length || 0 : newPond.seats?.length || 0} onChange={e => {
                     const count = parseInt(e.target.value) || 0;
                     if (editingPond.id) {
@@ -632,8 +954,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                       if (newPond.name && newPond.seats && newPond.seats.length > 0) {
                         setSaving(true);
                         try {
-                          await createPondFirestore({ name: newPond.name, date: newPond.date || '', desc: newPond.desc || '', open: true, totalSeats: newPond.seats.length, pricePerSeat: newPond.seats[0]?.price || newPondSeatPrice || 100 } as any);
-                          await reloadDB(); setNewPond({ name: '', date: '', desc: '', seats: [], open: true }); setEditingPond(null);
+                          await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: newPond.seats.length, pricePerSeat: newPond.seats[0]?.price || newPondSeatPrice || 100 } as any);
+                          await reloadDB(); setNewPond({ name: '', desc: '', seats: [], open: true }); setEditingPond(null);
                         } catch (err) { console.error('Failed to add pond:', err); }
                         setSaving(false);
                       }

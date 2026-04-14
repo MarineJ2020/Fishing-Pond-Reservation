@@ -44,8 +44,10 @@ const AppContent: React.FC = () => {
   const competitionScrollerRef = useRef<HTMLDivElement | null>(null);
   const competitionInteractionRef = useRef({ isDragging: false, startX: 0, startScrollLeft: 0, blockClick: false });
   const competitionSnapTimeoutRef = useRef<number | null>(null);
+  const competitionSnapResumeTimeoutRef = useRef<number | null>(null);
   const competitionTouchRef = useRef({ isTouching: false, startX: 0, startScrollLeft: 0 });
   const [isDraggingCompetitions, setIsDraggingCompetitions] = useState(false);
+  const [isInteractingCompetitions, setIsInteractingCompetitions] = useState(false);
   const [focusedCompetitionKey, setFocusedCompetitionKey] = useState('');
   const [countdown, setCountdown] = useState({ days: '--', hours: '--', mins: '--', secs: '--', status: 'upcoming' });
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -64,6 +66,7 @@ const AppContent: React.FC = () => {
   const competitionScopedPonds = useMemo(() => {
     const activeCompetitionId = selectedCompetition?.id || db.comp?.id || '';
     const allowedPondIds = selectedCompetition?.activePondIds || [];
+    const pondSeatCaps = selectedCompetition?.pondSeats || {};
     const occupied = new Set<string>();
     db.bookings.forEach((booking) => {
       const bookingCompetitionId = booking.competitionId || db.comp?.id || '';
@@ -72,32 +75,80 @@ const AppContent: React.FC = () => {
       booking.seats.forEach((seatNum) => occupied.add(`${booking.pondId}-${seatNum}`));
     });
 
-    const scopedPonds = db.ponds.map((pond) => ({
-      ...pond,
-      seats: pond.seats.map((seat) => ({
-        ...seat,
-        status: occupied.has(`${pond.id}-${seat.num}`) ? 'booked' : 'available'
-      }))
-    }));
+    const scopedPonds = db.ponds.map((pond) => {
+      const pondKey = pond._docId || pond.id.toString();
+      const capRaw = pondSeatCaps[pondKey] ?? pondSeatCaps[pond.id.toString()];
+      const cap = typeof capRaw === 'number'
+        ? Math.max(0, Math.min(pond.seats.length, Math.floor(capRaw)))
+        : pond.seats.length;
+      const seatsInCompetition = [...pond.seats]
+        .sort((a, b) => a.num - b.num)
+        .slice(0, cap)
+        .map((seat) => ({
+          ...seat,
+          status: occupied.has(`${pond.id}-${seat.num}`) ? 'booked' : 'available'
+        }));
+
+      return {
+        ...pond,
+        seats: seatsInCompetition,
+      };
+    });
 
     if (!allowedPondIds.length) return scopedPonds;
     return scopedPonds.filter((pond) => {
       const docId = pond._docId || pond.id.toString();
       return allowedPondIds.includes(docId);
     });
-  }, [db.bookings, db.comp?.id, db.ponds, selectedCompetition?.activePondIds, selectedCompetition?.id]);
+  }, [db.bookings, db.comp?.id, db.ponds, selectedCompetition?.activePondIds, selectedCompetition?.id, selectedCompetition?.pondSeats]);
 
   const availablePegs = useMemo(
     () => competitionScopedPonds.reduce((sum, pond) => sum + pond.seats.filter(s => s.status === 'available').length, 0),
     [competitionScopedPonds]
   );
 
+  // Per-competition available seat counts (for competition cards on homepage)
+  const competitionAvailableSeats = useMemo(() => {
+    const result = new Map<string, number>();
+    competitions.forEach((comp) => {
+      const compId = comp.id || '';
+      const allowedPondIds: string[] = comp.activePondIds || [];
+      const pondSeatCaps: Record<string, number> = comp.pondSeats || {};
+      const occupied = new Set<string>();
+      db.bookings.forEach((booking) => {
+        const bookingCompId = booking.competitionId || db.comp?.id || '';
+        if (bookingCompId !== compId) return;
+        if (booking.status !== 'pending' && booking.status !== 'confirmed') return;
+        booking.seats.forEach((seatNum: number) => occupied.add(`${booking.pondId}-${seatNum}`));
+      });
+      const scopedPonds = db.ponds.filter((pond) => {
+        if (!allowedPondIds.length) return true;
+        const docId = pond._docId || pond.id.toString();
+        return allowedPondIds.includes(docId);
+      });
+      const count = scopedPonds.reduce((sum, pond) => {
+        const pondKey = pond._docId || pond.id.toString();
+        const capRaw = pondSeatCaps[pondKey] ?? pondSeatCaps[pond.id.toString()];
+        const cap = typeof capRaw === 'number'
+          ? Math.max(0, Math.min(pond.seats.length, Math.floor(capRaw)))
+          : pond.seats.length;
+        const available = [...pond.seats]
+          .sort((a, b) => a.num - b.num)
+          .slice(0, cap)
+          .filter((seat) => !occupied.has(`${pond.id}-${seat.num}`)).length;
+        return sum + available;
+      }, 0);
+      result.set(compId, count);
+    });
+    return result;
+  }, [competitions, db.bookings, db.comp?.id, db.ponds]);
+
   const totalPonds = db.ponds.length;
   const confirmedBookings = db.bookings.filter(b => b.status === 'confirmed').length;
   const bookablePonds = useMemo(() => competitionScopedPonds.filter((p) => p.open), [competitionScopedPonds]);
   const activePond = selectedPond
     ? bookablePonds.find((p) => p.id === selectedPond) ?? null
-    : bookablePonds[0] || null;
+    : null;
 
   useEffect(() => {
     const updateCountdown = () => {
@@ -151,6 +202,16 @@ const AppContent: React.FC = () => {
     setPond(id);
     setPondPickerOpen(false);
     goToBook();
+  };
+
+  const handleSelectCompetitionForBooking = (competitionId?: string) => {
+    if (!competitionId) return;
+    if (competitionId === selectedCompetitionId) return;
+    setSelectedCompetitionId(competitionId);
+    setPond(null);
+    setSeats([]);
+    setReceiptData(null, null);
+    addToast('Pertandingan tempahan telah ditukar.', 'info');
   };
 
   const handleSubmitBooking = async () => {
@@ -228,11 +289,6 @@ const AppContent: React.FC = () => {
       return;
     }
     if (section === 'book') {
-      if (!selectedCompetition?.id) {
-        goHome();
-        setHomeScrollTarget('competitions');
-        return;
-      }
       goToBook();
       return;
     }
@@ -250,6 +306,12 @@ const AppContent: React.FC = () => {
     }
     goToSection(section);
   };
+
+  useEffect(() => {
+    if (!selectedPond) return;
+    const stillAvailable = bookablePonds.some((pond) => pond.id === selectedPond);
+    if (!stillAvailable) setPond(null);
+  }, [bookablePonds, selectedPond, setPond]);
 
   const totalRegistered = db.bookings.length;
   const totalPrizePool = selectedCompetition?.prizes?.reduce((sum: number, prize: any) => {
@@ -313,6 +375,18 @@ const AppContent: React.FC = () => {
     }, delay);
   };
 
+  const resumeSnapAfterRelease = (snapDelay = 70, resumeDelay = 320) => {
+    scheduleCompetitionSnap(snapDelay);
+    if (competitionSnapResumeTimeoutRef.current) {
+      window.clearTimeout(competitionSnapResumeTimeoutRef.current);
+      competitionSnapResumeTimeoutRef.current = null;
+    }
+    competitionSnapResumeTimeoutRef.current = window.setTimeout(() => {
+      setIsInteractingCompetitions(false);
+      competitionSnapResumeTimeoutRef.current = null;
+    }, resumeDelay);
+  };
+
   useEffect(() => {
     if (!competitions.length) return;
     scheduleCompetitionSnap(40);
@@ -326,19 +400,26 @@ const AppContent: React.FC = () => {
     if (competitionSnapTimeoutRef.current) {
       window.clearTimeout(competitionSnapTimeoutRef.current);
     }
+    if (competitionSnapResumeTimeoutRef.current) {
+      window.clearTimeout(competitionSnapResumeTimeoutRef.current);
+    }
   }, []);
 
-  const handleCompetitionWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+  useEffect(() => {
     const track = competitionScrollerRef.current;
     if (!track) return;
-    const canScroll = track.scrollWidth > track.clientWidth;
-    if (!canScroll) return;
-
-    if (Math.abs(event.deltaY) < Math.abs(event.deltaX)) return;
-    event.preventDefault();
-    track.scrollBy({ left: event.deltaY, behavior: 'auto' });
-    scheduleCompetitionSnap();
-  };
+    const handleWheel = (event: WheelEvent) => {
+      const canScroll = track.scrollWidth > track.clientWidth;
+      if (!canScroll) return;
+      if (Math.abs(event.deltaY) < Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      track.scrollBy({ left: event.deltaY, behavior: 'auto' });
+      scheduleCompetitionSnap();
+    };
+    track.addEventListener('wheel', handleWheel, { passive: false });
+    return () => track.removeEventListener('wheel', handleWheel);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCompetitionMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!competitionScrollerRef.current) return;
@@ -352,7 +433,12 @@ const AppContent: React.FC = () => {
       window.clearTimeout(competitionSnapTimeoutRef.current);
       competitionSnapTimeoutRef.current = null;
     }
+    if (competitionSnapResumeTimeoutRef.current) {
+      window.clearTimeout(competitionSnapResumeTimeoutRef.current);
+      competitionSnapResumeTimeoutRef.current = null;
+    }
     setIsDraggingCompetitions(true);
+    setIsInteractingCompetitions(true);
   };
 
   const handleCompetitionMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -368,7 +454,7 @@ const AppContent: React.FC = () => {
     if (!competitionInteractionRef.current.isDragging) return;
     competitionInteractionRef.current.isDragging = false;
     setIsDraggingCompetitions(false);
-    scheduleCompetitionSnap(60);
+    resumeSnapAfterRelease(60, 320);
   };
 
   const handleCompetitionTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
@@ -384,6 +470,11 @@ const AppContent: React.FC = () => {
       window.clearTimeout(competitionSnapTimeoutRef.current);
       competitionSnapTimeoutRef.current = null;
     }
+    if (competitionSnapResumeTimeoutRef.current) {
+      window.clearTimeout(competitionSnapResumeTimeoutRef.current);
+      competitionSnapResumeTimeoutRef.current = null;
+    }
+    setIsInteractingCompetitions(true);
   };
 
   const handleCompetitionTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
@@ -397,7 +488,7 @@ const AppContent: React.FC = () => {
   const handleCompetitionTouchEnd = () => {
     if (!competitionTouchRef.current.isTouching) return;
     competitionTouchRef.current.isTouching = false;
-    scheduleCompetitionSnap(80);
+    resumeSnapAfterRelease(80, 340);
   };
 
   const handleCompetitionClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -475,9 +566,8 @@ const AppContent: React.FC = () => {
           <p className="section-desc">Pertandingan pancing keli setiap bulan dengan hadiah wang tunai. Terbuka untuk semua peringkat.</p>
           <div className="comp-carousel-shell">
             <div
-              className={`comp-scroll-track ${isDraggingCompetitions ? 'is-dragging' : ''}`}
+              className={`comp-scroll-track ${isDraggingCompetitions ? 'is-dragging' : ''} ${isInteractingCompetitions ? 'no-snap' : ''}`}
               ref={competitionScrollerRef}
-              onWheel={handleCompetitionWheel}
               onMouseDown={handleCompetitionMouseDown}
               onMouseMove={handleCompetitionMouseMove}
               onMouseUp={stopCompetitionDrag}
@@ -485,6 +575,7 @@ const AppContent: React.FC = () => {
               onTouchStart={handleCompetitionTouchStart}
               onTouchMove={handleCompetitionTouchMove}
               onTouchEnd={handleCompetitionTouchEnd}
+              onTouchCancel={handleCompetitionTouchEnd}
               onScroll={handleCompetitionScroll}
               onClickCapture={handleCompetitionClickCapture}
               role="region"
@@ -509,7 +600,7 @@ const AppContent: React.FC = () => {
                 <div className="comp-body">
                   <div className="comp-detail"><span className="comp-detail-icon">📅</span> {compDateText}</div>
                   <div className="comp-detail"><span className="comp-detail-icon">📍</span> Kolam Keli Sayang, Alor Setar</div>
-                  <div className="comp-detail"><span className="comp-detail-icon">👥</span> {availablePegs} tempat tersedia</div>
+                  <div className="comp-detail"><span className="comp-detail-icon">👥</span> {competitionAvailableSeats.get(competition.id ?? '') ?? availablePegs} tempat tersedia</div>
                   <div className="comp-prize"><span>Hadiah: </span>{compPrizeText}</div>
                 </div>
                 <div className="comp-footer">
@@ -520,7 +611,7 @@ const AppContent: React.FC = () => {
                       setPondPickerOpen(true);
                     }}
                   >
-                    {isSelectedCompetition ? 'Tukar Kolam' : 'Pilih Pertandingan'}
+                    Tempah
                   </button>
                 </div>
               </div>
@@ -659,18 +750,18 @@ const AppContent: React.FC = () => {
       <section className="contact" id="contact">
         <div className="container">
           <div className="section-label" style={{ color: 'var(--gold)' }}>Hubungi Kami</div>
-          <h2 className="section-title" style={{ color: '#fff' }}>Ada Soalan?</h2>
-          <p className="section-desc" style={{ color: '#8B6A4F' }}>Jangan segan untuk hubungi kami. Kami sedia membantu.</p>
+          <h2 className="section-title" style={{ color: '#fff' }}>{db.settings?.contactTitle || 'Ada Soalan?'}</h2>
+          <p className="section-desc" style={{ color: '#8B6A4F' }}>{db.settings?.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.'}</p>
           <div className="contact-info">
             <div className="contact-item">
               <div className="contact-item-icon">📞</div>
               <h4>Telefon</h4>
-              <p>{db.settings?.whatsapp || '+60 1X-XXX XXXX'}</p>
+              <p>{db.settings?.phone || db.settings?.whatsapp || '+60 1X-XXX XXXX'}</p>
             </div>
             <div className="contact-item">
               <div className="contact-item-icon">💬</div>
               <h4>WhatsApp</h4>
-              <p><a href={`https://wa.me/${(db.settings?.whatsapp || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer">{db.settings?.whatsapp || '+60 1X-XXX XXXX'}</a></p>
+              <p><a href={`https://wa.me/${(db.settings?.whatsapp || db.settings?.phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer">{db.settings?.whatsapp || db.settings?.phone || '+60 1X-XXX XXXX'}</a></p>
             </div>
             <div className="contact-item">
               <div className="contact-item-icon">📧</div>
@@ -687,7 +778,7 @@ const AppContent: React.FC = () => {
             <p>Jom sertai komuniti pemancing KKS!</p>
             <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
               <button className="btn btn-primary btn-lg" onClick={() => handleNavigation('competitions')}>Pilih Pertandingan</button>
-              <a className="btn-outline" href={`https://wa.me/${(db.settings?.whatsapp || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer">WhatsApp Kami</a>
+              <a className="btn-outline" href={`https://wa.me/${(db.settings?.whatsapp || db.settings?.phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer">WhatsApp Kami</a>
             </div>
           </div>
         </div>
@@ -701,65 +792,81 @@ const AppContent: React.FC = () => {
       case 'home':
         return renderHome();
       case 'book': {
-        if (!selectedCompetition?.id) {
-          return (
-            <div className="booking-layout">
-              <div className="booking-main">
-                <div className="panel" style={{ textAlign: 'center', padding: '2rem' }}>
-                  <div className="panel-title">Pilih Pertandingan Dahulu</div>
-                  <div className="panel-subtitle">Sebelum memilih kolam dan tempat, sila pilih satu pertandingan dari halaman utama.</div>
-                  <button className="btn btn-primary mt-4" onClick={() => { goHome(); setHomeScrollTarget('competitions'); }}>Pergi Ke Pertandingan</button>
-                </div>
-              </div>
-            </div>
-          );
-        }
         const bookedPond = activePond;
+        const hasCompetition = Boolean(selectedCompetition?.id);
+        const hasPond = Boolean(bookedPond);
+        const hasSeats = selectedSeats.length > 0;
         return (
           <div className="booking-layout">
             <div className="booking-main">
               <div className="progress-bar">
-                <div className={`progress-step ${!selectedPond ? 'active' : 'completed'}`} onClick={() => {}}>
+                <div className={`progress-step ${!hasCompetition ? 'active' : 'completed'}`}>
                   <div className="step-circle-sm">1</div>
-                  <div className="step-info"><div className="step-label">Langkah 1</div><div className="step-name">Pilih Kolam</div></div>
+                  <div className="step-info"><div className="step-label">Langkah 1</div><div className="step-name">Pilih Pertandingan</div></div>
                 </div>
-                <div className={`progress-step ${selectedPond && !selectedSeats.length ? 'active' : selectedSeats.length ? 'completed' : ''}`}>
+                <div className={`progress-step ${hasCompetition && !hasPond ? 'active' : hasPond ? 'completed' : ''}`}>
                   <div className="step-circle-sm">2</div>
-                  <div className="step-info"><div className="step-label">Langkah 2</div><div className="step-name">Pilih Tempat</div></div>
+                  <div className="step-info"><div className="step-label">Langkah 2</div><div className="step-name">Pilih Kolam</div></div>
                 </div>
-                <div className={`progress-step ${selectedSeats.length && !receiptData ? 'active' : receiptData ? 'completed' : ''}`}>
+                <div className={`progress-step ${hasPond && !hasSeats ? 'active' : hasSeats ? 'completed' : ''}`}>
                   <div className="step-circle-sm">3</div>
-                  <div className="step-info"><div className="step-label">Langkah 3</div><div className="step-name">Maklumat</div></div>
+                  <div className="step-info"><div className="step-label">Langkah 3</div><div className="step-name">Pilih Tempat</div></div>
+                </div>
+                <div className={`progress-step ${hasSeats && !receiptData ? 'active' : receiptData ? 'completed' : ''}`}>
+                  <div className="step-circle-sm">4</div>
+                  <div className="step-info"><div className="step-label">Langkah 4</div><div className="step-name">Maklumat</div></div>
                 </div>
                 <div className={`progress-step ${receiptData ? 'active' : ''}`}>
-                  <div className="step-circle-sm">4</div>
-                  <div className="step-info"><div className="step-label">Langkah 4</div><div className="step-name">Bayaran</div></div>
+                  <div className="step-circle-sm">5</div>
+                  <div className="step-info"><div className="step-label">Langkah 5</div><div className="step-name">Bayaran</div></div>
                 </div>
               </div>
 
               <div className="panel">
-                <div className="panel-title">Pilih Kolam & Tempat Duduk</div>
-                <div className="panel-subtitle">Pilih kolam yang anda inginkan, kemudian pilih tempat duduk yang tersedia.</div>
-                <BookingSidebar ponds={bookablePonds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
+                <div className="panel-title">Pilih Pertandingan</div>
+                <div className="panel-subtitle">Pilih pertandingan untuk tempahan ini. Menukar pertandingan akan reset pilihan kolam, peg, dan resit bayaran.</div>
+                <div className="pond-tabs">
+                  {competitions.map((competition) => (
+                    <div
+                      key={competition.id || competition.name}
+                      className={`pond-tab ${(selectedCompetition?.id || '') === (competition.id || '') ? 'active' : ''}`}
+                      onClick={() => handleSelectCompetitionForBooking(competition.id)}
+                    >
+                      {competition.name}
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              {bookedPond && (
-                <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} />
+              {hasCompetition && (
+                <div className="panel booking-stage-enter">
+                  <div className="panel-title">Pilih Kolam</div>
+                  <div className="panel-subtitle">Pilih kolam yang anda inginkan untuk pertandingan ini.</div>
+                  <BookingSidebar ponds={bookablePonds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
+                </div>
               )}
 
-              {selectedSeats.length > 0 && (
-                <BookingForm
-                  user={user}
-                  pond={bookedPond}
-                  selectedSeats={selectedSeats}
-                  payType={payType}
-                  receiptData={receiptData}
-                  onSetPayType={setPayType}
-                  onHandleReceiptChange={handleReceiptChange}
-                  onClearReceipt={() => setReceiptData(null, null)}
-                  onSubmitBooking={handleSubmitBooking}
-                  onOpenAuth={() => setAuthModalOpen(true)}
-                />
+              {hasPond && bookedPond && (
+                <div className="booking-stage-enter">
+                  <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} />
+                </div>
+              )}
+
+              {hasSeats && bookedPond && (
+                <div className="booking-stage-enter">
+                  <BookingForm
+                    user={user}
+                    pond={bookedPond}
+                    selectedSeats={selectedSeats}
+                    payType={payType}
+                    receiptData={receiptData}
+                    onSetPayType={setPayType}
+                    onHandleReceiptChange={handleReceiptChange}
+                    onClearReceipt={() => setReceiptData(null, null)}
+                    onSubmitBooking={handleSubmitBooking}
+                    onOpenAuth={() => setAuthModalOpen(true)}
+                  />
+                </div>
               )}
             </div>
 
@@ -798,7 +905,7 @@ const AppContent: React.FC = () => {
         );
       }
       case 'live':
-        return <LiveResults comp={selectedCompetition || db.comp} scores={db.scores} ponds={competitionScopedPonds} bookings={db.bookings.filter((booking) => (booking.competitionId || db.comp.id) === (selectedCompetition?.id || db.comp.id))} user={user} />;
+        return <LiveResults comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} user={user} />;
       case 'mybookings':
         if (!authReady) {
           return (
