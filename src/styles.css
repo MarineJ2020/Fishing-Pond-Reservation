@@ -639,6 +639,57 @@ footer {
   100% { transform: translateX(-8px) translateY(0) rotate(-9deg) scaleX(1); }
 }
 
+/* ── SVG pond fish (same organic feel, scaled for 600×400 SVG canvas) ── */
+.svg-pond-fish {
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.svg-pond-fish-1 { opacity: 0.50; animation: swimSvgFishA 5.2s ease-in-out infinite; }
+.svg-pond-fish-2 { opacity: 0.38; animation: swimSvgFishB 4.1s ease-in-out infinite; }
+.svg-pond-fish-3 { opacity: 0.44; animation: swimSvgFishC 6.0s ease-in-out infinite -1.8s; }
+.svg-pond-fish-4 { opacity: 0.32; animation: swimSvgFishA 7.4s ease-in-out infinite -2.6s; }
+.svg-pond-fish-5 { opacity: 0.38; animation: swimSvgFishB 5.8s ease-in-out infinite -4.2s; }
+.svg-pond-fish-6 { opacity: 0.30; animation: swimSvgFishC 8.8s ease-in-out infinite -3.5s; }
+.svg-pond-fish-7 { opacity: 0.26; animation: swimSvgFishA 9.5s ease-in-out infinite -6.0s; }
+.svg-pond-fish-8 { opacity: 0.30; animation: swimSvgFishB 7.0s ease-in-out infinite -5.1s; }
+@keyframes swimSvgFishA {
+  0%   { transform: translateX(-8px)  translateY(0)     rotate(-9deg)  scaleX(-1); }
+  25%  { transform: translateX(48px)  translateY(-18px) rotate(5deg)   scaleX(-1); }
+  50%  { transform: translateX(88px)  translateY(10px)  rotate(11deg)  scaleX(-1); }
+  76%  { transform: translateX(26px)  translateY(22px)  rotate(-6deg)  scaleX(1); }
+  100% { transform: translateX(-22px) translateY(0)     rotate(-10deg) scaleX(1); }
+}
+@keyframes swimSvgFishB {
+  0%   { transform: translateX(10px)  translateY(0)     rotate(10deg)  scaleX(1); }
+  30%  { transform: translateX(-46px) translateY(-18px) rotate(-8deg)  scaleX(1); }
+  58%  { transform: translateX(-82px) translateY(14px)  rotate(-12deg) scaleX(1); }
+  78%  { transform: translateX(-18px) translateY(26px)  rotate(6deg)   scaleX(-1); }
+  100% { transform: translateX(16px)  translateY(4px)   rotate(9deg)   scaleX(-1); }
+}
+@keyframes swimSvgFishC {
+  0%   { transform: translateX(0)     translateY(5px)   rotate(-7deg)  scaleX(-1); }
+  20%  { transform: translateX(38px)  translateY(-14px) rotate(7deg)   scaleX(-1); }
+  48%  { transform: translateX(74px)  translateY(18px)  rotate(13deg)  scaleX(-1); }
+  72%  { transform: translateX(14px)  translateY(26px)  rotate(-7deg)  scaleX(1); }
+  100% { transform: translateX(-30px) translateY(0)     rotate(-9deg)  scaleX(1); }
+}
+
+/* ── CMS competition – seat active/inactive drag grid ── */
+.sag-wrap { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
+.sag-seat {
+  width: 30px; height: 30px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; cursor: pointer;
+  transition: background .1s, opacity .1s; user-select: none;
+  border: 1.5px solid transparent;
+}
+.sag-seat.sag-active  { background: var(--green-pale); border-color: var(--green); color: var(--green-dark); }
+.sag-seat.sag-inactive{ background: rgba(0,0,0,0.04); border-color: var(--border); color: var(--text-muted); opacity: 0.5; }
+.sag-seat.sag-active:hover  { filter: brightness(0.9); }
+.sag-seat.sag-inactive:hover{ opacity: 0.85; }
+.sag-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+
 /* Seat Legend & Map */
 .seat-legend { display: flex; gap: 12px; flex-wrap: wrap; }
 .legend-item { display: flex; align-items: center; gap: 6px; font-size: .75rem; color: var(--text-muted); font-weight: 600; }
@@ -661,6 +712,179 @@ footer {
 .price-bar-label { font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
 .price-bar-detail { font-size: .82rem; color: var(--text-muted); margin-top: 2px; }
 .price-bar-total { font-family: var(--font-heading); font-size: 1.5rem; color: var(--gold); }
+
+/* ── Pond Editor (CMS) ── */
+.pond-editor-wrap { display: flex; flex-direction: column; gap: 8px; }
+
+.pond-editor-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #f7f3ec;
+  border: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+}
+
+.pond-editor-badge {
+  display: inline-flex; align-items: center;
+  background: var(--gold-pale); border: 1px solid rgba(200,146,42,.3);
+  color: var(--gold); font-size: .78rem; font-weight: 700;
+  padding: 3px 10px; border-radius: 12px;
+}
+
+.pond-editor-svg {
+  width: 100%;
+  display: block;
+  border: 1px solid #2a3d55;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  min-height: 200px;
+}
+
+.pond-editor-hint {
+  font-size: .75rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 6px 0 2px;
+  letter-spacing: .01em;
+}
+
+.pond-editor-unplaced {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #fff8e6; border: 1px solid #e8c56a;
+  border-radius: 6px;
+  font-size: .8rem; color: #7a5500;
+}
+
+/* Seat-line popup (inside SVG foreignObject) */
+.pond-line-popup {
+  background: #16243a;
+  border: 1.5px solid #4da6ff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.6);
+  font-family: inherit;
+  color: #fff;
+  font-size: 12px;
+}
+.pond-line-popup .plp-header {
+  font-weight: 700; font-size: 12px; color: #ffd700; letter-spacing: .03em;
+}
+.pond-line-popup .plp-row {
+  display: flex; flex-direction: column; gap: 3px;
+}
+.pond-line-popup .plp-row label {
+  font-size: 10px; color: rgba(255,255,255,.6); text-transform: uppercase; letter-spacing: .04em;
+}
+.pond-line-popup .plp-row input {
+  background: rgba(255,255,255,.1);
+  border: 1px solid rgba(77,166,255,.5);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 13px;
+  padding: 4px 8px;
+  width: 100%;
+  outline: none;
+  box-sizing: border-box;
+}
+.pond-line-popup .plp-row input:focus { border-color: #ffd700; }
+.pond-line-popup .plp-btns {
+  display: flex; gap: 6px; justify-content: flex-end; margin-top: 2px;
+}
+.pond-line-popup .plp-btns button {
+  padding: 4px 12px; border-radius: 4px; border: none; cursor: pointer;
+  font-size: 11px; font-weight: 700; transition: opacity .15s;
+}
+.pond-line-popup .plp-btns button:not(.ok) {
+  background: rgba(255,255,255,.1); color: rgba(255,255,255,.7);
+}
+.pond-line-popup .plp-btns button.ok {
+  background: #c8922a; color: #fff;
+}
+.pond-line-popup .plp-btns button:hover { opacity: .85; }
+
+/* ── Booking SVG canvas ─ (inside .seat-map-wrap) */
+.pond-booking-svg {
+  border-radius: 8px;
+  display: block;
+  width: 100%;
+}
+
+/* ── Expand button on pond card ── */
+.pond-expand-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 14px; border-radius: 20px;
+  background: rgba(0,120,220,0.15); border: 1px solid rgba(77,166,255,0.4);
+  color: #4da6ff; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+  transition: all .2s; white-space: nowrap;
+}
+.pond-expand-btn:hover { background: rgba(0,120,220,0.3); border-color: #4da6ff; }
+
+/* ── Fullscreen expanded pond overlay ── */
+.pond-expand-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(5, 14, 24, 0.97);
+  display: flex; flex-direction: column;
+  animation: fadeIn .18s;
+}
+.pond-expand-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 18px; background: #0a1622;
+  border-bottom: 1px solid rgba(77,166,255,0.18);
+  flex-shrink: 0; gap: 12px;
+}
+.pond-expand-title {
+  font-family: var(--font-heading); color: #ffd700;
+  font-size: 1rem; letter-spacing: 1px; text-transform: uppercase;
+}
+.pond-expand-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.pond-zoom-btn {
+  width: 34px; height: 34px; border-radius: 6px;
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);
+  color: #fff; font-size: 20px; cursor: pointer; line-height: 1;
+  display: flex; align-items: center; justify-content: center; transition: background .15s;
+}
+.pond-zoom-btn:hover { background: rgba(255,255,255,0.18); }
+.pond-zoom-label { color: rgba(255,255,255,0.6); font-size: 0.8rem; min-width: 42px; text-align: center; }
+.pond-zoom-reset {
+  padding: 6px 12px; border-radius: 5px;
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.7); font-size: 0.78rem; cursor: pointer; transition: all .15s;
+}
+.pond-zoom-reset:hover { background: rgba(255,255,255,0.15); color: #fff; }
+.pond-expand-close {
+  width: 34px; height: 34px; border-radius: 6px;
+  background: rgba(200,50,50,0.15); border: 1px solid rgba(200,50,50,0.3);
+  color: #ff8080; font-size: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all .15s;
+}
+.pond-expand-close:hover { background: rgba(200,50,50,0.35); color: #fff; }
+.pond-expand-canvas {
+  flex: 1; overflow: hidden; touch-action: none; position: relative; cursor: grab;
+  background: #08111c;
+}
+.pond-expand-canvas:active { cursor: grabbing; }
+.pond-expand-footer {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 18px; background: #0a1622;
+  border-top: 1px solid rgba(77,166,255,0.18);
+  min-height: 58px; flex-shrink: 0;
+}
+.pond-expand-seats { display: flex; flex-wrap: wrap; gap: 7px; flex: 1; min-width: 0; }
+.pond-expand-seat-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: 14px;
+  background: rgba(200,146,42,0.18); border: 1px solid rgba(200,146,42,0.45);
+  color: #ffd700; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all .15s;
+}
+.pond-expand-seat-chip:hover { background: rgba(200,146,42,0.35); }
+.pond-expand-total { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+.pond-expand-total-label { font-size: 0.68rem; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 1px; }
+.pond-expand-total-amt { font-family: var(--font-heading); font-size: 1.4rem; color: #ffd700; }
+.pond-expand-empty-hint { color: rgba(255,255,255,0.35); font-size: 0.85rem; width: 100%; text-align: center; }
 
 /* Summary Card */
 .summary-card {

@@ -27,26 +27,40 @@ const normalizeTimestamp = (value: any) => {
 const normalizeSeats = (
   pondId: string,
   totalSeats: number,
-  seatDocs: Array<{ id: string; seatNumber: number; row?: string; zone?: string; price?: number }> 
+  seatDocs: Array<{ id: string; seatNumber: number; row?: string; zone?: string; price?: number }>,
+  seatLayout?: Array<{ num: number; px: number; py: number; active: boolean }>
 ): Seat[] => {
+  const layoutMap = new Map<number, { px: number; py: number; active: boolean }>(
+    (seatLayout ?? []).map(sl => [sl.num, { px: sl.px, py: sl.py, active: sl.active }])
+  );
+
   if (seatDocs.length > 0) {
     return seatDocs
-      .map((seat) => ({
-        id: seat.id,
-        num: seat.seatNumber,
-        zone: seat.zone || (seat.seatNumber <= totalSeats / 2 ? 'A' : 'B'),
-        price: seat.price ?? 100,
-        status: 'available' as const,
-      }))
+      .map((seat) => {
+        const layout = layoutMap.get(seat.seatNumber);
+        return {
+          id: seat.id,
+          num: seat.seatNumber,
+          zone: seat.zone || (seat.seatNumber <= totalSeats / 2 ? 'A' : 'B'),
+          price: seat.price ?? 100,
+          status: 'available' as const,
+          ...(layout ? { px: layout.px, py: layout.py, active: layout.active } : {}),
+        };
+      })
       .sort((a, b) => a.num - b.num);
   }
 
-  return Array.from({ length: totalSeats }, (_, index) => ({
-    num: index + 1,
-    zone: index < totalSeats / 2 ? 'A' : 'B',
-    price: 100,
-    status: 'available' as const,
-  }));
+  return Array.from({ length: totalSeats }, (_, index) => {
+    const num = index + 1;
+    const layout = layoutMap.get(num);
+    return {
+      num,
+      zone: index < totalSeats / 2 ? 'A' : 'B',
+      price: 100,
+      status: 'available' as const,
+      ...(layout ? { px: layout.px, py: layout.py, active: layout.active } : {}),
+    };
+  });
 };
 
 const normalizeCompetition = (data: any): Competition => ({
@@ -79,6 +93,7 @@ const normalizeSettings = (data: any): Settings => ({
   grandOpening: data.grandOpening || { date: new Date().toISOString().slice(0, 10), time: '08:00' },
   contactTitle: data.contactTitle || 'Ada Soalan?',
   contactSubtitle: data.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.',
+  useLegacyPondView: data.useLegacyPondView === true,
 });
 
 const buildBooking = (
@@ -242,7 +257,9 @@ export const getPondsWithSeats = async (): Promise<Pond[]> => {
       desc: data.description || '',
       date: normalizeTimestamp(data.eventDate) || new Date().toISOString(),
       open: data.open !== false,
-      seats: normalizeSeats(pondSnap.id, totalSeats, seatDocs),
+      maxSeats: data.totalSeats || undefined,
+      seats: normalizeSeats(pondSnap.id, totalSeats, seatDocs, data.seatLayout),
+      shape: Array.isArray(data.shape) && data.shape.length > 0 ? data.shape : undefined,
     };
   });
 };

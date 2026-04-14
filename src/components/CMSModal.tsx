@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry } from '../types';
 import { gs } from '../data';
+import PondEditor from './PondEditor';
 import {
   createPond as createPondFirestore,
   createCompetition as createCompetitionFirestore,
@@ -20,6 +21,7 @@ type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' |
 interface CMSModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onGoToBooking?: () => void;
   user: User | null;
   ponds: Pond[];
   comp: Competition;
@@ -30,7 +32,95 @@ interface CMSModalProps {
   reloadDB: () => Promise<void>;
 }
 
-const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB }) => {
+// ── Inline SVG pond seat editor used in competition management ──────────────
+const CMS_SVG_W = 600;
+const CMS_SVG_H = 400;
+
+function CMSPondSeatEditor({
+  pond,
+  seatEdits,
+  onToggle,
+  useLegacyView = false,
+}: {
+  pond: Pond;
+  seatEdits: Record<number, boolean>;
+  onToggle: (num: number, active: boolean) => void;
+  useLegacyView?: boolean;
+}) {
+  const dragVal = useRef<boolean | null>(null);
+  const hasShape    = (pond.shape?.length ?? 0) > 2;
+  const posSeatsList = pond.seats.filter(s => s.px !== undefined && s.py !== undefined);
+  const hasSVG      = !useLegacyView && hasShape && posSeatsList.length > 0;
+
+  if (!hasSVG) {
+    // Fallback: flat grid for ponds without a drawn shape
+    return (
+      <div className="sag-wrap"
+        onMouseLeave={() => { dragVal.current = null; }}
+        onMouseUp={() => { dragVal.current = null; }}>
+        {pond.seats.map(s => {
+          const edited   = seatEdits[s.num];
+          const isActive = edited !== undefined ? edited : s.active !== false;
+          return (
+            <div key={s.num}
+              className={`sag-seat ${isActive ? 'sag-active' : 'sag-inactive'}`}
+              onMouseDown={() => { const nv = !isActive; dragVal.current = nv; onToggle(s.num, nv); }}
+              onMouseEnter={() => { if (dragVal.current !== null) onToggle(s.num, dragVal.current); }}>
+              {s.num}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const polyPts = pond.shape!.map(v => `${(v.x / 100) * CMS_SVG_W},${(v.y / 100) * CMS_SVG_H}`).join(' ');
+
+  return (
+    <svg
+      viewBox={`0 0 ${CMS_SVG_W} ${CMS_SVG_H}`}
+      style={{ width: '100%', display: 'block', borderRadius: '8px' }}
+      onMouseLeave={() => { dragVal.current = null; }}
+      onMouseUp={() => { dragVal.current = null; }}
+    >
+      {/* Background water */}
+      <rect width={CMS_SVG_W} height={CMS_SVG_H} fill="#0d1c2e" rx="6" />
+      {/* Shimmer lines */}
+      {Array.from({ length: 7 }, (_, i) => (
+        <line key={i} x1={30} y1={55 + i * 48} x2={CMS_SVG_W - 30} y2={55 + i * 48}
+          stroke="rgba(77,166,255,0.05)" strokeWidth="1" pointerEvents="none" />
+      ))}
+      {/* Pond polygon */}
+      <polygon points={polyPts}
+        fill="rgba(0, 120, 220, 0.17)" stroke="rgba(77,166,255,0.6)"
+        strokeWidth="2" strokeLinejoin="round" />
+      {/* Seats */}
+      {posSeatsList.map(s => {
+        const cx       = (s.px! / 100) * CMS_SVG_W;
+        const cy       = (s.py! / 100) * CMS_SVG_H;
+        const edited   = seatEdits[s.num];
+        const isActive = edited !== undefined ? edited : s.active !== false;
+        const fill     = isActive ? '#1a7a3e' : '#2a2a2a';
+        const stroke   = isActive ? 'rgba(100,220,100,0.55)' : '#444';
+        return (
+          <g key={s.num} style={{ cursor: 'pointer' }}
+            onMouseDown={() => { const nv = !isActive; dragVal.current = nv; onToggle(s.num, nv); }}
+            onMouseEnter={() => { if (dragVal.current !== null) onToggle(s.num, dragVal.current); }}>
+            <circle cx={cx} cy={cy} r={13} fill={fill} stroke={stroke} strokeWidth={1.5} />
+            <text x={cx} y={cy + 4} textAnchor="middle"
+              fill={isActive ? 'rgba(255,255,255,0.92)' : '#666'}
+              fontSize="10" fontWeight="bold" pointerEvents="none">{s.num}</text>
+          </g>
+        );
+      })}
+      {/* Watermark */}
+      <text x={CMS_SVG_W / 2} y={CMS_SVG_H - 12} textAnchor="middle"
+        fill="rgba(255,255,255,0.07)" fontSize="11" letterSpacing="3" pointerEvents="none">KOLAM</text>
+    </svg>
+  );
+}
+
+const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB }) => {
   const [page, setPage] = useState<CMSPage>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingPond, setEditingPond] = useState<Pond | null>(null);
@@ -41,10 +131,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
   const [settingsEdit, setSettingsEdit] = useState(settings);
   const [newPond, setNewPond] = useState<Partial<Pond>>({ name: '', desc: '', seats: [], open: true });
   const [newPondSeatPrice, setNewPondSeatPrice] = useState(100);
+  const [newPondMaxSeats, setNewPondMaxSeats] = useState(30);
+  const [pondSaveError, setPondSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'rejected'>('all');
   const [checkinRef, setCheckinRef] = useState('');
   const [checkinResult, setCheckinResult] = useState<any>(null);
+
+  // Competition: per-pond seat active/inactive edits (pondKey -> seatNum -> active)
+  const [pondSeatEdits, setPondSeatEdits] = useState<Record<string, Record<number, boolean>>>({});
+  const seatDragValue = useRef<boolean | null>(null);
 
   // Results / Live page state
   const [resultsCompId, setResultsCompId] = useState<string>(comp.id || '');
@@ -98,20 +194,54 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
   if (!isOpen) return null;
 
   const handlePondUpdate = async (pond: Pond) => {
+    setPondSaveError(null);
+
+    // 1. Seat count enforcement for polygon view
+    const hasPolygon = !settingsEdit.useLegacyPondView && (pond.shape?.length ?? 0) > 2;
+    const seatsWithPos = pond.seats.filter(s => s.px !== undefined && s.py !== undefined);
+    const target = pond.maxSeats;
+    if (hasPolygon && seatsWithPos.length > 0 && target !== undefined && seatsWithPos.length !== target) {
+      setPondSaveError(`Letakkan tepat ${target} peg pada peta (kini ${seatsWithPos.length}/${target}).`);
+      return;
+    }
+
+    // 2. Booking conflict check: any seat being removed that has an active booking?
+    const newSeatNums = settingsEdit.useLegacyPondView && target !== undefined
+      ? new Set(Array.from({ length: target }, (_, i) => i + 1))  // legacy: 1..maxSeats
+      : new Set(pond.seats.map(s => s.num));
+    const conflicts = getConflictingRemovedSeats(pond.id, newSeatNums);
+    if (conflicts.length > 0) {
+      setPondSaveError(`Tidak dapat simpan — peg ${conflicts.join(', ')} masih ada tempahan aktif. Alihkan atau batalkan tempahan tersebut dahulu.`);
+      return;
+    }
+
     setSaving(true);
     try {
       const pondDocId = pond._docId || pond.id.toString();
       const safePrice = pond.seats[0]?.price || 100;
+      const effectiveMaxSeats = pond.maxSeats ?? pond.seats.length;
+
+      // Build seatLayout: positions + active flag for each seat
+      const seatLayout = pond.seats.map(s => ({
+        num: s.num,
+        px: s.px ?? 50,
+        py: s.py ?? 50,
+        active: s.active !== false,
+      }));
+
       await updatePondFirestore(pondDocId, {
         name: pond.name,
         description: pond.desc,
         open: pond.open,
-        totalSeats: pond.seats.length,
+        totalSeats: effectiveMaxSeats,
         pricePerSeat: safePrice,
+        shape: pond.shape ?? [],
+        seatLayout,
       } as any);
-      await syncPondSeatsFirestore(pondDocId, pond.seats.length, safePrice);
+      await syncPondSeatsFirestore(pondDocId, effectiveMaxSeats, safePrice);
       await reloadDB();
       setEditingPond(null);
+      setPondSaveError(null);
     } catch (err) { console.error('Failed to update pond:', err); }
     setSaving(false);
   };
@@ -121,8 +251,24 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
     try {
       if (!compEdit.id) { setSaving(false); return; }
       await updateCompetitionFirestore(compEdit.id, compEdit as any);
+
+      // Persist any manually toggled seat active flags back to the ponds
+      for (const [pondKey, seatMap] of Object.entries(pondSeatEdits)) {
+        if (Object.keys(seatMap).length === 0) continue;
+        const pond = ponds.find(p => (p._docId || p.id.toString()) === pondKey);
+        if (!pond) continue;
+        const seatLayout = pond.seats.map(s => ({
+          num:    s.num,
+          px:     s.px  ?? 50,
+          py:     s.py  ?? 50,
+          active: seatMap[s.num] !== undefined ? seatMap[s.num] : s.active !== false,
+        }));
+        await updatePondFirestore(pondKey, { seatLayout } as any);
+      }
+
       await reloadDB();
       setCompetitionEditorOpen(false);
+      setPondSeatEdits({});
     } catch (err) { console.error('Failed to update competition:', err); }
     setSaving(false);
   };
@@ -211,6 +357,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
     setSaving(false);
   };
 
+  const handlePondViewToggle = async () => {
+    const next = !settingsEdit.useLegacyPondView;
+    setSettingsEdit(s => ({ ...s, useLegacyPondView: next }));
+    try {
+      await updateSettingsFirestore({ useLegacyPondView: next });
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to update pond view setting:', err);
+    }
+  };
+
   const handleSaveScore = async (booking: { id: string; userName: string; pondId: number; pondName: string; seats: number[] }) => {
     const weight = parseFloat(pendingWeights[booking.id] || '');
     if (isNaN(weight) || weight < 0) return;
@@ -258,11 +415,27 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
 
   const openCreatePondModal = () => {
     setNewPondSeatPrice(100);
+    setNewPondMaxSeats(30);
+    setPondSaveError(null);
     setEditingPond({} as any);
   };
 
   const closePondModal = () => {
     setEditingPond(null);
+    setPondSaveError(null);
+  };
+
+  /** Returns seat numbers that are in active bookings for this pond and would be removed. */
+  const getConflictingRemovedSeats = (pondId: number, newSeatNums: Set<number>) => {
+    const conflicts: number[] = [];
+    for (const b of bookings) {
+      if (b.status === 'rejected') continue;
+      if (b.pondId !== pondId) continue;
+      for (const sn of b.seats) {
+        if (!newSeatNums.has(sn)) conflicts.push(sn);
+      }
+    }
+    return [...new Set(conflicts)].sort((a, b) => a - b);
   };
 
   const normalizeSeatPrice = (raw: string | number) => {
@@ -475,7 +648,21 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
           )}
           {page === 'ponds' && (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Kolam</div><div className="page-sub">Urus kolam dan tempat duduk</div></div><button className="btn btn-primary" onClick={openCreatePondModal}>+ Tambah Kolam</button></div>
+              <div className="page-header">
+                <div><div className="page-title">Kolam</div><div className="page-sub">Urus kolam dan tempat duduk</div></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!settingsEdit.useLegacyPondView}
+                      onChange={handlePondViewToggle}
+                      style={{ accentColor: 'var(--green)', width: '15px', height: '15px', cursor: 'pointer' }}
+                    />
+                    Paparan kolam lama
+                  </label>
+                  <button className="btn btn-primary" onClick={openCreatePondModal}>+ Tambah Kolam</button>
+                </div>
+              </div>
               <div className="three-col">
                 {ponds.map((pond) => {
                   const avail = pond.seats.filter(s => s.status === 'available').length;
@@ -598,7 +785,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                     <tr key={b.id}>
                       <td className="td-ref">{b.id.slice(0, 10)}</td>
                       <td>{b.competitionName || comp.name || '-'}</td>
-                      <td className="td-name">{b.userName}</td>
+                      <td className="td-name">
+                        {b.userName}
+                        {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>ADMIN</span>}
+                      </td>
                       <td>{b.pondName}</td>
                       <td>{b.seats.join(', ')}</td>
                       <td>RM {b.amount}</td>
@@ -616,9 +806,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Tempahan Manual</div><div className="page-sub">Buat tempahan untuk pelanggan</div></div></div>
               <div className="card"><div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
-                <div style={{ fontSize: '3rem', opacity: 0.3, marginBottom: '1rem' }}>📝</div>
-                <p style={{ color: 'var(--text-muted)' }}>Fungsi tempahan manual akan datang. Sila gunakan laman utama untuk tempahan buat masa ini.</p>
-                <button className="btn btn-primary mt-4" onClick={onClose}>Pergi ke Laman Utama</button>
+                <div style={{ fontSize: '3rem', opacity: 0.5, marginBottom: '1rem' }}>📝</div>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', lineHeight: 1.7, maxWidth: 380, margin: '0 auto 1.5rem' }}>
+                  Pergi ke halaman tempahan untuk membuat tempahan atas nama pelanggan. Isi nama dan e-mel pelanggan di borang tempahan.
+                </p>
+                <button className="btn btn-primary" onClick={() => { onClose(); onGoToBooking?.(); }}>
+                  🏊 Pergi ke Halaman Tempahan
+                </button>
               </div></div>
             </div>
           )}
@@ -638,7 +832,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                       <tr key={b.id}>
                         <td className="td-ref">{b.id.slice(0, 10)}</td>
                         <td>{b.competitionName || comp.name || '-'}</td>
-                        <td className="td-name">{b.userName}</td>
+                        <td className="td-name">
+                          {b.userName}
+                          {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>ADMIN</span>}
+                        </td>
                         <td>{b.pondName}</td>
                         <td>{b.seats.join(', ')}</td>
                         <td>RM {b.amount}</td>
@@ -927,13 +1124,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
         </div>
 
         {competitionEditorOpen && (
-          <div className="modal-overlay open" onClick={() => setCompetitionEditorOpen(false)}>
-            <div className="modal" style={{ maxWidth: '760px', width: '95%' }} onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
+          <div className="modal-overlay open" onClick={() => { setCompetitionEditorOpen(false); setPondSeatEdits({}); }}>
+            <div className="modal" style={{ maxWidth: '760px', width: '95%', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header" style={{ flexShrink: 0 }}>
                 <div className="modal-title">Manage Competition</div>
-                <button className="modal-close" onClick={() => setCompetitionEditorOpen(false)}>×</button>
+                <button className="modal-close" onClick={() => { setCompetitionEditorOpen(false); setPondSeatEdits({}); }}>×</button>
               </div>
-              <div className="modal-body">
+              <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
                 <div className="form-grid">
                   <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={compEdit.name || ''} onChange={(e) => setCompEdit({ ...compEdit, name: e.target.value })} /></div>
                   <div className="form-group"><label className="form-label">Tarikh Mula</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.startDate)} onChange={(e) => e.target.value && setCompEdit({ ...compEdit, startDate: new Date(e.target.value).toISOString() })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
@@ -944,62 +1141,85 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
                 <div className="card" style={{ marginTop: '12px' }}>
                   <div className="card-header"><div className="card-title">Active Ponds For This Competition</div></div>
                   <div className="card-body">
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {ponds.map((pond) => {
-                        const pondKey = pond._docId || pond.id.toString();
-                        const checked = (compEdit.activePondIds || []).includes(pondKey);
+                        const pondKey  = pond._docId || pond.id.toString();
+                        const checked  = (compEdit.activePondIds || []).includes(pondKey);
                         const openSeats = Math.max(0, Math.min(pond.seats.length, Math.floor(compEdit.pondSeats?.[pondKey] ?? pond.seats.length)));
                         return (
-                          <div key={pondKey} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '10px', background: checked ? 'var(--cream)' : 'transparent' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', marginBottom: '8px' }}>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
-                                  const next = new Set(compEdit.activePondIds || []);
-                                  if (e.target.checked) next.add(pondKey);
-                                  else next.delete(pondKey);
-                                  setCompEdit({ ...compEdit, activePondIds: Array.from(next) });
-                                }}
-                              />
-                              <span>{pond.name}</span>
-                            </label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: checked ? 1 : 0.45 }}>
-                              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Seat available</label>
-                              <input
-                                className="form-input"
-                                type="number"
-                                min={0}
-                                max={pond.seats.length}
-                                disabled={!checked}
-                                style={{ width: '86px', padding: '6px 8px' }}
-                                value={openSeats}
-                                onChange={(e) => {
-                                  const raw = parseInt(e.target.value) || 0;
-                                  const safe = Math.max(0, Math.min(pond.seats.length, raw));
-                                  setCompEdit({
-                                    ...compEdit,
-                                    pondSeats: {
-                                      ...(compEdit.pondSeats || {}),
-                                      [pondKey]: safe,
-                                    },
-                                  });
-                                }}
-                              />
-                              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>/ {pond.seats.length}</span>
+                          <div key={pondKey} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px', background: checked ? 'var(--cream)' : 'transparent' }}>
+                            {/* Row 1: checkbox + count input */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem', fontWeight: 600, flex: 1, minWidth: 120 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const next = new Set(compEdit.activePondIds || []);
+                                    if (e.target.checked) next.add(pondKey);
+                                    else next.delete(pondKey);
+                                    setCompEdit({ ...compEdit, activePondIds: Array.from(next) });
+                                  }}
+                                />
+                                <span>{pond.name}</span>
+                              </label>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: checked ? 1 : 0.45 }}>
+                                <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Seat available</label>
+                                <input
+                                  className="form-input"
+                                  type="number"
+                                  min={0}
+                                  max={pond.seats.length}
+                                  disabled={!checked}
+                                  style={{ width: '80px', padding: '5px 8px' }}
+                                  value={openSeats}
+                                  onChange={(e) => {
+                                    const raw  = parseInt(e.target.value) || 0;
+                                    const safe = Math.max(0, Math.min(pond.seats.length, raw));
+                                    setCompEdit({ ...compEdit, pondSeats: { ...(compEdit.pondSeats || {}), [pondKey]: safe } });
+                                  }}
+                                />
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>/ {pond.seats.length}</span>
+                              </div>
                             </div>
+
+                            {/* Row 2: pond SVG seat active/inactive editor */}
+                            {pond.seats.length > 0 && (
+                              <div style={{ marginTop: '12px' }}>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                  Peg aktif/tidak aktif — klik atau seret untuk tukar:
+                                </div>
+                                <CMSPondSeatEditor
+                                  pond={pond}
+                                  seatEdits={pondSeatEdits[pondKey] || {}}
+                                  useLegacyView={!!settingsEdit.useLegacyPondView}
+                                  onToggle={(num, active) =>
+                                    setPondSeatEdits(prev => ({
+                                      ...prev,
+                                      [pondKey]: { ...(prev[pondKey] || {}), [num]: active },
+                                    }))
+                                  }
+                                />
+                                {pondSeatEdits[pondKey] && Object.keys(pondSeatEdits[pondKey]).length > 0 && (
+                                  <div className="sag-hint" style={{ marginTop: '5px' }}>
+                                    {Object.values(pondSeatEdits[pondKey]).filter(Boolean).length} aktif ·{' '}
+                                    {Object.values(pondSeatEdits[pondKey]).filter(v => !v).length} tidak aktif (belum disimpan)
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
                     </div>
-                    <div style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                      Leave all unchecked to allow all ponds for this competition. Seat available limits how many pegs are open for this competition.
+                    <div style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                      Biarkan semua tidak ditanda untuk benarkan semua kolam. Hijau = peg aktif, kelabu = peg tidak aktif.
                     </div>
                   </div>
                 </div>
 
                 <div className="form-actions" style={{ marginTop: '12px' }}>
-                  <button className="btn btn-ghost" onClick={() => setCompetitionEditorOpen(false)}>Batal</button>
+                  <button className="btn btn-ghost" onClick={() => { setCompetitionEditorOpen(false); setPondSeatEdits({}); }}>Batal</button>
                   <button className="btn btn-primary" onClick={handleCompetitionUpdate} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
                 </div>
               </div>
@@ -1007,41 +1227,115 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
           </div>
         )}
 
-        {editingPond && (
+        {editingPond && (() => {
+          const isEdit = !!editingPond.id;
+          const curMaxSeats = isEdit ? (editingPond.maxSeats ?? editingPond.seats.length ?? 30) : newPondMaxSeats;
+          const curSeats = isEdit ? (editingPond.seats ?? []) : (newPond.seats ?? []);
+          const curShape = isEdit ? (editingPond.shape ?? []) : ((newPond as any).shape ?? []);
+          const isLegacy = !!settingsEdit.useLegacyPondView;
+          const seatsPlaced = curSeats.filter(s => s.px !== undefined).length;
+          const hasPolygon = !isLegacy && curShape.length > 2;
+          const seatCountOk = !hasPolygon || seatsPlaced === 0 || seatsPlaced === curMaxSeats;
+          return (
           <div className="modal-overlay open" onClick={closePondModal}>
-            <div className="modal" style={{ maxWidth: '760px', width: '95%' }} onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <div className="modal-title">{editingPond.id ? 'Edit Kolam' : 'Tambah Kolam Baru'}</div>
+            <div className="modal" style={{ maxWidth: '860px', width: '95%', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header" style={{ flexShrink: 0 }}>
+                <div className="modal-title">{isEdit ? 'Edit Kolam' : 'Tambah Kolam Baru'}</div>
                 <button className="modal-close" onClick={closePondModal}>×</button>
               </div>
-              <div className="modal-body">
+              <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
                 <div className="form-grid">
-                  <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={editingPond.id ? editingPond.name : newPond.name} onChange={e => editingPond.id ? setEditingPond({ ...editingPond, name: e.target.value }) : setNewPond({ ...newPond, name: e.target.value })} /></div>
-                  <div className="form-group"><label className="form-label">Keterangan</label><input className="form-input" value={editingPond.id ? editingPond.desc : newPond.desc} onChange={e => editingPond.id ? setEditingPond({ ...editingPond, desc: e.target.value }) : setNewPond({ ...newPond, desc: e.target.value })} /></div>
-                  <div className="form-group"><label className="form-label">Bilangan Tempat</label><input className="form-input" type="number" value={editingPond.id ? editingPond.seats?.length || 0 : newPond.seats?.length || 0} onChange={e => {
-                    const count = parseInt(e.target.value) || 0;
-                    if (editingPond.id) {
-                      const price = editingPond.seats?.[0]?.price || 100;
-                      setEditingPond({ ...editingPond, seats: gs(editingPond.id, 1, count, price) });
-                    } else {
-                      const price = newPondSeatPrice;
-                      setNewPond({ ...newPond, seats: gs(Math.max(...ponds.map(p => p.id), 0) + 1, 1, count, price) });
-                    }
-                  }} /></div>
-                  <div className="form-group"><label className="form-label">Harga Per Tempat (RM)</label><input className="form-input" type="number" min="0" step="1" value={editingPond.id ? (editingPond.seats?.[0]?.price || 0) : newPondSeatPrice} onChange={e => applySeatPrice(e.target.value)} /></div>
+                  <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={isEdit ? editingPond.name : newPond.name} onChange={e => isEdit ? setEditingPond({ ...editingPond, name: e.target.value }) : setNewPond({ ...newPond, name: e.target.value })} /></div>
+                  <div className="form-group"><label className="form-label">Keterangan</label><input className="form-input" value={isEdit ? editingPond.desc : newPond.desc} onChange={e => isEdit ? setEditingPond({ ...editingPond, desc: e.target.value }) : setNewPond({ ...newPond, desc: e.target.value })} /></div>
+                  <div className="form-group"><label className="form-label">Harga Per Tempat (RM)</label><input className="form-input" type="number" min="0" step="1" value={isEdit ? (editingPond.seats?.[0]?.price || 0) : newPondSeatPrice} onChange={e => applySeatPrice(e.target.value)} /></div>
+                  <div className="form-group">
+                    <label className="form-label">
+                      Bilangan Tempat Duduk Maksimum
+                      {!isLegacy && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 6 }}>(mesti sepadan dengan peg diletakkan)</span>}
+                    </label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      min="1"
+                      max="300"
+                      value={curMaxSeats}
+                      onChange={e => {
+                        const v = Math.max(1, parseInt(e.target.value) || 1);
+                        setPondSaveError(null);
+                        if (isEdit) setEditingPond({ ...editingPond, maxSeats: v });
+                        else setNewPondMaxSeats(v);
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="form-actions" style={{ marginTop: '12px' }}>
-                  {editingPond.id ? (<>
+
+                {/* ── Pond visual editor (polygon mode only) ── */}
+                {isLegacy ? (
+                  <div style={{ marginTop: '16px', padding: '12px 16px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    ℹ️ Paparan kapsul lama aktif — bilangan tempat duduk ({curMaxSeats}) digunakan secara automatik. Tukar ke paparan polygon untuk menetapkan susun atur visual.
+                  </div>
+                ) : (
+                  <div style={{ marginTop: '20px' }}>
+                    <div className="form-label" style={{ marginBottom: '8px', display: 'block' }}>
+                      Reka Bentuk Kolam &amp; Susunan Tempat Duduk
+                      {hasPolygon && seatsPlaced > 0 && (
+                        <span style={{ marginLeft: 8, fontSize: '0.78rem', color: seatCountOk ? 'var(--green)' : '#facc15' }}>
+                          {seatsPlaced}/{curMaxSeats} peg diletakkan{seatCountOk ? ' ✓' : ` — perlu tepat ${curMaxSeats}`}
+                        </span>
+                      )}
+                    </div>
+                    <PondEditor
+                      shape={curShape}
+                      seats={curSeats}
+                      maxSeats={curMaxSeats}
+                      onChange={(newShape, newSeats) => {
+                        setPondSaveError(null);
+                        if (isEdit) {
+                          setEditingPond({ ...editingPond, shape: newShape, seats: newSeats });
+                        } else {
+                          setNewPond({ ...newPond, shape: newShape as any, seats: newSeats });
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* ── Save error ── */}
+                {pondSaveError && (
+                  <div style={{ marginTop: '12px', padding: '10px 14px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '8px', color: '#f87171', fontSize: '0.84rem' }}>
+                    ⚠ {pondSaveError}
+                  </div>
+                )}
+
+                <div className="form-actions" style={{ marginTop: '16px' }}>
+                  {isEdit ? (<>
                     <button className="btn btn-ghost" onClick={closePondModal}>Batal</button>
-                    <button className="btn btn-primary" disabled={saving} onClick={() => handlePondUpdate(editingPond)}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
+                    <button className="btn btn-primary" disabled={saving || !seatCountOk} onClick={() => handlePondUpdate(editingPond)}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
                   </>) : (<>
                     <button className="btn btn-ghost" onClick={closePondModal}>Batal</button>
-                    <button className="btn btn-primary" disabled={saving} onClick={async () => {
-                      if (newPond.name && newPond.seats && newPond.seats.length > 0) {
+                    <button className="btn btn-primary" disabled={saving || !seatCountOk} onClick={async () => {
+                      if (newPond.name) {
+                        // Conflict check for new pond: no existing bookings, so just count check
+                        if (!isLegacy && hasPolygon && seatsPlaced > 0 && seatsPlaced !== newPondMaxSeats) {
+                          setPondSaveError(`Letakkan tepat ${newPondMaxSeats} peg pada peta (kini ${seatsPlaced}/${newPondMaxSeats}).`);
+                          return;
+                        }
                         setSaving(true);
                         try {
-                          await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: newPond.seats.length, pricePerSeat: newPond.seats[0]?.price || newPondSeatPrice || 100 } as any);
-                          await reloadDB(); setNewPond({ name: '', desc: '', seats: [], open: true }); setEditingPond(null);
+                          const effectiveMax = isLegacy ? newPondMaxSeats : ((newPond.seats ?? []).length || newPondMaxSeats);
+                          const newDocId = await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: effectiveMax, pricePerSeat: newPondSeatPrice || 100 } as any);
+                          // Save shape + seatLayout if present (polygon mode)
+                          const shape = (newPond as any).shape ?? [];
+                          const seats = newPond.seats ?? [];
+                          if (!isLegacy && (shape.length > 0 || seats.length > 0)) {
+                            const seatLayout = seats.map((s: any) => ({ num: s.num, px: s.px ?? 50, py: s.py ?? 50, active: s.active !== false }));
+                            await updatePondFirestore(newDocId, { shape, seatLayout } as any);
+                          }
+                          await reloadDB();
+                          setNewPond({ name: '', desc: '', seats: [], open: true });
+                          setNewPondMaxSeats(30);
+                          setEditingPond(null);
+                          setPondSaveError(null);
                         } catch (err) { console.error('Failed to add pond:', err); }
                         setSaving(false);
                       }
@@ -1051,7 +1345,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {competitionDeleteTarget && (
           <div className="modal-overlay open" onClick={() => setCompetitionDeleteTarget(null)}>

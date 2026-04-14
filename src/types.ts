@@ -1,9 +1,17 @@
+export interface PondVertex {
+  x: number; // 0–100 percentage of SVG viewBox width
+  y: number; // 0–100 percentage of SVG viewBox height
+}
+
 export interface Seat {
   id?: string;
   num: number;
   zone: string;
   price: number;
   status: 'available' | 'booked' | 'pending';
+  px?: number;     // visual position x (0–100 % of SVG viewBox)
+  py?: number;     // visual position y (0–100 % of SVG viewBox)
+  active?: boolean; // false = seat is inactive / disabled
 }
 
 export interface Pond {
@@ -14,6 +22,8 @@ export interface Pond {
   desc: string;
   seats: Seat[];
   open: boolean;
+  maxSeats?: number; // target seat count — drives legacy capsule count and polygon editor enforcement
+  shape?: PondVertex[]; // polygon vertices for the custom visual editor
 }
 
 export interface Booking {
@@ -106,6 +116,8 @@ export interface Settings {
   contactSubtitle?: string;
   ctaTitle?: string;
   ctaSubtitle?: string;
+  /** When true, the booking page and CMS show the legacy capsule pond view instead of the SVG polygon */
+  useLegacyPondView?: boolean;
 }
 
 export interface User {

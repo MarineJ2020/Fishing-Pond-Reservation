@@ -45,7 +45,14 @@ const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booki
 
           {/* Angler Info */}
           <div style={{ background: 'var(--gold-pale)', padding: '18px', borderRadius: '14px', border: '1px solid rgba(200,146,42,.2)' }}>
-            <div style={{ fontSize: '.68rem', color: 'var(--gold)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '10px', fontWeight: 700 }}>Pemancing</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+              <div style={{ fontSize: '.68rem', color: 'var(--gold)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700 }}>Pemancing</div>
+              {booking.createdByStaff && (
+                <span style={{ fontSize: '.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.35)', borderRadius: '5px', padding: '2px 7px', fontWeight: 700, letterSpacing: '0.5px' }}>
+                  🛠 Dibuat oleh Admin
+                </span>
+              )}
+            </div>
             <div style={{ fontSize: '17px', fontWeight: 800, marginBottom: '6px', fontFamily: 'var(--font-heading)' }}>{booking.userName}</div>
             <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <span>📧 {booking.userId}</span>

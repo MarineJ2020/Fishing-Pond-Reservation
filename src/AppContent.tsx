@@ -25,12 +25,16 @@ const AppContent: React.FC = () => {
     payType,
     receiptData,
     user,
+    adminProxyName,
+    adminProxyEmail,
     setPond,
     setSelectedCompetitionId,
     toggleSeat,
     setSeats,
     setPayType,
     setReceiptData,
+    setAdminProxyName,
+    setAdminProxyEmail,
     submitBooking,
     updateDB,
     reloadDB
@@ -980,7 +984,7 @@ const AppContent: React.FC = () => {
 
               {hasPond && bookedPond && (
                 <div className="booking-stage-enter">
-                  <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} />
+                  <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} useLegacyView={!!db.settings.useLegacyPondView} />
                 </div>
               )}
 
@@ -992,11 +996,15 @@ const AppContent: React.FC = () => {
                     selectedSeats={selectedSeats}
                     payType={payType}
                     receiptData={receiptData}
+                    adminProxyName={adminProxyName}
+                    adminProxyEmail={adminProxyEmail}
                     onSetPayType={setPayType}
                     onHandleReceiptChange={handleReceiptChange}
                     onClearReceipt={() => setReceiptData(null, null)}
                     onSubmitBooking={handleSubmitBooking}
                     onOpenAuth={() => setAuthModalOpen(true)}
+                    onAdminProxyNameChange={setAdminProxyName}
+                    onAdminProxyEmailChange={setAdminProxyEmail}
                   />
                 </div>
               )}
@@ -1187,6 +1195,7 @@ const AppContent: React.FC = () => {
       <CMSModal
         isOpen={cmsModalOpen}
         onClose={() => setCMSModalOpen(false)}
+        onGoToBooking={() => { setCMSModalOpen(false); goToBook(); }}
         user={user}
         ponds={db.ponds}
         comp={db.comp}

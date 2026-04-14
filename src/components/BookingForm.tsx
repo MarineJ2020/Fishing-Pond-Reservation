@@ -7,11 +7,15 @@ interface BookingFormProps {
   selectedSeats: number[];
   payType: 'full' | 'deposit';
   receiptData: string | null;
+  adminProxyName: string;
+  adminProxyEmail: string;
   onSetPayType: (type: 'full' | 'deposit') => void;
   onHandleReceiptChange: (file: File) => void;
   onClearReceipt: () => void;
   onSubmitBooking: () => void;
   onOpenAuth: () => void;
+  onAdminProxyNameChange: (v: string) => void;
+  onAdminProxyEmailChange: (v: string) => void;
 }
 
 const BookingForm: React.FC<BookingFormProps> = ({
@@ -20,11 +24,15 @@ const BookingForm: React.FC<BookingFormProps> = ({
   selectedSeats,
   payType,
   receiptData,
+  adminProxyName,
+  adminProxyEmail,
   onSetPayType,
   onHandleReceiptChange,
   onClearReceipt,
   onSubmitBooking,
-  onOpenAuth
+  onOpenAuth,
+  onAdminProxyNameChange,
+  onAdminProxyEmailChange,
 }) => {
   const [notes, setNotes] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,10 +79,42 @@ const BookingForm: React.FC<BookingFormProps> = ({
     );
   }
 
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'STAFF';
+  const isAdminProxyMode = isAdmin && adminProxyName.trim() !== '';
+
   return (
     <div className="panel">
       <div className="panel-title">Maklumat & Bayaran</div>
       <div className="panel-subtitle">Lengkapkan butiran di bawah untuk menempah tempat anda</div>
+
+      {/* ── Admin: book on behalf of customer ── */}
+      {isAdmin && (
+        <div style={{ background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.25)', borderRadius: '10px', padding: '14px 16px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '.72rem', color: 'var(--gold)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700, marginBottom: '10px' }}>🛠 Tempahan atas nama pelanggan</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div>
+              <label className="form-label" style={{ marginBottom: '4px', display: 'block' }}>Nama Pelanggan <span style={{ color: 'var(--red)' }}>*</span></label>
+              <input
+                className="form-input"
+                placeholder="Nama penuh pelanggan"
+                value={adminProxyName}
+                onChange={e => onAdminProxyNameChange(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="form-label" style={{ marginBottom: '4px', display: 'block' }}>E-mel Pelanggan</label>
+              <input
+                className="form-input"
+                type="email"
+                placeholder="email@contoh.com (pilihan)"
+                value={adminProxyEmail}
+                onChange={e => onAdminProxyEmailChange(e.target.value)}
+              />
+            </div>
+          </div>
+          <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '8px' }}>Isi nama untuk tempahan atas nama pelanggan. Kosongkan untuk tempahan atas nama sendiri.</div>
+        </div>
+      )}
 
       <label className="form-label">Selected Pegs</label>
       <div className="selected-pills">
@@ -142,12 +182,12 @@ const BookingForm: React.FC<BookingFormProps> = ({
         id="btn-submit"
         className="btn btn-primary w-full btn-lg mt-4"
         onClick={onSubmitBooking}
-        disabled={!selectedSeats.length || !receiptData}
+        disabled={!selectedSeats.length || !receiptData || (isAdmin && adminProxyName.trim() === '' ? false : false)}
       >
-        Hantar Tempahan
+        {isAdminProxyMode ? `Tempah untuk ${adminProxyName.trim()}` : 'Hantar Tempahan'}
       </button>
       <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '7px' }}>
-        Staff akan sahkan dan maklumkan melalui email
+        {isAdminProxyMode ? 'Tempahan ini akan ditanda sebagai dibuat oleh Admin' : 'Staff akan sahkan dan maklumkan melalui email'}
       </div>
     </div>
   );
