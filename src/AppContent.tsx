@@ -255,11 +255,34 @@ const AppContent: React.FC = () => {
   };
 
   const handleReceiptChange = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setReceiptData(e.target?.result as string, file);
+    const MAX_DIM = 1600;
+    const QUALITY = 0.82;
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(objectUrl);
+      const compressed = canvas.toDataURL('image/jpeg', QUALITY);
+      const bytes = atob(compressed.split(',')[1]);
+      const buf = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+      const compFile = new File([buf], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+      setReceiptData(compressed, compFile);
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      // Non-image file (e.g. PDF) — fall back to raw read
+      URL.revokeObjectURL(objectUrl);
+      const reader = new FileReader();
+      reader.onload = (e) => setReceiptData(e.target?.result as string, file);
+      reader.readAsDataURL(file);
+    };
+    img.src = objectUrl;
   };
 
   const handleLogin = async (email: string, pass: string) => {
