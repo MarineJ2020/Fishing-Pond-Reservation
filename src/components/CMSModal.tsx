@@ -53,11 +53,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
   const [savingEntry, setSavingEntry] = useState<string | null>(null);
   const [manualEntry, setManualEntry] = useState({ anglerName: '', pondId: '', seatNum: '', weight: '' });
   const [anglerSuggestOpen, setAnglerSuggestOpen] = useState(false);
+  const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
 
   useEffect(() => {
     if (!resultsCompId && comp.id) setResultsCompId(comp.id);
     else if (!resultsCompId && competitions.length) setResultsCompId(competitions[0].id || '');
   }, [comp.id, competitions]);
+
+  // Sync compEdit when switching competition on prizes page
+  useEffect(() => {
+    if (page !== 'prizes') return;
+    const target = compList.find(c => c.id === prizesCompId) || compList[0];
+    if (target) setCompEdit({ ...target });
+  }, [prizesCompId, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (page !== 'results' || !resultsCompId) return;
@@ -116,6 +124,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
       await reloadDB();
       setCompetitionEditorOpen(false);
     } catch (err) { console.error('Failed to update competition:', err); }
+    setSaving(false);
+  };
+
+  const handlePrizeSave = async () => {
+    setSaving(true);
+    try {
+      if (!compEdit.id) { setSaving(false); return; }
+      await updateCompetitionFirestore(compEdit.id, compEdit as any);
+      await reloadDB();
+    } catch (err) { console.error('Failed to save prizes:', err); }
     setSaving(false);
   };
 
@@ -479,24 +497,92 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, user, ponds, comp,
           )}
           {page === 'prizes' && (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Hadiah &amp; Ranking</div><div className="page-sub">Tetapan hadiah pertandingan</div></div></div>
-              <div className="two-col">
-                <div className="card"><div className="card-header"><div className="card-title">Pertandingan</div></div><div className="card-body"><div style={{ padding: '1rem', background: 'var(--gold-pale)', borderRadius: '8px', border: '1px solid rgba(200,146,42,0.3)' }}><strong>{comp.name || 'Tiada pertandingan'}</strong><div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>📅 {new Date(comp.startDate).toLocaleDateString('ms-MY')}</div></div></div></div>
-                <div className="card">
-                  <div className="card-header"><div className="card-title">Senarai Hadiah</div><button className="btn btn-sm btn-primary" onClick={() => { const nr = compEdit.prizes.length ? Math.max(...compEdit.prizes.map((p: Prize) => p.rank)) + 1 : 1; setCompEdit({ ...compEdit, prizes: [...compEdit.prizes, { rank: nr, label: 'Tempat #' + nr, prize: '' }] }); }}>+ Tambah</button></div>
-                  <div className="card-body">
-                    <div className="prize-rows">
-                      {compEdit.prizes.map((p: Prize, i: number) => (
-                        <div key={i} className="prize-row">
-                          <div className="prize-rank-badge">{p.rank}</div>
-                          <input value={p.label || ''} onChange={e => { const prizes = [...compEdit.prizes]; prizes[i] = { ...prizes[i], label: e.target.value }; setCompEdit({ ...compEdit, prizes }); }} placeholder="Label" />
-                          <input value={p.prize} onChange={e => { const prizes = [...compEdit.prizes]; prizes[i] = { ...prizes[i], prize: e.target.value }; setCompEdit({ ...compEdit, prizes }); }} placeholder="Hadiah (e.g. RM500)" />
-                          <button className="prize-del" onClick={() => { setCompEdit({ ...compEdit, prizes: compEdit.prizes.filter((_: Prize, idx: number) => idx !== i) }); }}>✕</button>
-                        </div>
+              <div className="page-header">
+                <div>
+                  <div className="page-title">Hadiah &amp; Ranking</div>
+                  <div className="page-sub">Tetapan hadiah untuk setiap pertandingan</div>
+                </div>
+              </div>
+
+              {/* Competition selector */}
+              <div className="card" style={{ marginBottom: '16px' }}>
+                <div className="card-body" style={{ padding: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <label style={{ fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Pertandingan:</label>
+                    <select
+                      className="form-input"
+                      style={{ maxWidth: '360px', flex: 1 }}
+                      value={prizesCompId}
+                      onChange={e => setPrizesCompId(e.target.value)}
+                    >
+                      {compList.map(c => (
+                        <option key={c.id || c.name} value={c.id || ''}>{c.name}</option>
                       ))}
-                      {compEdit.prizes.length === 0 && <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-muted)' }}>Tiada hadiah ditambah</div>}
-                    </div>
-                    <div className="form-actions" style={{ marginTop: '1rem' }}><button className="btn btn-primary" disabled={saving} onClick={handleCompetitionUpdate}>{saving ? 'Menyimpan...' : 'Simpan Hadiah'}</button></div>
+                    </select>
+                    {compEdit.startDate && (
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        📅 {new Date(compEdit.startDate).toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Prize editor for selected competition */}
+              <div className="card">
+                <div className="card-header">
+                  <div className="card-title">Senarai Hadiah — {compEdit.name || '—'}</div>
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={() => {
+                      const nextRank = compEdit.prizes?.length
+                        ? Math.max(...compEdit.prizes.map((p: Prize) => p.rank)) + 1
+                        : 1;
+                      setCompEdit({ ...compEdit, prizes: [...(compEdit.prizes || []), { rank: nextRank, label: 'Tempat #' + nextRank, prize: '' }] });
+                    }}
+                  >+ Tambah Tempat</button>
+                </div>
+                <div className="card-body">
+                  <div className="prize-rows">
+                    {(compEdit.prizes || []).map((p: Prize, i: number) => (
+                      <div key={i} className="prize-row">
+                        <div className="prize-rank-badge">{p.rank}</div>
+                        <input
+                          className="form-input"
+                          value={p.label || ''}
+                          onChange={e => {
+                            const prizes = [...(compEdit.prizes || [])];
+                            prizes[i] = { ...prizes[i], label: e.target.value };
+                            setCompEdit({ ...compEdit, prizes });
+                          }}
+                          placeholder="Label (cth: Juara, Naib Juara)"
+                        />
+                        <input
+                          className="form-input"
+                          value={p.prize}
+                          onChange={e => {
+                            const prizes = [...(compEdit.prizes || [])];
+                            prizes[i] = { ...prizes[i], prize: e.target.value };
+                            setCompEdit({ ...compEdit, prizes });
+                          }}
+                          placeholder="Hadiah (cth: RM 500)"
+                        />
+                        <button
+                          className="prize-del"
+                          onClick={() => setCompEdit({ ...compEdit, prizes: (compEdit.prizes || []).filter((_: Prize, idx: number) => idx !== i) })}
+                        >✕</button>
+                      </div>
+                    ))}
+                    {(compEdit.prizes || []).length === 0 && (
+                      <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                        Tiada hadiah ditambah untuk pertandingan ini
+                      </div>
+                    )}
+                  </div>
+                  <div className="form-actions" style={{ marginTop: '1rem' }}>
+                    <button className="btn btn-primary" disabled={saving} onClick={handlePrizeSave}>
+                      {saving ? 'Menyimpan...' : 'Simpan Hadiah'}
+                    </button>
                   </div>
                 </div>
               </div>

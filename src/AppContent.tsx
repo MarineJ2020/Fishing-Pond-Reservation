@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import './styles.css';
 import Navbar from './components/Navbar';
 import BookingSidebar from './components/BookingSidebar';
@@ -52,6 +52,17 @@ const AppContent: React.FC = () => {
   const [countdown, setCountdown] = useState({ days: '--', hours: '--', mins: '--', secs: '--', status: 'upcoming' });
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [bookingDetailsOpen, setBookingDetailsOpen] = useState(false);
+  const [prizeIdx, setPrizeIdx] = useState(0);
+  const [prizePhase, setPrizePhase] = useState<'idle' | 'out' | 'in'>('idle');
+  const [prizeSlideDir, setPrizeSlideDir] = useState<'left' | 'right'>('left');
+  const [prizeMinH, setPrizeMinH] = useState(0);
+  const prizeLastInteractRef = useRef<number>(Date.now());
+  const prizeAutoPlayRef = useRef<number | null>(null);
+  const prizeTransRef = useRef<number | null>(null);
+  const prizeIdxRef = useRef(0);
+  const prizePhaseRef = useRef<'idle' | 'out' | 'in'>('idle');
+  const prizeMinHRef = useRef(0);
+  const prizeWrapRef = useRef<HTMLDivElement | null>(null);
 
   const competitions = useMemo(() => {
     if (db.competitions?.length) return db.competitions;
@@ -329,6 +340,26 @@ const AppContent: React.FC = () => {
 
   const getCompetitionKey = (competition: { id?: string; name?: string }) => competition.id || competition.name || '';
 
+  const switchPrize = (dir: 'prev' | 'next') => {
+    prizeLastInteractRef.current = Date.now();
+    const len = competitions.length;
+    if (len <= 1) return;
+    const nextIdx = dir === 'next'
+      ? (prizeIdxRef.current + 1) % len
+      : (prizeIdxRef.current - 1 + len) % len;
+    if (prizeTransRef.current) window.clearTimeout(prizeTransRef.current);
+    setPrizeSlideDir(dir === 'next' ? 'left' : 'right');
+    setPrizePhase('out'); prizePhaseRef.current = 'out';
+    prizeTransRef.current = window.setTimeout(() => {
+      prizeIdxRef.current = nextIdx;
+      setPrizeIdx(nextIdx);
+      setPrizePhase('in'); prizePhaseRef.current = 'in';
+      prizeTransRef.current = window.setTimeout(() => {
+        setPrizePhase('idle'); prizePhaseRef.current = 'idle';
+      }, 420);
+    }, 220);
+  };
+
   const updateFocusedCompetition = () => {
     const track = competitionScrollerRef.current;
     if (!track || track.scrollWidth <= track.clientWidth) return null;
@@ -404,6 +435,40 @@ const AppContent: React.FC = () => {
       window.clearTimeout(competitionSnapResumeTimeoutRef.current);
     }
   }, []);
+
+  // Prize section autoplay — advances every 5s if inactive for 7s
+  useEffect(() => {
+    if (competitions.length <= 1) return;
+    const len = competitions.length;
+    prizeAutoPlayRef.current = window.setInterval(() => {
+      if (Date.now() - prizeLastInteractRef.current < 7000) return;
+      if (prizePhaseRef.current !== 'idle') return;
+      const nextIdx = (prizeIdxRef.current + 1) % len;
+      if (prizeTransRef.current) window.clearTimeout(prizeTransRef.current);
+      setPrizeSlideDir('left');
+      setPrizePhase('out'); prizePhaseRef.current = 'out';
+      prizeTransRef.current = window.setTimeout(() => {
+        prizeIdxRef.current = nextIdx;
+        setPrizeIdx(nextIdx);
+        setPrizePhase('in'); prizePhaseRef.current = 'in';
+        prizeTransRef.current = window.setTimeout(() => {
+          setPrizePhase('idle'); prizePhaseRef.current = 'idle';
+        }, 420);
+      }, 220);
+    }, 5000);
+    return () => { if (prizeAutoPlayRef.current) window.clearInterval(prizeAutoPlayRef.current); };
+  }, [competitions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lock prizes section min-height at its high-water mark to prevent layout shifts
+  useLayoutEffect(() => {
+    const el = prizeWrapRef.current;
+    if (!el) return;
+    const h = el.scrollHeight;
+    if (h > prizeMinHRef.current) {
+      prizeMinHRef.current = h;
+      setPrizeMinH(h);
+    }
+  }, [prizeIdx]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const track = competitionScrollerRef.current;
@@ -512,7 +577,7 @@ const AppContent: React.FC = () => {
           <p className="hero-subtitle">Kolam pancing keli terbesar di Kedah — 14 kolam, suasana sawah asli, pertandingan setiap bulan.</p>
           <div className="hero-buttons">
             <button className="btn btn-primary btn-lg" onClick={() => handleNavigation('competitions')}>Pilih Pertandingan</button>
-            <a className="btn-outline" onClick={() => handleNavigation('competitions')}>Lihat Pertandingan</a>
+            <a className="btn-outline" onClick={() => handleNavigation('prizes')}>Lihat Hadiah</a>
           </div>
           <div className="hero-stats">
             <div className="hero-stat"><div className="hero-stat-num">{totalPonds}</div><div className="hero-stat-label">Kolam Aktif</div></div>
@@ -697,26 +762,70 @@ const AppContent: React.FC = () => {
           <div className="section-label">Ganjaran</div>
           <h2 className="section-title">Hadiah &amp;<br />Ganjaran</h2>
           <p className="section-desc">Hadiah wang tunai untuk pemenang setiap pertandingan.</p>
-          <table className="prizes-table">
-            <thead>
-              <tr><th>Tempat</th><th>Kategori</th><th>Hadiah</th></tr>
-            </thead>
-            <tbody>
-              {selectedCompetition?.prizes?.length ? selectedCompetition.prizes.map((p: any, i: number) => (
-                <tr key={i} className={i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : ''}>
-                  <td>#{i + 1}</td>
-                  <td>{p.label || `Tempat ${i + 1}`}</td>
-                  <td className="prize-amount">{p.prize || (p.amount ? `RM ${p.amount}` : 'RM ???')}</td>
-                </tr>
-              )) : (
-                <>
-                  <tr className="rank-1"><td>🥇 #1</td><td>Juara</td><td className="prize-amount">RM ??? </td></tr>
-                  <tr className="rank-2"><td>🥈 #2</td><td>Naib Juara</td><td className="prize-amount">RM ???</td></tr>
-                  <tr className="rank-3"><td>🥉 #3</td><td>Ketiga</td><td className="prize-amount">RM ???</td></tr>
-                </>
-              )}
-            </tbody>
-          </table>
+          {(() => {
+            const pComp = competitions[prizeIdx] ?? competitions[0];
+            const prizesData: any[] = pComp?.prizes || [];
+            const rows = prizesData.length
+              ? prizesData.map((p: any, i: number) => (
+                  <tr key={i} className={i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : ''}>
+                    <td>#{i + 1}</td>
+                    <td>{p.label || `Tempat ${i + 1}`}</td>
+                    <td className="prize-amount">{p.prize || (p.amount ? `RM ${p.amount}` : 'RM ???')}</td>
+                  </tr>
+                ))
+              : [
+                  <tr key="1" className="rank-1"><td>🥇 #1</td><td>Juara</td><td className="prize-amount">RM ???</td></tr>,
+                  <tr key="2" className="rank-2"><td>🥈 #2</td><td>Naib Juara</td><td className="prize-amount">RM ???</td></tr>,
+                  <tr key="3" className="rank-3"><td>🥉 #3</td><td>Ketiga</td><td className="prize-amount">RM ???</td></tr>,
+                ];
+            const table = (
+              <table className="prizes-table">
+                <thead><tr><th>Tempat</th><th>Kategori</th><th>Hadiah</th></tr></thead>
+                <tbody>{rows}</tbody>
+              </table>
+            );
+            if (competitions.length <= 1) return table;
+            return (
+              <>
+                <div className="prize-nav-wrap">
+                  <button className="prize-nav-btn" onClick={() => switchPrize('prev')} aria-label="Pertandingan sebelumnya">‹</button>
+                  <div
+                    ref={prizeWrapRef}
+                    className={`prize-table-wrap${prizePhase !== 'idle' ? ` prize-phase-${prizePhase}-${prizeSlideDir}` : ''}`}
+                    style={prizeMinH > 0 ? { minHeight: prizeMinH } : undefined}
+                  >
+                    <div className="prize-comp-label">{pComp?.name}</div>
+                    {table}
+                  </div>
+                  <button className="prize-nav-btn" onClick={() => switchPrize('next')} aria-label="Pertandingan seterusnya">›</button>
+                </div>
+                <div className="prize-dots">
+                  {competitions.map((_, di) => (
+                    <button
+                      key={di}
+                      className={`prize-dot${di === prizeIdx ? ' active' : ''}`}
+                      onClick={() => {
+                        prizeLastInteractRef.current = Date.now();
+                        if (prizeTransRef.current) window.clearTimeout(prizeTransRef.current);
+                        const sDir: 'left' | 'right' = di > prizeIdxRef.current ? 'left' : 'right';
+                        setPrizeSlideDir(sDir);
+                        setPrizePhase('out'); prizePhaseRef.current = 'out';
+                        prizeTransRef.current = window.setTimeout(() => {
+                          prizeIdxRef.current = di;
+                          setPrizeIdx(di);
+                          setPrizePhase('in'); prizePhaseRef.current = 'in';
+                          prizeTransRef.current = window.setTimeout(() => {
+                            setPrizePhase('idle'); prizePhaseRef.current = 'idle';
+                          }, 420);
+                        }, 220);
+                      }}
+                      aria-label={`Pertandingan ${di + 1}`}
+                    />
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
       </section>
 
