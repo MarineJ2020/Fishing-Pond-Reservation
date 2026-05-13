@@ -201,6 +201,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       amount: payAmt,
       totalAmount: tot,
       receiptUrl,
+      bookingRef,
       notes: bookingNotes,
       createdByStaff: isAdminProxy,
     };

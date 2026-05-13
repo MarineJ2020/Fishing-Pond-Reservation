@@ -138,8 +138,13 @@ const buildBooking = (
     receiptData: data.receiptUrl || '',
     receiptName: data.receiptName || 'receipt',
     notes: data.staffNotes || data.notes || '',
-    status: (data.status || 'PENDING_APPROVAL').toLowerCase() as 'pending' | 'confirmed' | 'rejected',
+    status: (() => {
+      const s = (data.status || 'PENDING_APPROVAL').toLowerCase();
+      return (s === 'pending_approval' ? 'pending' : s) as 'pending' | 'confirmed' | 'rejected';
+    })(),
     createdAt: normalizeTimestamp(data.createdAt) || new Date().toISOString(),
+    bookingRef: data.bookingRef || undefined,
+    createdByStaff: data.createdByStaff === true,
   };
 };
 
@@ -341,6 +346,7 @@ export const createBookingDocument = async (data: any) => {
   const bookingsRef = collection(db, 'bookings');
   return await addDoc(bookingsRef, {
     ...data,
+    status: 'PENDING_APPROVAL',
     paymentStatus: 'PENDING',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

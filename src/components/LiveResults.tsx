@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Competition, Score, ScoreEntry, Pond, Booking, User } from '../types';
 import { getLB, p2, getPrize, rbc, rbc2, rbg } from '../utils';
-import { getScoresForCompetition } from '../lib/firestore';
+import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
+import { db as firestoreDb } from '../../lib/firebase';
 
 interface LiveResultsProps {
   comp: Competition;
@@ -29,15 +30,40 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     if (comp.id && !selectedCompId) setSelectedCompId(comp.id);
   }, [comp.id]);
 
-  // Fetch scores whenever the selected competition changes
+  // Real-time score listener — fires on every score write without polling
+  const scoreMapRef = useRef<Map<string, ScoreEntry>>(new Map());
   useEffect(() => {
     if (!selectedCompId) return;
     setLoadingScores(true);
-    getScoresForCompetition(selectedCompId).then(entries => {
+    scoreMapRef.current = new Map();
+
+    const resultsRef = collection(firestoreDb, 'eventResults');
+    const flush = () => {
+      const entries = Array.from(scoreMapRef.current.values());
       setLiveScores(entries);
       setLastUpdated(new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       setLoadingScores(false);
-    });
+    };
+
+    // Two listeners: one for string competitionId, one for document-reference competitionId
+    const unsubStr = onSnapshot(
+      query(resultsRef, where('competitionId', '==', selectedCompId)),
+      (snap) => {
+        snap.docs.forEach(d => scoreMapRef.current.set(d.id, { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) }));
+        snap.docChanges().filter(c => c.type === 'removed').forEach(c => scoreMapRef.current.delete(c.doc.id));
+        flush();
+      }
+    );
+    const unsubRef = onSnapshot(
+      query(resultsRef, where('competitionId', '==', doc(firestoreDb, 'competitions', selectedCompId))),
+      (snap) => {
+        snap.docs.forEach(d => scoreMapRef.current.set(d.id, { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) }));
+        snap.docChanges().filter(c => c.type === 'removed').forEach(c => scoreMapRef.current.delete(c.doc.id));
+        flush();
+      }
+    );
+
+    return () => { unsubStr(); unsubRef(); };
   }, [selectedCompId]);
 
   const displayComp = competitions.find(c => c.id === selectedCompId) || comp;

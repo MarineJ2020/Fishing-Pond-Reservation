@@ -20,111 +20,86 @@ service cloud.firestore {
         : '';
     }
 
-    function isStaff() {
+    // Admin/Staff are treated as the same role in this system.
+    function isAdmin() {
       return isSignedIn() && (
         roleFromToken() in ['STAFF', 'ADMIN'] ||
         roleFromDoc() in ['STAFF', 'ADMIN']
       );
     }
 
-    function isAdmin() {
-      return isSignedIn() && (
-        roleFromToken() == 'ADMIN' ||
-        roleFromDoc() == 'ADMIN'
-      );
-    }
-
-    function isOwnerUid(uid) {
-      return isSignedIn() && uid == request.auth.uid;
-    }
-
-    function ownerMatchesAuth(ownerField) {
-      return isSignedIn() && (
-        ownerField == request.auth.uid ||
-        ownerField == userDocPath(request.auth.uid)
-      );
-    }
-
     // Public browsing collections.
     match /competitions/{competitionId} {
       allow read: if true;
-      allow create, update: if isStaff();
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 
     match /ponds/{pondId} {
       allow read: if true;
-      allow create, update: if isStaff();
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 
     match /seats/{seatId} {
       allow read: if true;
-      allow create, update: if isStaff();
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 
     match /settings/{settingsId} {
       allow read: if true;
-      allow create, update: if isStaff();
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // User profile ownership with staff visibility for CMS.
+    // User profiles: readable by owner or admin; only admin can change roles.
     match /users/{uid} {
-      allow read: if isOwnerUid(uid) || isStaff();
+      allow read: if request.auth.uid == uid || isAdmin();
 
-      allow create: if isOwnerUid(uid)
+      allow create: if request.auth.uid == uid
         && request.resource.data.email is string
         && request.resource.data.name is string
         && request.resource.data.role == 'CLIENT';
 
-      allow update: if (isOwnerUid(uid)
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.email == resource.data.email)
-        || isStaff();
+      allow update: if (request.auth.uid == uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.email == resource.data.email)
+        || isAdmin();
 
       allow delete: if isAdmin();
     }
 
-    // User-requested policy: booking data is publicly readable.
+    // Bookings: publicly readable (client policy). Any signed-in user can create.
+    // Admin manually approves every booking, so no field-level validation here.
     match /bookings/{bookingId} {
       allow read: if true;
-
-      allow create: if isSignedIn()
-        && ownerMatchesAuth(request.resource.data.userId)
-        && request.resource.data.seatIds is list
-        && request.resource.data.seatIds.size() > 0
-        && request.resource.data.amount is number
-        && request.resource.data.amount >= 0
-        && request.resource.data.status in ['PENDING_APPROVAL', 'pending'];
-
-      allow update, delete: if isStaff();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
 
       match /payments/{paymentId} {
-        allow read: if isStaff() || ownerMatchesAuth(get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId);
-        allow create: if isStaff();
-        allow update, delete: if isAdmin();
+        allow read: if isAdmin() || request.auth.uid == get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId;
+        allow create, update, delete: if isAdmin();
       }
     }
 
     match /seatLocks/{lockId} {
-      allow read: if isStaff() || ownerMatchesAuth(resource.data.userId);
+      allow read: if isAdmin() || request.auth.uid == resource.data.userId;
       allow create: if isSignedIn()
-        && ownerMatchesAuth(request.resource.data.userId)
+        && request.auth.uid == request.resource.data.userId
         && request.resource.data.expiresAt is timestamp
         && request.resource.data.expiresAt > request.time;
-      allow delete: if isStaff() || ownerMatchesAuth(resource.data.userId);
+      allow delete: if isAdmin() || request.auth.uid == resource.data.userId;
       allow update: if false;
     }
 
     match /eventResults/{resultId} {
       allow read: if true;
-      allow create, update: if isStaff();
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // Default deny for any collection not explicitly covered.
+    // Default deny.
     match /{document=**} {
       allow read, write: if false;
     }

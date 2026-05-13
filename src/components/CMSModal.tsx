@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
+import { checkInBooking } from '../lib/api';
 import {
   createPond as createPondFirestore,
   createCompetition as createCompetitionFirestore,
@@ -137,6 +138,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'rejected'>('all');
   const [checkinRef, setCheckinRef] = useState('');
   const [checkinResult, setCheckinResult] = useState<any>(null);
+  const [checkinLoading, setCheckinLoading] = useState(false);
+  const [checkinDone, setCheckinDone] = useState(false);
 
   // Competition: per-pond seat active/inactive edits (pondKey -> seatNum -> active)
   const [pondSeatEdits, setPondSeatEdits] = useState<Record<string, Record<number, boolean>>>({});
@@ -331,12 +334,36 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const handleViewReceipt = (receiptData: string) => {
     const w = window.open('', '_blank');
-    if (w) { w.document.write('<img src="' + receiptData + '" style="max-width:100%;max-height:100vh;" />'); w.document.close(); }
+    if (w) {
+      const img = w.document.createElement('img');
+      img.src = receiptData;
+      img.style.cssText = 'max-width:100%;max-height:100vh;';
+      w.document.body.style.cssText = 'margin:0;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh;';
+      w.document.body.appendChild(img);
+    }
   };
 
   const handleCheckin = () => {
     const found = bookings.find(b => b.id === checkinRef.trim());
     setCheckinResult(found || null);
+    setCheckinDone(false);
+  };
+
+  const handlePerformCheckin = async () => {
+    if (!checkinResult) return;
+    setCheckinLoading(true);
+    try {
+      await checkInBooking({
+        bookingRef: checkinResult.bookingRef || checkinResult.id,
+        amount: checkinResult.amount,
+        method: 'manual',
+      });
+      setCheckinDone(true);
+      setCheckinResult((prev: any) => ({ ...prev, checkedIn: true }));
+    } catch (err) {
+      console.error('Check-in failed:', err);
+    }
+    setCheckinLoading(false);
   };
 
   const handleContactSettingsSave = async () => {
@@ -805,15 +832,43 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           {page === 'manual-booking' && (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Tempahan Manual</div><div className="page-sub">Buat tempahan untuk pelanggan</div></div></div>
-              <div className="card"><div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
-                <div style={{ fontSize: '3rem', opacity: 0.5, marginBottom: '1rem' }}>📝</div>
-                <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', lineHeight: 1.7, maxWidth: 380, margin: '0 auto 1.5rem' }}>
-                  Pergi ke halaman tempahan untuk membuat tempahan atas nama pelanggan. Isi nama dan e-mel pelanggan di borang tempahan.
-                </p>
-                <button className="btn btn-primary" onClick={() => { onClose(); onGoToBooking?.(); }}>
-                  🏊 Pergi ke Halaman Tempahan
-                </button>
-              </div></div>
+              <div className="card">
+                <div className="card-body" style={{ padding: '2rem' }}>
+                  <div style={{ fontSize: '2.5rem', textAlign: 'center', marginBottom: '0.75rem' }}>📝</div>
+                  <h3 style={{ textAlign: 'center', marginBottom: '0.25rem' }}>Cara Buat Tempahan Manual</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', marginBottom: '1.75rem' }}>
+                    Nama dan e-mel pelanggan akan muncul secara automatik apabila anda log masuk sebagai Admin.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 480, margin: '0 auto 2rem' }}>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', background: 'rgba(200,146,42,0.07)', border: '1px solid rgba(200,146,42,0.2)', borderRadius: 8, padding: '1rem' }}>
+                      <div style={{ minWidth: 28, height: 28, borderRadius: '50%', background: 'var(--gold)', color: '#1a0e05', fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</div>
+                      <div>
+                        <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Pergi ke Halaman Tempahan</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Klik butang di bawah untuk membuka halaman tempahan awam.</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', background: 'rgba(200,146,42,0.07)', border: '1px solid rgba(200,146,42,0.2)', borderRadius: 8, padding: '1rem' }}>
+                      <div style={{ minWidth: 28, height: 28, borderRadius: '50%', background: 'var(--gold)', color: '#1a0e05', fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>2</div>
+                      <div>
+                        <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Isi Nama &amp; E-mel Pelanggan</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Di bahagian atas borang tempahan, masukkan nama penuh dan e-mel pelanggan. Medan ini hanya muncul apabila anda log masuk sebagai Admin.</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start', background: 'rgba(200,146,42,0.07)', border: '1px solid rgba(200,146,42,0.2)', borderRadius: 8, padding: '1rem' }}>
+                      <div style={{ minWidth: 28, height: 28, borderRadius: '50%', background: 'var(--gold)', color: '#1a0e05', fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</div>
+                      <div>
+                        <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Pilih Tempat &amp; Hantar</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Pilih kolam, tempat peserta, muat naik resit, dan hantar tempahan. Tempahan akan ditanda sebagai "Dibuat oleh Admin".</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <button className="btn btn-primary" onClick={() => { onClose(); onGoToBooking?.(); }}>
+                      🏊 Pergi ke Halaman Tempahan
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
           {page === 'all-bookings' && (
@@ -872,7 +927,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{checkinResult.seats.join(', ')}</span></div>
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Jumlah</span><span className="checkin-detail-val">RM {checkinResult.amount}</span></div>
                     {checkinResult.status !== 'confirmed' && <div className="warning-banner">⚠️ Tempahan ini belum disahkan.</div>}
-                    {checkinResult.status === 'confirmed' && <button className="btn btn-green w-full mt-3">✓ Check-In Peserta</button>}
+                    {checkinResult.status === 'confirmed' && !checkinDone && (
+                      <button className="btn btn-green w-full mt-3" onClick={handlePerformCheckin} disabled={checkinLoading}>
+                        {checkinLoading ? '⏳ Memproses...' : '✓ Check-In Peserta'}
+                      </button>
+                    )}
+                    {checkinDone && (
+                      <div className="btn btn-green w-full mt-3" style={{ textAlign: 'center', cursor: 'default', opacity: 0.8 }}>
+                        ✓ Daftar Masuk Berjaya
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

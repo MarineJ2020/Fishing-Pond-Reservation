@@ -182,7 +182,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
         id="btn-submit"
         className="btn btn-primary w-full btn-lg mt-4"
         onClick={onSubmitBooking}
-        disabled={!selectedSeats.length || !receiptData || (isAdmin && adminProxyName.trim() === '' ? false : false)}
+        disabled={!selectedSeats.length || !receiptData || (isAdmin && !adminProxyName.trim())}
       >
         {isAdminProxyMode ? `Tempah untuk ${adminProxyName.trim()}` : 'Hantar Tempahan'}
       </button>

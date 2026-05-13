@@ -15,6 +15,8 @@ import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
 import { fmt } from './utils';
 import { Booking } from './types';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db as firestoreDb } from '../lib/firebase';
 
 const AppContent: React.FC = () => {
   const {
@@ -351,6 +353,31 @@ const AppContent: React.FC = () => {
     if (!stillAvailable) setPond(null);
   }, [bookablePonds, selectedPond, setPond]);
 
+  // Real-time guard: watch selected seat documents; auto-deselect if another user books one
+  const selectedSeatsRef = useRef(selectedSeats);
+  useEffect(() => { selectedSeatsRef.current = selectedSeats; }, [selectedSeats]);
+
+  useEffect(() => {
+    if (!selectedSeats.length || !selectedPond) return;
+    const pond = db.ponds.find(p => p.id === selectedPond);
+    if (!pond) return;
+    const watchedSeats = selectedSeats
+      .map(num => pond.seats.find(s => s.num === num))
+      .filter((s): s is NonNullable<typeof s> => !!s?.id);
+    if (!watchedSeats.length) return;
+
+    const unsubs = watchedSeats.map(seat =>
+      onSnapshot(doc(firestoreDb, 'seats', seat.id!), (snap) => {
+        const data = snap.data();
+        if (data && data.status !== 'available' && selectedSeatsRef.current.includes(seat.num)) {
+          setSeats(selectedSeatsRef.current.filter(n => n !== seat.num));
+          addToast(`Tempat #${seat.num} baru sahaja ditempah oleh orang lain`, 'error');
+        }
+      })
+    );
+    return () => unsubs.forEach(u => u());
+  }, [selectedSeats, selectedPond, db.ponds]);
+
   const totalRegistered = db.bookings.length;
   const totalPrizePool = selectedCompetition?.prizes?.reduce((sum: number, prize: any) => {
     const raw = (prize?.prize || prize?.amount || '').toString();
@@ -610,7 +637,7 @@ const AppContent: React.FC = () => {
             <div className="hero-stat"><div className="hero-stat-num">{totalPonds}</div><div className="hero-stat-label">Kolam Aktif</div></div>
             <div className="hero-stat"><div className="hero-stat-num">{availablePegs}</div><div className="hero-stat-label">Tempat Peserta</div></div>
             <div className="hero-stat"><div className="hero-stat-num">RM{totalPrizePool > 0 ? (totalPrizePool / 1000).toFixed(0) + 'K' : '50K+'}</div><div className="hero-stat-label">Hadiah Setahun</div></div>
-            <div className="hero-stat"><div className="hero-stat-num">{totalRegistered || '200'}+</div><div className="hero-stat-label">Ahli Berdaftar</div></div>
+            <div className="hero-stat"><div className="hero-stat-num">{totalRegistered}+</div><div className="hero-stat-label">Ahli Berdaftar</div></div>
           </div>
         </div>
       </section>
@@ -691,7 +718,7 @@ const AppContent: React.FC = () => {
                 </div>
                 <div className="comp-body">
                   <div className="comp-detail"><span className="comp-detail-icon">📅</span> {compDateText}</div>
-                  <div className="comp-detail"><span className="comp-detail-icon">📍</span> Kolam Keli Sayang, Alor Setar</div>
+                  <div className="comp-detail"><span className="comp-detail-icon">📍</span> {db.settings?.location || 'Lokasi akan diumumkan'}</div>
                   <div className="comp-detail"><span className="comp-detail-icon">👥</span> {competitionAvailableSeats.get(competition.id ?? '') ?? availablePegs} tempat tersedia</div>
                   <div className="comp-prize"><span>Hadiah: </span>{compPrizeText}</div>
                 </div>
@@ -1151,7 +1178,14 @@ const AppContent: React.FC = () => {
         );
       }
       default:
-        return null;
+        return (
+          <div style={{ textAlign: 'center', padding: '6rem 2rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎣</div>
+            <h2 style={{ marginBottom: '0.5rem' }}>Halaman tidak dijumpai</h2>
+            <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>Halaman yang anda cari tidak wujud.</p>
+            <button className="btn btn-primary" onClick={() => goHome()}>Kembali ke Utama</button>
+          </div>
+        );
     }
   };
 
