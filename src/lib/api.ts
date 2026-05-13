@@ -1,12 +1,24 @@
 import { createBookingDocument } from './firestore';
+import { auth } from '../../lib/firebase';
 
 const baseUrl = import.meta.env.VITE_FUNCTIONS_BASE_URL || '';
 
+const getAuthHeader = async () => {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('Authentication required. Please sign in and try again.');
+  }
+  const token = await currentUser.getIdToken();
+  return `Bearer ${token}`;
+};
+
 const postJson = async (path: string, body: any) => {
+  const authHeader = await getAuthHeader();
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Authorization: authHeader,
     },
     body: JSON.stringify(body),
   });

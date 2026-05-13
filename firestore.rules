@@ -2,18 +2,131 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null && request.auth.uid != null;
+    }
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
+    function userDocPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function roleFromToken() {
+      return isSignedIn() && request.auth.token.role is string ? request.auth.token.role : '';
+    }
+
+    function roleFromDoc() {
+      return isSignedIn() && exists(userDocPath(request.auth.uid))
+        ? get(userDocPath(request.auth.uid)).data.role
+        : '';
+    }
+
+    function isStaff() {
+      return isSignedIn() && (
+        roleFromToken() in ['STAFF', 'ADMIN'] ||
+        roleFromDoc() in ['STAFF', 'ADMIN']
+      );
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        roleFromToken() == 'ADMIN' ||
+        roleFromDoc() == 'ADMIN'
+      );
+    }
+
+    function isOwnerUid(uid) {
+      return isSignedIn() && uid == request.auth.uid;
+    }
+
+    function ownerMatchesAuth(ownerField) {
+      return isSignedIn() && (
+        ownerField == request.auth.uid ||
+        ownerField == userDocPath(request.auth.uid)
+      );
+    }
+
+    // Public browsing collections.
+    match /competitions/{competitionId} {
+      allow read: if true;
+      allow create, update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /ponds/{pondId} {
+      allow read: if true;
+      allow create, update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /seats/{seatId} {
+      allow read: if true;
+      allow create, update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow create, update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    // User profile ownership with staff visibility for CMS.
+    match /users/{uid} {
+      allow read: if isOwnerUid(uid) || isStaff();
+
+      allow create: if isOwnerUid(uid)
+        && request.resource.data.email is string
+        && request.resource.data.name is string
+        && request.resource.data.role == 'CLIENT';
+
+      allow update: if (isOwnerUid(uid)
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.email == resource.data.email)
+        || isStaff();
+
+      allow delete: if isAdmin();
+    }
+
+    // User-requested policy: booking data is publicly readable.
+    match /bookings/{bookingId} {
+      allow read: if true;
+
+      allow create: if isSignedIn()
+        && ownerMatchesAuth(request.resource.data.userId)
+        && request.resource.data.seatIds is list
+        && request.resource.data.seatIds.size() > 0
+        && request.resource.data.amount is number
+        && request.resource.data.amount >= 0
+        && request.resource.data.status in ['PENDING_APPROVAL', 'pending'];
+
+      allow update, delete: if isStaff();
+
+      match /payments/{paymentId} {
+        allow read: if isStaff() || ownerMatchesAuth(get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId);
+        allow create: if isStaff();
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    match /seatLocks/{lockId} {
+      allow read: if isStaff() || ownerMatchesAuth(resource.data.userId);
+      allow create: if isSignedIn()
+        && ownerMatchesAuth(request.resource.data.userId)
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time;
+      allow delete: if isStaff() || ownerMatchesAuth(resource.data.userId);
+      allow update: if false;
+    }
+
+    match /eventResults/{resultId} {
+      allow read: if true;
+      allow create, update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    // Default deny for any collection not explicitly covered.
     match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 5, 9);
+      allow read, write: if false;
     }
   }
 }
