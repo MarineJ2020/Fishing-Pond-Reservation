@@ -2,6 +2,7 @@
 import { useLocation } from 'react-router-dom';
 import './styles.css';
 import Navbar from './components/Navbar';
+import SecondaryMobileNav from './components/SecondaryMobileNav';
 import BookingSidebar from './components/BookingSidebar';
 import SeatMap from './components/SeatMap';
 import BookingForm from './components/BookingForm';
@@ -894,7 +895,7 @@ const AppContent: React.FC = () => {
       </section>
 
       {/* PAYMENT */}
-      <section className="payment">
+      <section className="payment" id="payment">
         <div className="container">
           <div className="section-label">Bayaran</div>
           <h2 className="section-title">Cara<br />Pembayaran</h2>
@@ -1222,6 +1223,7 @@ const AppContent: React.FC = () => {
         onOpenCMS={() => setCMSModalOpen(true)}
         onLogout={handleLogout}
       />
+      {currentSection === 'home' && <SecondaryMobileNav onSectionChange={handleNavigation} />}
       {renderSection()}
       {location.pathname === '/' && (
         <footer>
