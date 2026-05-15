@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import './styles.css';
 import Navbar from './components/Navbar';
 import BookingSidebar from './components/BookingSidebar';
@@ -43,6 +44,7 @@ const AppContent: React.FC = () => {
   } = useBooking();
   const { addToast, setAuthModalOpen, authModalOpen, cmsModalOpen, setCMSModalOpen } = useUI();
   const { currentSection, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed } = useNavigation();
+  const location = useLocation();
   const { login, register, logout, authReady } = useAuth();
 
   const [homeScrollTarget, setHomeScrollTarget] = useState<string | null>(null);
@@ -1220,22 +1222,8 @@ const AppContent: React.FC = () => {
         onOpenCMS={() => setCMSModalOpen(true)}
         onLogout={handleLogout}
       />
-      <div key="section-home" className={`section ${currentSection === 'home' ? 'active' : ''}`} id="section-home">
-        {currentSection === 'home' && renderSection()}
-      </div>
-      <div key="section-book" className={`section ${currentSection === 'book' ? 'active' : ''}`} id="section-book">
-        {currentSection === 'book' && renderSection()}
-      </div>
-      <div key="section-live" className={`section ${currentSection === 'live' ? 'active' : ''}`} id="section-live">
-        {currentSection === 'live' && renderSection()}
-      </div>
-      <div key="section-mybookings" className={`section ${currentSection === 'mybookings' ? 'active' : ''}`} id="section-mybookings">
-        {currentSection === 'mybookings' && renderSection()}
-      </div>
-      <div key="section-confirmed" className={`section ${currentSection === 'confirmed' ? 'active' : ''}`} id="section-confirmed">
-        {currentSection === 'confirmed' && renderSection()}
-      </div>
-      {currentSection === 'home' && (
+      {renderSection()}
+      {location.pathname === '/' && (
         <footer>
           <div className="footer-logo">KKS Fishing</div>
           <div className="footer-copy">&copy; {new Date().getFullYear()} Kolam Keli Sayang. Semua hak terpelihara.</div>
