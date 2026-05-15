@@ -109,7 +109,7 @@ const assertSeatsNotBooked = async ({ seatIds, competitionId }) => {
         const existing = await adminDb.collection('bookings')
             .where('competitionId', '==', adminDb.doc(`competitions/${competitionId}`))
             .where('seatIds', 'array-contains', adminDb.doc(`seats/${seatId}`))
-            .where('status', 'in', ['APPROVED', 'CONFIRMED', 'LIVE'])
+            .where('status', 'in', ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE'])
             .limit(1)
             .get();
 

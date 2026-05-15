@@ -27,6 +27,7 @@ export const emptyDB: DB = {
     qrAccNo: '',
     qrImg: '',
     heroLogo: '',
+    pondMapImg: '',
     phone: '',
     whatsapp: '',
     email: '',

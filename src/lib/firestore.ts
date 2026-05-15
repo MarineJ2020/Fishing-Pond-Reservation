@@ -94,6 +94,7 @@ const normalizeSettings = (data: any): Settings => ({
   contactTitle: data.contactTitle || 'Ada Soalan?',
   contactSubtitle: data.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.',
   useLegacyPondView: data.useLegacyPondView === true,
+  pondMapImg: data.pondMapImg || '',
 });
 
 const buildBooking = (
@@ -343,6 +344,22 @@ export const createUserProfile = async (uid: string, data: { email: string; name
 };
 
 export const createBookingDocument = async (data: any) => {
+  const snap = await getDocs(
+    query(
+      collection(db, 'bookings'),
+      where('pondId', '==', data.pondId),
+      where('competitionId', '==', data.competitionId)
+    )
+  );
+  const requestedSeats = new Set<number>(data.seatNumbers ?? []);
+  snap.forEach((d) => {
+    const s = (d.data().status || '').toUpperCase();
+    if (!['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED'].includes(s)) return;
+    const taken = (d.data().seatNumbers ?? []) as number[];
+    const clash = taken.find((n) => requestedSeats.has(n));
+    if (clash) throw new Error(`Tempat #${clash} telah ditempah. Sila pilih tempat lain.`);
+  });
+
   const bookingsRef = collection(db, 'bookings');
   return await addDoc(bookingsRef, {
     ...data,

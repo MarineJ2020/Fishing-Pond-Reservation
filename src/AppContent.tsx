@@ -69,6 +69,8 @@ const AppContent: React.FC = () => {
   const prizePhaseRef = useRef<'idle' | 'out' | 'in'>('idle');
   const prizeMinHRef = useRef(0);
   const prizeWrapRef = useRef<HTMLDivElement | null>(null);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [pondMapOpen, setPondMapOpen] = useState(false);
 
   const competitions = useMemo(() => {
     if (db.competitions?.length) return db.competitions;
@@ -253,7 +255,13 @@ const AppContent: React.FC = () => {
     const pond = bookablePonds.find(p => p.id === selectedPond);
     if (!pond) return;
 
-    const booking = await submitBooking(pond);
+    let booking = null;
+    try {
+      booking = await submitBooking(pond);
+    } catch (err: any) {
+      setBookingError(err?.message || 'Ralat semasa menghantar tempahan. Sila cuba lagi.');
+      return;
+    }
     if (booking) {
       addToast('Booking submitted! Staff will confirm via email.', 'success');
       goToConfirmed();
@@ -1003,8 +1011,21 @@ const AppContent: React.FC = () => {
 
               {hasCompetition && (
                 <div className="panel booking-stage-enter">
-                  <div className="panel-title">Pilih Kolam</div>
-                  <div className="panel-subtitle">Pilih kolam yang anda inginkan untuk pertandingan ini.</div>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '4px' }}>
+                    <div>
+                      <div className="panel-title">Pilih Kolam</div>
+                      <div className="panel-subtitle">Pilih kolam yang anda inginkan untuk pertandingan ini.</div>
+                    </div>
+                    {db.settings.pondMapImg && (
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                        onClick={() => setPondMapOpen(true)}
+                      >
+                        Semak Susunan Kolam
+                      </button>
+                    )}
+                  </div>
                   <BookingSidebar ponds={bookablePonds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
                 </div>
               )}
@@ -1249,6 +1270,93 @@ const AppContent: React.FC = () => {
         onClose={() => { setBookingDetailsOpen(false); setSelectedBooking(null); }}
       />
       <Toast />
+
+      {/* Pond map popup */}
+      {pondMapOpen && db.settings.pondMapImg && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9998,
+            background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(6px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '1rem', animation: 'fadeIn 0.18s ease',
+          }}
+          onClick={() => setPondMapOpen(false)}
+        >
+          <div
+            style={{
+              background: 'var(--surface, #1a1a2e)', borderRadius: '1rem',
+              maxWidth: '900px', width: '100%',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)',
+              animation: 'slideUp 0.22s cubic-bezier(0.34,1.56,0.64,1)',
+              overflow: 'hidden',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ fontWeight: 700, fontSize: '1rem' }}>🗺 Susunan Kolam</div>
+              <button
+                onClick={() => setPondMapOpen(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted, #aaa)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}
+                aria-label="Tutup"
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ padding: '1.25rem', textAlign: 'center' }}>
+              <img
+                src={db.settings.pondMapImg}
+                alt="Susunan kolam"
+                style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: '8px' }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Seat conflict error dialog */}
+      {bookingError && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '1rem', animation: 'fadeIn 0.18s ease',
+          }}
+          onClick={() => setBookingError(null)}
+        >
+          <div
+            style={{
+              background: 'var(--surface, #1a1a2e)', borderRadius: '1.25rem',
+              padding: '2.5rem 2rem 2rem', maxWidth: 400, width: '100%',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)',
+              textAlign: 'center', animation: 'slideUp 0.22s cubic-bezier(0.34,1.56,0.64,1)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%', margin: '0 auto 1.25rem',
+              background: 'rgba(239,68,68,0.12)', border: '2px solid rgba(239,68,68,0.35)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '1.75rem',
+            }}>
+              🚫
+            </div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.6rem', color: 'var(--text, #fff)' }}>
+              Tempat Tidak Tersedia
+            </div>
+            <div style={{ color: 'var(--text-muted, #aaa)', fontSize: '0.92rem', lineHeight: 1.6, marginBottom: '1.75rem' }}>
+              {bookingError}
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', justifyContent: 'center' }}
+              onClick={() => setBookingError(null)}
+            >
+              Pilih Tempat Lain
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 };

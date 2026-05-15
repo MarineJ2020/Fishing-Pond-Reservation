@@ -121,6 +121,20 @@ function CMSPondSeatEditor({
   );
 }
 
+const uploadImageToCloudinary = async (file: File, folder: string): Promise<string> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+  formData.append('folder', folder);
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
+    { method: 'POST', body: formData }
+  );
+  if (!response.ok) throw new Error('Gagal muat naik gambar');
+  const result = await response.json();
+  return result.secure_url;
+};
+
 const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB }) => {
   const [page, setPage] = useState<CMSPage>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -153,6 +167,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [manualEntry, setManualEntry] = useState({ anglerName: '', pondId: '', seatNum: '', weight: '' });
   const [anglerSuggestOpen, setAnglerSuggestOpen] = useState(false);
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
+  const [pondMapUploading, setPondMapUploading] = useState(false);
 
   useEffect(() => {
     if (!resultsCompId && comp.id) setResultsCompId(comp.id);
@@ -176,6 +191,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setCompList(competitions.length ? competitions : (comp.name ? [comp] : []));
   }, [comp, competitions]);
   useEffect(() => { setSettingsEdit(settings); }, [settings]);
+
+  // Conflict detection: map "pondId-seatNum" → booking IDs that claim it (excluding rejected)
+  const seatConflictMap = React.useMemo(() => {
+    const map = new Map<string, string[]>();
+    bookings.forEach((b) => {
+      if (b.status === 'rejected') return;
+      (b.seats ?? []).forEach((seatNum) => {
+        const key = `${b.pondId}-${seatNum}`;
+        map.set(key, [...(map.get(key) ?? []), b.id]);
+      });
+    });
+    return map;
+  }, [bookings]);
 
   const toLocalDatetime = (iso: string) => {
     if (!iso) return '';
@@ -319,6 +347,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleApproveBooking = async (bookingId: string) => {
+    const target = bookings.find(b => b.id === bookingId);
+    if (target) {
+      const alreadyConfirmed = (target.seats ?? []).some((seatNum) =>
+        bookings.some(b => b.id !== bookingId && b.status === 'confirmed' && b.pondId === target.pondId && b.seats.includes(seatNum))
+      );
+      if (alreadyConfirmed && !window.confirm('⚠ Tempat ini sudah disahkan pada tempahan lain. Teruskan sahaja?')) return;
+    }
     setSaving(true);
     try { await updateBookingStatusFirestore(bookingId, 'confirmed'); await reloadDB(); }
     catch (err) { console.error('Failed to approve booking:', err); }
@@ -382,6 +417,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       console.error('Failed to update contact settings:', err);
     }
     setSaving(false);
+  };
+
+  const handlePondMapUpload = async (file: File) => {
+    setPondMapUploading(true);
+    try {
+      const url = await uploadImageToCloudinary(file, 'fishing-pond-maps');
+      setSettingsEdit(s => ({ ...s, pondMapImg: url }));
+      await updateSettingsFirestore({ pondMapImg: url });
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to upload pond map image:', err);
+    }
+    setPondMapUploading(false);
   };
 
   const handlePondViewToggle = async () => {
@@ -511,6 +559,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const pendingCount = bookings.filter(b => b.status === 'pending').length;
   const confirmedCount = bookings.filter(b => b.status === 'confirmed').length;
+
+  const hasConflict = (b: { pondId: number; seats: number[] }) =>
+    (b.seats ?? []).some((n) => (seatConflictMap.get(`${b.pondId}-${n}`) ?? []).length > 1);
   const totalRevenue = bookings.filter(b => b.status === 'confirmed').reduce((s, b) => s + b.amount, 0);
 
   const navSections = [
@@ -707,6 +758,60 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   );
                 })}
               </div>
+
+              {/* Pond arrangement overview image */}
+              <div className="card" style={{ marginTop: '24px' }}>
+                <div className="card-header">
+                  <div className="card-title">Gambar Susunan Kolam</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Dipaparkan kepada pengguna semasa membuat tempahan</div>
+                </div>
+                <div className="card-body">
+                  {settingsEdit.pondMapImg ? (
+                    <div style={{ marginBottom: '16px' }}>
+                      <img
+                        src={settingsEdit.pondMapImg}
+                        alt="Susunan kolam"
+                        style={{ width: '100%', maxHeight: '320px', objectFit: 'contain', borderRadius: '8px', background: 'rgba(0,0,0,0.3)' }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.12)', marginBottom: '16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      🖼 Tiada gambar dimuat naik lagi
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <label
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '8px',
+                        padding: '8px 16px', borderRadius: '8px', cursor: pondMapUploading ? 'not-allowed' : 'pointer',
+                        background: 'var(--green)', color: '#fff', fontSize: '0.85rem', fontWeight: 600,
+                        opacity: pondMapUploading ? 0.65 : 1,
+                      }}
+                    >
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        disabled={pondMapUploading}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handlePondMapUpload(f); e.target.value = ''; }}
+                      />
+                      {pondMapUploading ? 'Memuat naik...' : (settingsEdit.pondMapImg ? '🔄 Tukar Gambar' : '⬆ Muat Naik Gambar')}
+                    </label>
+                    {settingsEdit.pondMapImg && (
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={async () => {
+                          setSettingsEdit(s => ({ ...s, pondMapImg: '' }));
+                          await updateSettingsFirestore({ pondMapImg: '' });
+                          await reloadDB();
+                        }}
+                      >
+                        Padam Gambar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
           {page === 'prizes' && (
@@ -817,7 +922,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>ADMIN</span>}
                       </td>
                       <td>{b.pondName}</td>
-                      <td>{b.seats.join(', ')}</td>
+                      <td>{b.seats.join(', ')}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
                       <td>RM {b.amount}</td>
                       <td><span className={`badge ${b.paymentType === 'deposit' ? 'badge-deposit' : 'badge-paid'}`}>{b.paymentType === 'deposit' ? 'Deposit' : 'Penuh'}</span></td>
                       <td>{b.receiptData && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(b.receiptData)}>Lihat</button>}</td>
@@ -892,7 +997,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>ADMIN</span>}
                         </td>
                         <td>{b.pondName}</td>
-                        <td>{b.seats.join(', ')}</td>
+                        <td>{b.seats.join(', ')}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
                         <td>RM {b.amount}</td>
                         <td><span className={`badge badge-${b.status === 'confirmed' ? 'approved' : b.status}`}>{b.status}</span></td>
                         <td style={{ fontSize: '0.82rem' }}>{b.createdAt ? new Date(b.createdAt).toLocaleDateString('ms-MY') : '-'}</td>

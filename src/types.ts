@@ -118,6 +118,8 @@ export interface Settings {
   ctaSubtitle?: string;
   /** When true, the booking page and CMS show the legacy capsule pond view instead of the SVG polygon */
   useLegacyPondView?: boolean;
+  /** URL of the pond arrangement overview image shown to users during booking */
+  pondMapImg?: string;
 }
 
 export interface User {
