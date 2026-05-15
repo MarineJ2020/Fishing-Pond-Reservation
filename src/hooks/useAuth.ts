@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  sendEmailVerification,
   signOut,
   onAuthStateChanged,
   User as FirebaseUser,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db as firestoreDb } from '../../lib/firebase';
+import { auth, db as firestoreDb, googleProvider } from '../../lib/firebase';
 import { useBooking } from '../context/BookingContext';
 import { useUI } from '../context/UIContext';
 import { User } from '../types';
@@ -78,11 +80,36 @@ export const useAuth = () => {
         role: 'CLIENT',
         createdAt: new Date(),
       });
-      addToast(`Welcome, ${name}!`, 'success');
+      await sendEmailVerification(user);
+      addToast(`Akaun dibuat! Semak email anda untuk pengesahan.`, 'success');
       return true;
     } catch (error) {
       console.error(error);
       addToast('Registration failed. Please try again.', 'error');
+      return false;
+    }
+  }, [addToast]);
+
+  const signInWithGoogle = useCallback(async () => {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+      const userDocRef = doc(firestoreDb, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      if (!userDoc.exists()) {
+        await setDoc(userDocRef, {
+          email: user.email,
+          name: user.displayName || '',
+          phone: '',
+          role: 'CLIENT',
+          createdAt: new Date(),
+        });
+      }
+      addToast('Log masuk berjaya!', 'success');
+      return true;
+    } catch (error) {
+      console.error(error);
+      addToast('Google sign-in failed. Please try again.', 'error');
       return false;
     }
   }, [addToast]);
@@ -98,5 +125,5 @@ export const useAuth = () => {
     }
   }, [setUser, addToast]);
 
-  return { login, register, logout, authReady };
+  return { login, register, signInWithGoogle, logout, authReady };
 };

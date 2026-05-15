@@ -46,7 +46,7 @@ const AppContent: React.FC = () => {
   const { addToast, setAuthModalOpen, authModalOpen, cmsModalOpen, setCMSModalOpen } = useUI();
   const { currentSection, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed } = useNavigation();
   const location = useLocation();
-  const { login, register, logout, authReady } = useAuth();
+  const { login, register, signInWithGoogle, logout, authReady } = useAuth();
 
   const [homeScrollTarget, setHomeScrollTarget] = useState<string | null>(null);
   const [pondPickerOpen, setPondPickerOpen] = useState(false);
@@ -303,17 +303,25 @@ const AppContent: React.FC = () => {
   };
 
   const handleLogin = async (email: string, pass: string) => {
-    if (await login(email, pass)) {
+    const success = await login(email, pass);
+    if (success) {
       setAuthModalOpen(false);
       goToMyBookings();
     }
+    return success;
   };
 
   const handleRegister = async (name: string, email: string, phone: string, pass: string) => {
-    if (await register(name, email, phone, pass)) {
+    return await register(name, email, phone, pass);
+  };
+
+  const handleGoogleLogin = async () => {
+    const success = await signInWithGoogle();
+    if (success) {
       setAuthModalOpen(false);
       goToMyBookings();
     }
+    return success;
   };
 
   const handleLogout = () => {
@@ -1236,6 +1244,7 @@ const AppContent: React.FC = () => {
         onClose={() => setAuthModalOpen(false)}
         onLogin={handleLogin}
         onRegister={handleRegister}
+        onGoogleLogin={handleGoogleLogin}
       />
       <CMSModal
         isOpen={cmsModalOpen}
