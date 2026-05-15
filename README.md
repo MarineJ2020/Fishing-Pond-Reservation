@@ -1,18 +1,158 @@
-# React + Vite
+# CastBook — Fishing Competition Booking App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A React + TypeScript + Vite web app for managing catfish pond fishing competition bookings, live results, and staff administration.
 
-Currently, two official plugins are available:
+- **Live site**: https://fishingpond-e34e9.web.app
+- **Firebase project**: `fishingpond-e34e9`
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Tech Stack
 
-## React Compiler
+| Layer | Technology |
+|---|---|
+| Frontend | React 18 + TypeScript, Vite |
+| Styling | CSS3 + CSS Variables (Tailwind configured but unused) |
+| Database | Cloud Firestore |
+| Auth | Firebase Authentication (email/password) |
+| File storage | Cloudinary (receipt images, 25 GB free tier) |
+| Email | Resend API (via Cloud Functions) |
+| Deployment | Firebase Hosting |
+| Backend | Cloud Functions (Node.js + Express) — requires Blaze plan |
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+## Quick Start
 
-Note: This will impact Vite dev & build performances.
+```bash
+npm install
+cp .env.example .env.local   # fill in credentials (see below)
+npm run dev                  # http://localhost:5173
+```
 
-## Expanding the ESLint configuration
+Other scripts:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm run build       # production bundle → dist/
+npm run typecheck   # TypeScript check
+npm run lint        # ESLint
+```
+
+## Environment Variables (`.env.local`)
+
+### Firebase (client)
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_USE_FIREBASE_EMULATOR=false
+VITE_FUNCTIONS_BASE_URL=        # deployed Cloud Functions URL
+```
+
+### Cloudinary (receipt uploads)
+```env
+VITE_CLOUDINARY_CLOUD_NAME=
+VITE_CLOUDINARY_UPLOAD_PRESET=  # unsigned preset
+```
+
+### Cloud Functions (set via Firebase config)
+```bash
+firebase functions:config:set resend.api_key="re_..."
+```
+
+## Firebase Setup
+
+1. [Firebase Console](https://console.firebase.google.com/) → create project `fishingpond-e34e9`
+2. Enable: **Firestore**, **Authentication** (Email/Password), **Cloud Functions**, **Hosting**
+3. Project Settings → Service Accounts → generate private key → add to `.env.local`
+4. Firestore → `seatLocks` collection → enable TTL policy on `expiresAt` field (auto-deletes expired locks)
+
+## Firestore Data Structure
+
+| Collection | Fields |
+|---|---|
+| `users` | `uid, email, name, phone, role, createdAt` |
+| `competitions` | `id, name, eventDate, status, prizes` |
+| `ponds` | `id, name, totalSeats` |
+| `seats` | `pondId, seatNumber` |
+| `bookings` | `userId, competitionId, pondId, seatIds, status` |
+| `payments` | *(subcollection of bookings)* `amount, method, createdAt` |
+| `seatLocks` | `seatId, userId, competitionId, expiresAt` (TTL auto-delete) |
+| `eventResults` | `bookingId, competitionId, totalWeight, fishCount, rank` |
+
+## Cloud Functions Endpoints
+
+All routes require a Firebase ID token (`Authorization: Bearer <token>`).
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `POST /createClientAccount` | STAFF | Create client account + send welcome email |
+| `POST /acquireSeatLock` | USER | Reserve seat for 15 minutes |
+| `POST /createBooking` | USER | Submit booking + send confirmation email |
+| `POST /approveBooking` | STAFF | Approve booking + notify client |
+| `POST /rejectBooking` | STAFF | Reject booking + release seats |
+| `POST /checkInBooking` | STAFF | Record event-day check-in & payment |
+| `POST /updateResult` | STAFF | Submit weight/fish count; ranks auto-calculate |
+
+## Deployment
+
+### Frontend + Firestore rules (current — no Blaze plan needed)
+```bash
+npm run build
+firebase deploy --only "hosting,firestore"
+```
+
+### Cloud Functions (requires Blaze plan)
+```bash
+firebase deploy --only functions
+```
+
+## Firestore Security Rules
+
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read, write: if request.auth.uid == uid;
+    }
+    match /competitions/{document=**} {
+      allow read;
+      allow write: if request.auth.token.role == 'ADMIN';
+    }
+    match /bookings/{document=**} {
+      allow read: if request.auth.uid == resource.data.userId.id ||
+                     request.auth.token.role in ['STAFF', 'ADMIN'];
+      allow write: if request.auth.token.role in ['STAFF', 'ADMIN'];
+    }
+    match /seatLocks/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    match /eventResults/{document=**} {
+      allow read;
+      allow write: if request.auth.token.role in ['STAFF', 'ADMIN'];
+    }
+  }
+}
+```
+
+## Key Features
+
+- **Booking system** — pond/seat selection, receipt upload, status tracking (pending → approved/rejected → confirmed)
+- **Staff CMS** — manage ponds, competitions, prizes; approve/reject bookings; view receipts
+- **Live leaderboard** — real-time rankings updated as results are entered
+- **Role-based access** — USER / STAFF / ADMIN via Firebase custom claims
+- **Responsive** — mobile hamburger nav, optimised layouts
+
+## Important Notes
+
+- **No Google OAuth** — would require Blaze plan
+- **Cloud Functions are optional** — app falls back to direct Firestore writes if functions aren't deployed; email delivery won't work without functions + Resend key
+- **No Firebase Storage** — receipts go to Cloudinary
+
+## Troubleshooting
+
+| Error | Fix |
+|---|---|
+| "Token verification failed" | Pass `getIdToken()` result as `Authorization: Bearer <token>` |
+| "RESEND_API_KEY not configured" | `firebase functions:config:set resend.api_key="re_..."` |
+| "Emulator connection refused" | Run `firebase emulators:start` or set `VITE_USE_FIREBASE_EMULATOR=false` |
