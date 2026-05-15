@@ -2524,15 +2524,7 @@ html {
   overflow-x: hidden;
 }
 
-/* 2. Nav hamburger: desktop hidden, mobile visible only */
-.nav-hamburger {
-  display: none;
-}
-@media (max-width: 768px) {
-  .nav-hamburger {
-    display: flex !important;
-  }
-}
+/* 2. Nav hamburger: visible on all screen sizes (shows auth/user-action menu) */
 
 /* 3. Fix hero decorative rings — ensure they never widen the page
       even if the parent overflow: hidden doesn't clip scroll-width */
