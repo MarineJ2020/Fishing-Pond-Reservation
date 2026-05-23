@@ -576,6 +576,10 @@ export const getScoresForCompetition = async (competitionId: string): Promise<Sc
       pondName: data.pondName || '',
       seatNum: data.seatNum || data.seatNumber || 0,
       weight: parseFloat(data.weight ?? data.totalWeight ?? 0),
+      photoUrl: data.photoUrl || undefined,
+      ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
+      ocrRawText: data.ocrRawText || undefined,
+      capturedBy: data.capturedBy || undefined,
     });
   });
   return entries;
@@ -583,6 +587,12 @@ export const getScoresForCompetition = async (competitionId: string): Promise<Sc
 
 export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<string> => {
   const resultsRef = collection(db, 'eventResults');
+  const evidenceFields: Record<string, unknown> = {};
+  if (entry.photoUrl)                       evidenceFields.photoUrl = entry.photoUrl;
+  if (typeof entry.ocrConfidence === 'number') evidenceFields.ocrConfidence = entry.ocrConfidence;
+  if (entry.ocrRawText)                     evidenceFields.ocrRawText = entry.ocrRawText;
+  if (entry.capturedBy)                     evidenceFields.capturedBy = entry.capturedBy;
+
   if (entry.bookingId) {
     const q = query(
       resultsRef,
@@ -598,6 +608,7 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
         pondName: entry.pondName,
         seatNum: entry.seatNum,
         weight: entry.weight,
+        ...evidenceFields,
         updatedAt: serverTimestamp(),
       }, { merge: true });
       return existingId;
@@ -611,6 +622,7 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
     pondName: entry.pondName,
     seatNum: entry.seatNum,
     weight: entry.weight,
+    ...evidenceFields,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

@@ -68,6 +68,11 @@ export interface ScoreEntry {
   pondName: string;
   seatNum: number;
   weight: number;
+  // Scale-scan evidence (optional for backwards compatibility with manually-entered legacy records)
+  photoUrl?: string;
+  ocrConfidence?: number;
+  ocrRawText?: string;
+  capturedBy?: string;
 }
 
 export interface Prize {

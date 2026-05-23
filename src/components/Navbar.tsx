@@ -60,7 +60,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, currentSection, onSectionChange, 
           <>
             <a onClick={() => handleAction(() => onSectionChange('mybookings'))}>📋 My Bookings</a>
             <a onClick={() => handleAction(onLogout)}>🚪 Logout</a>
-            {user.role === 'ADMIN' && (
+            {(user.role === 'ADMIN' || user.role === 'STAFF') && (
               <a onClick={() => handleAction(onOpenCMS)}>🛡️ Staff CMS</a>
             )}
           </>

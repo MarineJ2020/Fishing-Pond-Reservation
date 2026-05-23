@@ -16,6 +16,8 @@ import {
   saveScoreEntry,
   deleteScoreEntry,
 } from '../lib/firestore';
+import { uploadImageToCloudinary } from '../utils/cloudinary';
+import ScaleScanModal, { ScaleScanApproved } from './cms/ScaleScanModal';
 
 type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'users';
 
@@ -121,20 +123,6 @@ function CMSPondSeatEditor({
   );
 }
 
-const uploadImageToCloudinary = async (file: File, folder: string): Promise<string> => {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('upload_preset', import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-  formData.append('folder', folder);
-  const response = await fetch(
-    `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
-    { method: 'POST', body: formData }
-  );
-  if (!response.ok) throw new Error('Gagal muat naik gambar');
-  const result = await response.json();
-  return result.secure_url;
-};
-
 const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB }) => {
   const [page, setPage] = useState<CMSPage>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -165,6 +153,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [pendingWeights, setPendingWeights] = useState<Record<string, string>>({});
   const [savingEntry, setSavingEntry] = useState<string | null>(null);
   const [manualEntry, setManualEntry] = useState({ anglerName: '', pondId: '', seatNum: '', weight: '' });
+  const [scanOpen, setScanOpen] = useState(false);
+  const [pendingScan, setPendingScan] = useState<ScaleScanApproved | null>(null);
   const [anglerSuggestOpen, setAnglerSuggestOpen] = useState(false);
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
   const [pondMapUploading, setPondMapUploading] = useState(false);
@@ -470,20 +460,29 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleManualSave = async () => {
-    if (!manualEntry.anglerName || !manualEntry.weight) return;
+    if (!manualEntry.anglerName || !pendingScan) return;
     setSaving(true);
     try {
       const pond = ponds.find(p => (p._docId || p.id.toString()) === manualEntry.pondId);
+      const photoUrl = await uploadImageToCloudinary(
+        new File([pendingScan.photoBlob], pendingScan.photoFileName, { type: pendingScan.photoBlob.type || 'image/jpeg' }),
+        'fishing-pond-weights',
+      );
       await saveScoreEntry({
         competitionId: resultsCompId,
         anglerName: manualEntry.anglerName,
         pondId: pond?.id || 0,
         pondName: pond?.name || '',
         seatNum: parseInt(manualEntry.seatNum) || 0,
-        weight: parseFloat(manualEntry.weight) || 0,
+        weight: pendingScan.weight,
+        photoUrl,
+        ocrConfidence: pendingScan.ocrConfidence,
+        ocrRawText: pendingScan.ocrRawText,
+        capturedBy: user?.uid || user?.email || 'unknown',
       });
       setScoreEntries(await getScoresForCompetition(resultsCompId));
       setManualEntry({ anglerName: '', pondId: '', seatNum: '', weight: '' });
+      setPendingScan(null);
     } catch (err) { console.error(err); }
     setSaving(false);
   };
@@ -1172,13 +1171,37 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </div>
                       <div className="form-group">
                         <label className="form-label">Berat (kg)</label>
-                        <input
-                          className="form-input"
-                          type="number" step="0.01" min="0"
-                          value={manualEntry.weight}
-                          onChange={(e) => setManualEntry(m => ({ ...m, weight: e.target.value }))}
-                          placeholder="0.00"
-                        />
+                        {pendingScan ? (
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '8px 12px', border: '1px solid var(--border)',
+                            borderRadius: 6, background: 'var(--gold-pale, #fefbe8)',
+                          }}>
+                            <span style={{ fontSize: 22, fontWeight: 700 }}>
+                              {pendingScan.weight.toFixed(2)} kg
+                            </span>
+                            <span style={{
+                              fontSize: 11, padding: '2px 8px', borderRadius: 999,
+                              background: pendingScan.ocrConfidence >= 80 ? '#10b981' : '#f59e0b',
+                              color: '#fff', fontWeight: 600,
+                            }}>
+                              {pendingScan.ocrConfidence}/100
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn-sm"
+                              style={{ marginLeft: 'auto' }}
+                              onClick={() => { setPendingScan(null); setScanOpen(true); }}
+                            >🔄 Imbas Semula</button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            style={{ width: '100%' }}
+                            onClick={() => setScanOpen(true)}
+                          >📷 Imbas Timbangan</button>
+                        )}
                       </div>
                         </div>
                       );
@@ -1186,7 +1209,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="form-actions" style={{ marginTop: '12px' }}>
                       <button
                         className="btn btn-primary"
-                        disabled={saving || !manualEntry.anglerName || !manualEntry.weight}
+                        disabled={saving || !manualEntry.anglerName || !pendingScan}
                         onClick={handleManualSave}
                       >
                         {saving ? 'Menyimpan...' : '+ Tambah Rekod'}
@@ -1537,6 +1560,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           </div>
         )}
       </div>
+      <ScaleScanModal
+        isOpen={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onApprove={(res) => { setPendingScan(res); setScanOpen(false); }}
+      />
     </div>
   );
 };

@@ -3,6 +3,7 @@ import { DB, User, Pond, Booking } from '../types';
 import { emptyDB, setDB } from '../data';
 import { loadAppDB } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
+import { uploadDataUrlToCloudinary } from '../utils/cloudinary';
 
 interface BookingContextType {
   db: DB;
@@ -36,28 +37,8 @@ interface BookingContextType {
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
-// Cloudinary upload helper
-const uploadToCloudinary = async (receiptData: string, fileName: string): Promise<string> => {
-  const formData = new FormData();
-  // Convert base64 to blob for Cloudinary
-  const base64Data = receiptData.split(',')[1]; // Remove data:image/jpeg;base64,
-  const blob = new Blob([Uint8Array.from(atob(base64Data), c => c.charCodeAt(0))], { type: 'image/jpeg' });
-  formData.append('file', blob);
-  formData.append('upload_preset', import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-  formData.append('folder', 'fishing-pond-receipts');
-
-  const response = await fetch(
-    `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
-    { method: 'POST', body: formData }
-  );
-
-  if (!response.ok) {
-    throw new Error('Failed to upload receipt to Cloudinary');
-  }
-
-  const result = await response.json();
-  return result.secure_url;
-};
+const uploadToCloudinary = (receiptData: string, _fileName: string): Promise<string> =>
+  uploadDataUrlToCloudinary(receiptData, 'fishing-pond-receipts');
 
 export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [db, setDbState] = useState<DB>(emptyDB);
