@@ -19,7 +19,7 @@ import {
 import { uploadImageToCloudinary } from '../utils/cloudinary';
 import ScaleScanModal, { ScaleScanApproved } from './cms/ScaleScanModal';
 
-type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'users';
+type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
 
 interface CMSModalProps {
   isOpen: boolean;
@@ -409,6 +409,52 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
+  const handleLandingContentSave = async () => {
+    setSaving(true);
+    try {
+      await updateSettingsFirestore({
+        heroKicker: settingsEdit.heroKicker || '',
+        heroTitle: settingsEdit.heroTitle || '',
+        heroSubtitle: settingsEdit.heroSubtitle || '',
+        heroStats: settingsEdit.heroStats || [],
+        introCopy: settingsEdit.introCopy || '',
+        rules: settingsEdit.rules || [],
+        wazeUrl: settingsEdit.wazeUrl || '',
+        googleMapsUrl: settingsEdit.googleMapsUrl || '',
+        mapEmbedUrl: settingsEdit.mapEmbedUrl || '',
+      });
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to update landing content settings:', err);
+    }
+    setSaving(false);
+  };
+
+  const updateHeroStat = (idx: number, field: 'label' | 'value', val: string) => {
+    const stats = [...(settingsEdit.heroStats || [])];
+    while (stats.length <= idx) stats.push({ label: '', value: '' });
+    stats[idx] = { ...stats[idx], [field]: val };
+    setSettingsEdit({ ...settingsEdit, heroStats: stats });
+  };
+
+  const updateRule = (idx: number, field: 'title' | 'body', val: string) => {
+    const rules = [...(settingsEdit.rules || [])];
+    while (rules.length <= idx) rules.push({ title: '', body: '' });
+    rules[idx] = { ...rules[idx], [field]: val };
+    setSettingsEdit({ ...settingsEdit, rules });
+  };
+
+  const addRule = () => {
+    const rules = [...(settingsEdit.rules || []), { title: '', body: '' }];
+    setSettingsEdit({ ...settingsEdit, rules });
+  };
+
+  const removeRule = (idx: number) => {
+    const rules = [...(settingsEdit.rules || [])];
+    rules.splice(idx, 1);
+    setSettingsEdit({ ...settingsEdit, rules });
+  };
+
   const handlePondMapUpload = async (file: File) => {
     setPondMapUploading(true);
     try {
@@ -580,6 +626,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       { id: 'results' as CMSPage, icon: '⚖️', text: 'Keputusan & Live' },
     ]},
     { label: 'Admin', items: [
+      { id: 'landing-content' as CMSPage, icon: '🏡', text: 'Laman Utama' },
       { id: 'contact-settings' as CMSPage, icon: '☎️', text: 'Contact Us' },
       { id: 'users' as CMSPage, icon: '👥', text: 'Pengguna' },
     ] },
@@ -1290,6 +1337,81 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <button className="btn btn-primary" disabled={saving} onClick={handleContactSettingsSave}>{saving ? 'Menyimpan...' : 'Simpan Contact Us'}</button>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+          {page === 'landing-content' && (
+            <div className="page active">
+              <div className="page-header"><div><div className="page-title">Laman Utama</div><div className="page-sub">Edit teks hero, statistik, syarat pertandingan, dan pautan peta</div></div></div>
+
+              <div className="card">
+                <div className="card-header"><div className="card-title">Hero</div></div>
+                <div className="card-body">
+                  <div className="form-grid">
+                    <div className="form-group"><label className="form-label">Kicker</label><input className="form-input" value={settingsEdit.heroKicker || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroKicker: e.target.value })} placeholder="Tempat Di Mana" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk Hero</label><input className="form-input" value={settingsEdit.heroTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroTitle: e.target.value })} placeholder="Juara Dilahirkan" /></div>
+                    <div className="form-group form-span"><label className="form-label">Subtitle</label><input className="form-input" value={settingsEdit.heroSubtitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroSubtitle: e.target.value })} placeholder="Kolam Keli Sayang - Port Terbaik di Kedah" /></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Statistik Hero (3 item)</div></div>
+                <div className="card-body">
+                  {[0, 1, 2].map((i) => {
+                    const stat = settingsEdit.heroStats?.[i] || { label: '', value: '' };
+                    return (
+                      <div key={i} className="form-grid" style={{ marginBottom: '10px' }}>
+                        <div className="form-group"><label className="form-label">Nilai #{i + 1}</label><input className="form-input" value={stat.value} onChange={(e) => updateHeroStat(i, 'value', e.target.value)} placeholder={i === 0 ? '12' : i === 1 ? '480' : 'Weekly Strike'} /></div>
+                        <div className="form-group"><label className="form-label">Label #{i + 1}</label><input className="form-input" value={stat.label} onChange={(e) => updateHeroStat(i, 'label', e.target.value)} placeholder={i === 0 ? 'Lubuk Mega' : i === 1 ? 'Peserta / Kocah' : 'Pertandingan'} /></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Penerangan Ringkas (Intro)</div></div>
+                <div className="card-body">
+                  <div className="form-group form-span"><textarea className="form-textarea" rows={4} value={settingsEdit.introCopy || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, introCopy: e.target.value })} placeholder="Kolam Keli Sayang dibuka untuk pertandingan sahaja..." /></div>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header">
+                  <div className="card-title">Syarat &amp; Peraturan</div>
+                  <button className="btn btn-sm" onClick={addRule}>+ Tambah Syarat</button>
+                </div>
+                <div className="card-body">
+                  {(settingsEdit.rules || []).map((rule, i) => (
+                    <div key={i} className="form-grid" style={{ marginBottom: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '12px' }}>
+                      <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <strong style={{ minWidth: '24px' }}>{String(i + 1).padStart(2, '0')}.</strong>
+                        <input className="form-input" value={rule.title} onChange={(e) => updateRule(i, 'title', e.target.value)} placeholder="Tajuk syarat" style={{ flex: 1 }} />
+                        <button className="btn btn-sm" style={{ color: '#ef4444' }} onClick={() => removeRule(i)} aria-label="Padam syarat">🗑</button>
+                      </div>
+                      <div className="form-group form-span"><textarea className="form-textarea" rows={2} value={rule.body} onChange={(e) => updateRule(i, 'body', e.target.value)} placeholder="Penerangan syarat" /></div>
+                    </div>
+                  ))}
+                  {(!settingsEdit.rules || settingsEdit.rules.length === 0) && (
+                    <div style={{ color: 'var(--text-muted)', padding: '1rem 0' }}>Tiada syarat. Klik "Tambah Syarat" untuk mula.</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Lokasi &amp; Peta</div></div>
+                <div className="card-body">
+                  <div className="form-grid">
+                    <div className="form-group form-span"><label className="form-label">Embed URL Peta Google</label><input className="form-input" value={settingsEdit.mapEmbedUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, mapEmbedUrl: e.target.value })} placeholder="https://www.google.com/maps?q=...&output=embed" /></div>
+                    <div className="form-group"><label className="form-label">Waze URL</label><input className="form-input" value={settingsEdit.wazeUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, wazeUrl: e.target.value })} placeholder="https://waze.com/ul?ll=..." /></div>
+                    <div className="form-group"><label className="form-label">Google Maps URL</label><input className="form-input" value={settingsEdit.googleMapsUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, googleMapsUrl: e.target.value })} placeholder="https://maps.google.com/?q=..." /></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-actions" style={{ marginTop: '14px' }}>
+                <button className="btn btn-primary" disabled={saving} onClick={handleLandingContentSave}>{saving ? 'Menyimpan...' : 'Simpan Laman Utama'}</button>
               </div>
             </div>
           )}

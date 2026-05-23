@@ -40,7 +40,26 @@ export const emptyDB: DB = {
     grandOpening: {
       date: new Date().toISOString().slice(0, 10),
       time: '08:00'
-    }
+    },
+    heroKicker: 'Tempat Di Mana',
+    heroTitle: 'Juara Dilahirkan',
+    heroSubtitle: 'Kolam Keli Sayang - Port Terbaik di Kedah',
+    heroStats: [
+      { value: '12', label: 'Lubuk Mega' },
+      { value: '480', label: 'Peserta / Kocah' },
+      { value: 'Weekly Strike', label: 'Pertandingan' }
+    ],
+    introCopy: 'Kolam Keli Sayang dibuka untuk pertandingan sahaja — bukan aktiviti memancing harian. Terletak di Kubang Rotan, Alor Setar, dikelilingi hamparan sawah padi yang menghijau, kami menawarkan pengalaman bertanding yang adil, teratur, dan penuh semangat.',
+    rules: [
+      { title: 'Daftar & Sahkan Tempat', body: 'Semua peserta wajib mendaftar terlebih dahulu dengan menunjukkan kod QR yang diterima dalam emel tempahan kepada petugas.' },
+      { title: 'Pemilihan Tempat Duduk', body: 'Setiap peserta akan bertanding mengikut nombor tempat duduk yang telah dipilih semasa tempahan.' },
+      { title: 'Masa Bertanding', body: 'Semua peserta akan memulakan pertandingan pada masa yang sama. Apabila tamat diumumkan, semua joran perlu diangkat.' },
+      { title: 'Proses Timbang Ikan', body: 'Semua ikan perlu dibawa ke kaunter timbang rasmi untuk semakan berat. Peserta perlu menunjukkan kod QR dan hanya ikan yang sah akan direkod oleh pengadil.' },
+      { title: 'Anugerah & Keputusan', body: 'Pemenang akan diumumkan dan menerima hadiah selepas semakan rasmi pengadil.' }
+    ],
+    wazeUrl: '',
+    googleMapsUrl: '',
+    mapEmbedUrl: ''
   },
   users: []
 };

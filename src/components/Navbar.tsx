@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { User } from '../types';
+import { asset } from '../config/landingAssets';
 
 interface NavbarProps {
   user: User | null;
@@ -10,65 +11,78 @@ interface NavbarProps {
   onLogout: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ user, currentSection, onSectionChange, onOpenAuth, onOpenCMS, onLogout }) => {
+const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOpenCMS, onLogout }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  const navItems = [
-    { label: 'Tentang Kami', section: 'about' },
-    { label: 'Pertandingan', section: 'competitions' },
-    { label: 'Kolam', section: 'kolam' },
-    { label: 'Hadiah', section: 'prizes' },
-    { label: 'Hubungi', section: 'contact' },
-  ];
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [menuOpen]);
 
-  const handleNavClick = (section: string) => {
+  const handleNav = (section: string) => {
     onSectionChange(section);
     setMenuOpen(false);
   };
 
-  const handleAction = (action: () => void) => {
-    action();
+  const handleAction = (fn: () => void) => {
+    fn();
     setMenuOpen(false);
   };
 
   return (
-    <>
-      <nav>
-        <div className="nav-logo" onClick={() => handleNavClick('home')}>
-          KKS <span>Fishing</span>
+    <header className="kks-header">
+      <div className="kks-nav-container">
+        <a className="kks-nav-logo" onClick={() => handleNav('home')} aria-label="Kolam Keli Sayang">
+          <img src={asset('logo')} alt="Kolam Keli Sayang" />
+        </a>
+
+        <nav className="kks-nav-links" aria-label="Navigasi utama">
+          <a onClick={() => handleNav('lokasi')}>Lokasi</a>
+          <a onClick={() => handleNav('live')}>Keputusan Pertandingan</a>
+          <a onClick={() => handleNav('book')}>Tempah Sekarang</a>
+        </nav>
+
+        <div className="kks-nav-actions">
+          {user ? (
+            <span className="kks-nav-greet">Hi, {user.name.split(' ')[0]}</span>
+          ) : (
+            <a className="btn btn-navy" onClick={onOpenAuth}>Log Masuk / Daftar</a>
+          )}
+          <button
+            className={`kks-hamburger${menuOpen ? ' is-open' : ''}`}
+            onClick={() => setMenuOpen(o => !o)}
+            aria-label="Buka menu"
+            aria-expanded={menuOpen}
+          >
+            <span></span><span></span><span></span>
+          </button>
         </div>
+      </div>
 
-        <ul className="nav-links">
-          {navItems.map(item => (
-            <li key={item.section}>
-              <a onClick={() => handleNavClick(item.section)}>{item.label}</a>
-            </li>
-          ))}
-          <li>
-            <a className="nav-btn" onClick={() => handleAction(() => onSectionChange('book'))}>Tempah Sekarang</a>
-          </li>
-        </ul>
-
-        <div className="nav-hamburger" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle navigation">
-          <span></span><span></span><span></span>
-        </div>
-      </nav>
-
-      <div className={`mobile-menu ${menuOpen ? 'open' : ''}`}>
-        <a onClick={() => handleAction(() => onSectionChange('live'))}>🔴 Live Results</a>
+      <div ref={menuRef} className={`kks-menu-drop${menuOpen ? ' open' : ''}`}>
+        <a onClick={() => handleNav('home')}><i className="fa-solid fa-house"></i> Utama</a>
+        <a onClick={() => handleNav('lokasi')}><i className="fa-solid fa-location-dot"></i> Lokasi</a>
+        <a onClick={() => handleNav('live')}><i className="fa-solid fa-bolt"></i> Keputusan / Live</a>
+        <a onClick={() => handleNav('book')}><i className="fa-solid fa-ticket"></i> Tempah Sekarang</a>
+        <hr />
         {user ? (
           <>
-            <a onClick={() => handleAction(() => onSectionChange('mybookings'))}>📋 My Bookings</a>
-            <a onClick={() => handleAction(onLogout)}>🚪 Logout</a>
+            <a onClick={() => handleNav('mybookings')}><i className="fa-solid fa-clipboard-list"></i> Tempahan Saya</a>
             {(user.role === 'ADMIN' || user.role === 'STAFF') && (
-              <a onClick={() => handleAction(onOpenCMS)}>🛡️ Staff CMS</a>
+              <a onClick={() => handleAction(onOpenCMS)}><i className="fa-solid fa-shield-halved"></i> Staff CMS</a>
             )}
+            <a onClick={() => handleAction(onLogout)}><i className="fa-solid fa-right-from-bracket"></i> Log Keluar</a>
           </>
         ) : (
-          <a onClick={() => handleAction(onOpenAuth)}>🔐 Login / Daftar</a>
+          <a onClick={() => handleAction(onOpenAuth)}><i className="fa-solid fa-right-to-bracket"></i> Log Masuk / Daftar</a>
         )}
       </div>
-    </>
+    </header>
   );
 };
 

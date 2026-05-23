@@ -115,12 +115,22 @@ export interface Settings {
   // Homepage customization
   heroTitle?: string;
   heroSubtitle?: string;
+  heroKicker?: string;
+  heroStats?: { label: string; value: string }[];
+  introCopy?: string;
   aboutTitle?: string;
   aboutContent?: string;
   contactTitle?: string;
   contactSubtitle?: string;
   ctaTitle?: string;
   ctaSubtitle?: string;
+  /** Numbered rules shown in the homepage "Format Bertanding" section */
+  rules?: { title: string; body: string }[];
+  /** Google Maps embed URL used in the Lokasi section. If absent, derived from `location`. */
+  mapEmbedUrl?: string;
+  /** External map/directions deep links shown as quick-link buttons */
+  wazeUrl?: string;
+  googleMapsUrl?: string;
   /** When true, the booking page and CMS show the legacy capsule pond view instead of the SVG polygon */
   useLegacyPondView?: boolean;
   /** URL of the pond arrangement overview image shown to users during booking */

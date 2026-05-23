@@ -11,12 +11,15 @@ import AuthModal from './components/AuthModal';
 import CMSModal from './components/CMSModal';
 import BookingDetailsModal from './components/BookingDetailsModal';
 import Toast from './components/Toast';
+import Footer from './components/Footer';
 import { useBooking } from './context/BookingContext';
 import { useUI } from './context/UIContext';
 import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
+import { useCountdown } from './hooks/useCountdown';
 import { fmt } from './utils';
 import { Booking } from './types';
+import { asset } from './config/landingAssets';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db as firestoreDb } from '../lib/firebase';
 
@@ -168,6 +171,32 @@ const AppContent: React.FC = () => {
   const totalPonds = db.ponds.length;
   const confirmedBookings = db.bookings.filter(b => b.status === 'confirmed').length;
   const bookablePonds = useMemo(() => competitionScopedPonds.filter((p) => p.open), [competitionScopedPonds]);
+
+  // Featured event derivation for the new homepage Competition section.
+  const sortedUpcomingComps = useMemo(() => {
+    return [...competitions]
+      .filter((c) => !!c.startDate)
+      .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+  }, [competitions]);
+  const featuredCompetition = useMemo(() => {
+    const now = Date.now();
+    const upcoming = sortedUpcomingComps.find((c) => {
+      const end = new Date(c.endDate || c.startDate).getTime();
+      return end >= now;
+    });
+    return upcoming || sortedUpcomingComps[0] || null;
+  }, [sortedUpcomingComps]);
+  const secondCompetition = useMemo(() => {
+    if (!featuredCompetition) return null;
+    const idx = sortedUpcomingComps.findIndex(
+      (c) => (featuredCompetition.id ? c.id === featuredCompetition.id : c.name === featuredCompetition.name),
+    );
+    return idx >= 0 ? sortedUpcomingComps[idx + 1] || null : null;
+  }, [sortedUpcomingComps, featuredCompetition]);
+  const featuredCountdown = useCountdown(
+    featuredCompetition?.startDate || null,
+    featuredCompetition?.endDate || null,
+  );
   const activePond = selectedPond
     ? bookablePonds.find((p) => p.id === selectedPond) ?? null
     : null;
@@ -332,7 +361,7 @@ const AppContent: React.FC = () => {
   const userBookings = user ? db.bookings.filter(b => b.userId === user.uid || b.userId === user.email) : [];
 
   const handleNavigation = (section: string) => {
-    const homeAnchors = ['about', 'competitions', 'prizes', 'contact', 'how', 'tempah'];
+    const homeAnchors = ['about', 'competitions', 'how', 'rules', 'lokasi'];
     if (homeAnchors.includes(section)) {
       if (currentSection !== 'home') {
         setHomeScrollTarget(section);
@@ -640,121 +669,202 @@ const AppContent: React.FC = () => {
     updateFocusedCompetition();
   };
 
-  const renderHome = () => (
+  const renderHome = () => {
+    const settings = db.settings;
+    const heroKicker = settings.heroKicker || 'Tempat Di Mana';
+    const heroTitleRaw = settings.heroTitle || 'Juara Dilahirkan';
+    const heroTitleParts = heroTitleRaw.trim().split(/\s+/);
+    const heroTitleFirst = heroTitleParts.length > 1 ? heroTitleParts.slice(0, -1).join(' ') : heroTitleRaw;
+    const heroTitleLast = heroTitleParts.length > 1 ? heroTitleParts[heroTitleParts.length - 1] : '';
+    const heroSubtitle = settings.heroSubtitle || 'Kolam Keli Sayang - Port Terbaik di Kedah';
+    const heroStats = settings.heroStats?.length
+      ? settings.heroStats
+      : [
+          { value: String(totalPonds || 12), label: 'Lubuk Mega' },
+          { value: String(availablePegs || 480), label: 'Peserta / Kocah' },
+          { value: 'Weekly Strike', label: 'Pertandingan' },
+        ];
+    const introCopy = settings.introCopy
+      || 'Kolam Keli Sayang dibuka untuk pertandingan sahaja — bukan aktiviti memancing harian. Terletak di Kubang Rotan, Alor Setar, dikelilingi hamparan sawah padi yang menghijau, kami menawarkan pengalaman bertanding yang adil, teratur, dan penuh semangat.';
+    const rules = settings.rules?.length ? settings.rules : [];
+    const whatsappDigits = (settings.whatsapp || settings.phone || '').replace(/[^0-9]/g, '');
+    const whatsappHref = whatsappDigits ? `https://wa.me/${whatsappDigits}` : '#';
+    const wazeHref = settings.wazeUrl || (settings.location ? `https://waze.com/ul?q=${encodeURIComponent(settings.location)}` : '#');
+    const gmapsHref = settings.googleMapsUrl || (settings.location ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(settings.location)}` : '#');
+    const mapEmbedSrc = settings.mapEmbedUrl
+      || (settings.location ? `https://www.google.com/maps?q=${encodeURIComponent(settings.location)}&output=embed` : '');
+
+    const formatEventDate = (iso?: string) => {
+      if (!iso) return 'Tarikh akan diumumkan';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return 'Tarikh akan diumumkan';
+      return d.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long' });
+    };
+    const formatEventTime = (iso?: string) => {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '—';
+      const h = d.getHours();
+      const m = d.getMinutes();
+      const period = h < 12 ? 'Pagi' : h < 15 ? 'Tengahari' : h < 19 ? 'Petang' : 'Malam';
+      const h12 = ((h + 11) % 12) + 1;
+      return `${h12}.${m.toString().padStart(2, '0')} ${period}`;
+    };
+    const padCD = (n: number) => n.toString().padStart(2, '0');
+
+    const featuredName = featuredCompetition?.name || 'Pertandingan Hadapan';
+    const featuredDate = formatEventDate(featuredCompetition?.startDate);
+    const featuredTime = formatEventTime(featuredCompetition?.startDate);
+    const featuredPondsCount = featuredCompetition?.activePondIds?.length || totalPonds || 0;
+    const featuredSlots = featuredCompetition?.id
+      ? competitionAvailableSeats.get(featuredCompetition.id) ?? availablePegs
+      : availablePegs;
+    const samplePrice = db.ponds[0]?.seats[0]?.price;
+    const featuredFee = samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami';
+    const featuredPrize = (featuredCompetition?.prizes?.[0] as any);
+    const featuredPrizeText = featuredPrize?.prize || (featuredPrize?.amount ? `RM${featuredPrize.amount}` : 'Cabutan bertuah & hadiah lumayan');
+    const isCountdownReady = !!featuredCompetition && featuredCountdown.status !== 'idle';
+    const showLive = featuredCountdown.status === 'live';
+    const showEnded = featuredCountdown.status === 'ended';
+
+    return (
     <div className="home-shell">
       {/* HERO */}
-      <section className="hero" id="home">
-        <div className="hero-inner">
-          <div className="hero-badge">🎣 Port Pancing #1 Kedah</div>
-          <h1>Kolam Keli /<br /><span>Sayang</span></h1>
-          <p className="hero-subtitle">Kolam pancing keli terbesar di Kedah — 14 kolam, suasana sawah asli, pertandingan setiap bulan.</p>
-          <div className="hero-buttons">
-            <button className="btn btn-primary btn-lg" onClick={() => handleNavigation('competitions')}>Pilih Pertandingan</button>
-            <a className="btn-outline" onClick={() => handleNavigation('prizes')}>Lihat Hadiah</a>
-          </div>
-          <div className="hero-stats">
-            <div className="hero-stat"><div className="hero-stat-num">{totalPonds}</div><div className="hero-stat-label">Kolam Aktif</div></div>
-            <div className="hero-stat"><div className="hero-stat-num">{availablePegs}</div><div className="hero-stat-label">Tempat Peserta</div></div>
-            <div className="hero-stat"><div className="hero-stat-num">RM{totalPrizePool > 0 ? (totalPrizePool / 1000).toFixed(0) + 'K' : '50K+'}</div><div className="hero-stat-label">Hadiah Setahun</div></div>
-            <div className="hero-stat"><div className="hero-stat-num">{totalRegistered}+</div><div className="hero-stat-label">Ahli Berdaftar</div></div>
-          </div>
-        </div>
-      </section>
-
-      {/* ABOUT */}
-      <section className="about" id="about">
-        <div className="container">
-          <div className="section-label">Tentang KKS</div>
-          <h2 className="section-title">Kolam Pancing<br />Terbaik Kedah</h2>
-          <p className="section-desc">Terletak di kawasan sawah padi Alor Setar, KKS menawarkan pengalaman memancing yang unik dengan suasana kampung asli.</p>
-          <div className="about-grid">
-            <div>
-              <div className="about-features">
-                <div className="about-feature">
-                  <div className="feature-icon">🐟</div>
-                  <div className="feature-text"><h4>Ikan Keli Berkualiti</h4><p>Keli segar dipelihara dengan baik dalam kolam bersih dan terurus.</p></div>
-                </div>
-                <div className="about-feature">
-                  <div className="feature-icon">🏆</div>
-                  <div className="feature-text"><h4>Hadiah Lumayan</h4><p>Pertandingan bulanan dengan hadiah wang tunai yang menarik.</p></div>
-                </div>
-                <div className="about-feature">
-                  <div className="feature-icon">📱</div>
-                  <div className="feature-text"><h4>Tempahan Online Mudah</h4><p>Tempah dalam 2 minit — pilih kolam, bayar, terus dapat slip.</p></div>
-                </div>
-                <div className="about-feature">
-                  <div className="feature-icon">📍</div>
-                  <div className="feature-text"><h4>Lokasi Strategik</h4><p>Mudah diakses dari Alor Setar, parking luas dan percuma.</p></div>
-                </div>
+      <section className="kks-hero" id="home" style={{ backgroundImage: `linear-gradient(90deg, rgba(5,18,30,.94) 0%, rgba(8,22,37,.76) 34%, rgba(8,22,37,.18) 72%), url('${asset('heroBg')}')` }}>
+        <div className="kks-container kks-hero-content">
+          <div className="kks-hero-kicker">{heroKicker}</div>
+          <h1 className="kks-hero-title">
+            {heroTitleFirst} {heroTitleLast && <span>{heroTitleLast}</span>}
+          </h1>
+          <p className="kks-hero-sub">{heroSubtitle}</p>
+          <div className="kks-hero-stats">
+            {heroStats.map((s, i) => (
+              <div key={i} className="kks-hero-stat">
+                <strong>{s.value}</strong>
+                <small>{s.label}</small>
               </div>
-            </div>
-            <div className="about-visual">
-              <div className="about-visual-text">KKS</div>
-              <div className="about-tag">🎣 Est. 2020</div>
-            </div>
+            ))}
+          </div>
+          <button className="btn btn-red btn-hero" onClick={() => goToBook()}>Book Slot Sekarang!</button>
+        </div>
+      </section>
+
+      {/* INTRO */}
+      <section className="kks-section kks-intro" id="about" style={{ backgroundImage: `linear-gradient(180deg, rgba(255,255,255,.78), rgba(255,255,255,.84)), url('${asset('pondBg')}')` }}>
+        <div className="kks-container">
+          <div className="kks-eyebrow">Kolam Keli Sayang</div>
+          <h2 className="kks-headline">Bukan <span>Kolam</span> Biasa</h2>
+          <p className="kks-intro-copy">{introCopy}</p>
+          <div className="kks-features">
+            <article className="kks-feature">
+              <div className="kks-feature-icon"><i className="fa-solid fa-flag-checkered"></i></div>
+              <h3>Event Pertandingan Sahaja</h3>
+              <p>Tak dibuka untuk umum harian. Setiap sesi adalah event rasmi dengan peraturan, pengadil, dan hadiah yang jelas.</p>
+            </article>
+            <article className="kks-feature">
+              <div className="kks-feature-icon"><i className="fa-solid fa-water"></i></div>
+              <h3>12 Lubuk Mega</h3>
+              <p>Tak perlu berebut spot. 12 kolam besar mampu tampung 480 peserta sekali.</p>
+            </article>
+            <article className="kks-feature">
+              <div className="kks-feature-icon"><i className="fa-solid fa-car-side"></i></div>
+              <h3>Parking King Size</h3>
+              <p>Datang konvoi besar pun tak ada hal. Kawasan parking tersusun, luas, dan tanpa caj tambahan.</p>
+            </article>
+            <article className="kks-feature">
+              <div className="kks-feature-icon"><i className="fa-solid fa-seedling"></i></div>
+              <h3>Suasana Bendang Padi</h3>
+              <p>Dikelilingi sawah padi hijau Kedah. Pemandangan alami yang tulen jadi latar belakang setiap pertandingan anda.</p>
+            </article>
+          </div>
+          <div className="kks-intro-cta">
+            <button className="btn btn-navy" onClick={() => goToBook()}>Semak Layout Kolam</button>
           </div>
         </div>
       </section>
 
-      {/* COMPETITIONS */}
-      <section className="competitions" id="competitions">
-        <div className="container">
-          <div className="section-label">Pertandingan</div>
-          <h2 className="section-title">Sertai &amp;<br />Menang Besar</h2>
-          <p className="section-desc">Pertandingan pancing keli setiap bulan dengan hadiah wang tunai. Terbuka untuk semua peringkat.</p>
-          <div className="comp-carousel-shell">
-            <div
-              className={`comp-scroll-track ${isDraggingCompetitions ? 'is-dragging' : ''} ${isInteractingCompetitions ? 'no-snap' : ''}`}
-              ref={competitionScrollerRef}
-              onMouseDown={handleCompetitionMouseDown}
-              onMouseMove={handleCompetitionMouseMove}
-              onMouseUp={stopCompetitionDrag}
-              onMouseLeave={stopCompetitionDrag}
-              onTouchStart={handleCompetitionTouchStart}
-              onTouchMove={handleCompetitionTouchMove}
-              onTouchEnd={handleCompetitionTouchEnd}
-              onTouchCancel={handleCompetitionTouchEnd}
-              onScroll={handleCompetitionScroll}
-              onClickCapture={handleCompetitionClickCapture}
-              role="region"
-              aria-label="Carousel pertandingan"
-            >
-            {competitions.map((competition) => {
-              const isSelectedCompetition = competition.id === selectedCompetition?.id;
-              const competitionKey = getCompetitionKey(competition);
-              const isFocused = competitionKey === focusedCompetitionKey;
-              const compPrize = competition.prizes?.[0] as any;
-              const compPrizeText = compPrize?.prize || compPrize?.amount || 'Hadiah Menarik';
-              const compDate = competition.startDate ? new Date(competition.startDate) : null;
-              const compDateText = compDate && !Number.isNaN(compDate.getTime())
-                ? compDate.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-                : 'Tarikh akan diumumkan';
-              return (
-              <div key={competitionKey} data-competition-key={competitionKey} className={`comp-card comp-card-scroll ${isFocused ? 'is-focused' : ''}`} style={{ outline: isSelectedCompetition ? '2px solid var(--gold)' : undefined }}>
-                <div className="comp-header">
-                  <h3>{competition.name}</h3>
-                  <span className="comp-status status-open">{countdown.status === 'live' ? '🔴 Live' : countdown.status === 'ended' ? 'Selesai' : 'Pendaftaran Dibuka'}</span>
+      {/* COMPETITION */}
+      <section className="kks-section kks-competition" id="competitions" style={{ backgroundImage: `radial-gradient(circle at top left, rgba(22,183,220,.18), transparent 32%), radial-gradient(circle at bottom right, rgba(231,25,45,.18), transparent 34%), linear-gradient(135deg, rgba(6,24,40,.96), rgba(10,37,60,.94)), url('${asset('pondBg')}')` }}>
+        <div className="kks-container">
+          <div className="kks-section-head">
+            <div className="kks-eyebrow">Pertandingan</div>
+            <h2 className="kks-headline">Sertai &amp; <span>Menang</span> Besar</h2>
+          </div>
+
+          <div className="kks-countdown">
+            <div className="kks-countdown-label">
+              {showLive ? 'Live Now!' : showEnded ? 'Pertandingan Tamat' : 'Battle Starts In:'}
+            </div>
+            <div className="kks-time">
+              {isCountdownReady && !showEnded ? (
+                <>
+                  <div><strong>{padCD(featuredCountdown.days)}</strong><small>Hari</small></div>
+                  <div><strong>{padCD(featuredCountdown.hours)}</strong><small>Jam</small></div>
+                  <div><strong>{padCD(featuredCountdown.minutes)}</strong><small>Minit</small></div>
+                  <div><strong>{padCD(featuredCountdown.seconds)}</strong><small>Saat</small></div>
+                </>
+              ) : (
+                <div className="kks-countdown-empty">Pendaftaran akan dibuka tidak lama lagi</div>
+              )}
+            </div>
+          </div>
+
+          <div className="kks-event-showcase">
+            <article className="kks-event-main">
+              <div className="kks-event-top">
+                <div className="kks-event-title">
+                  <div className="kks-eyebrow">Event Pilihan</div>
+                  <h3>{featuredName}</h3>
                 </div>
-                <div className="comp-body">
-                  <div className="comp-detail"><span className="comp-detail-icon">📅</span> {compDateText}</div>
-                  <div className="comp-detail"><span className="comp-detail-icon">📍</span> {db.settings?.location || 'Lokasi akan diumumkan'}</div>
-                  <div className="comp-detail"><span className="comp-detail-icon">👥</span> {competitionAvailableSeats.get(competition.id ?? '') ?? availablePegs} tempat tersedia</div>
-                  <div className="comp-prize"><span>Hadiah: </span>{compPrizeText}</div>
+                <span className={`kks-badge${showLive ? ' is-live' : ''}`}>
+                  {showLive ? '🔴 Live' : showEnded ? 'Selesai' : 'Pendaftaran Dibuka'}
+                </span>
+              </div>
+              <div className="kks-event-body">
+                <div className="kks-event-grid">
+                  <div className="kks-event-metric"><small>Tarikh</small><strong>{featuredDate}</strong></div>
+                  <div className="kks-event-metric"><small>Masa</small><strong>{featuredTime}</strong></div>
+                  <div className="kks-event-metric"><small>Kolam Dibuka</small><strong>{featuredPondsCount}</strong></div>
+                  <div className="kks-event-metric"><small>Slot Tersedia</small><strong>{featuredSlots}</strong></div>
                 </div>
-                <div className="comp-footer">
+                <div className="kks-event-prize">
+                  <div><small>Yuran</small><strong>{featuredFee}</strong></div>
+                  <div><small>Hadiah</small><strong>{featuredPrizeText}</strong></div>
+                </div>
+                <div className="kks-event-actions">
                   <button
-                    className="btn btn-sm"
+                    className="btn btn-navy"
                     onClick={() => {
-                      selectCompetition(competition.id);
+                      if (featuredCompetition?.id) selectCompetition(featuredCompetition.id);
                       setPondPickerOpen(true);
                     }}
                   >
-                    Tempah
+                    Tempah Slot
                   </button>
+                  <a className="btn btn-light" onClick={() => handleNavigation('rules')}>Syarat Event</a>
                 </div>
               </div>
-            )})}
-            </div>
+            </article>
+
+            <aside className="kks-event-side">
+              <article className="kks-mini-card kks-mini-featured">
+                <h4>Weekly Strike</h4>
+                <p>Format kompetitif mingguan dengan slot terhad dan susunan lubuk yang lebih kemas.</p>
+                <div className="kks-mini-meta"><span>Setiap Minggu</span><span>Slot Terhad</span></div>
+              </article>
+              <article className="kks-mini-card">
+                <h4>{secondCompetition?.name || 'Next Battle'}</h4>
+                <p>
+                  {secondCompetition
+                    ? `${formatEventDate(secondCompetition.startDate)} · ${formatEventTime(secondCompetition.startDate)}`
+                    : 'Paparan ringkas event akan datang supaya peserta boleh banding tarikh, yuran dan kapasiti sebelum tempah.'}
+                </p>
+                <div className="kks-mini-meta">
+                  <span>{(secondCompetition?.activePondIds?.length || totalPonds || 12) + ' Lubuk'}</span>
+                  <span>{(secondCompetition?.id ? competitionAvailableSeats.get(secondCompetition.id) : null) ?? availablePegs} Slot</span>
+                </div>
+              </article>
+            </aside>
           </div>
         </div>
       </section>
@@ -794,180 +904,113 @@ const AppContent: React.FC = () => {
         </div>
       )}
 
-      {/* HOW IT WORKS */}
-      <section className="how" id="how">
-        <div className="container">
-          <div className="section-label">Cara Tempah</div>
-          <h2 className="section-title">4 Langkah<br />Mudah</h2>
-          <p className="section-desc">Proses tempahan yang simple dan cepat — kurang dari 2 minit siap.</p>
-          <div className="steps">
-            <div className="step">
-              <div className="step-num">01</div>
-              <div className="step-icon">📋</div>
+      {/* BOOKING STEPS */}
+      <section className="kks-section kks-booking-section" id="how" style={{ backgroundImage: `linear-gradient(90deg, rgba(255,255,255,.96) 0%, rgba(255,255,255,.9) 48%, rgba(255,255,255,.72) 100%), url('${asset('bookingBg')}')` }}>
+        <div className="kks-container">
+          <div className="kks-steps-top">
+            <div className="kks-steps-copy">
+              <div className="kks-eyebrow">Cara Tempah</div>
+              <h2 className="kks-headline">Langkah Tempah <span>Yang Mudah</span></h2>
+              <p>Proses tempahan yang simple dan cepat — kurang dari 2 minit siap.</p>
+            </div>
+            <button className="btn btn-navy" onClick={() => goToBook()}>Pilih Pertandingan</button>
+          </div>
+          <div className="kks-steps">
+            <article className="kks-step" data-step="01">
+              <div className="kks-step-icon"><i className="fa-solid fa-trophy"></i></div>
               <h3>Pilih Pertandingan</h3>
               <p>Tengok senarai pertandingan yang available dan pilih yang berkenan.</p>
-            </div>
-            <div className="step">
-              <div className="step-num">02</div>
-              <div className="step-icon">🎯</div>
+            </article>
+            <article className="kks-step" data-step="02">
+              <div className="kks-step-icon"><i className="fa-solid fa-fish-fins"></i></div>
               <h3>Pilih Kolam &amp; Tempat</h3>
-              <p>Pilih kolam dan nombor tempat duduk yang anda suka.</p>
-            </div>
-            <div className="step">
-              <div className="step-num">03</div>
-              <div className="step-icon">💳</div>
+              <p>Pilih kolam dan tempat duduk yang anda suka.</p>
+            </article>
+            <article className="kks-step" data-step="03">
+              <div className="kks-step-icon"><i className="fa-solid fa-credit-card"></i></div>
               <h3>Buat Bayaran</h3>
-              <p>Bayar melalui transfer bank atau deposit 50%. Upload resit.</p>
-            </div>
-            <div className="step">
-              <div className="step-num">04</div>
-              <div className="step-icon">✅</div>
+              <p>Bayaran penuh atau deposit 50% melalui transfer bank. Muat naik resit.</p>
+            </article>
+            <article className="kks-step" data-step="04">
+              <div className="kks-step-icon"><i className="fa-solid fa-circle-check"></i></div>
               <h3>Dapat Pengesahan</h3>
-              <p>Staff akan sahkan tempahan. Anda akan terima notifikasi.</p>
-            </div>
+              <p>Staff akan sahkan tempahan. Anda akan menerima notifikasi e-mel bersama.</p>
+            </article>
           </div>
         </div>
       </section>
 
-      {/* PRIZES */}
-      <section className="prizes" id="prizes">
-        <div className="container">
-          <div className="section-label">Ganjaran</div>
-          <h2 className="section-title">Hadiah &amp;<br />Ganjaran</h2>
-          <p className="section-desc">Hadiah wang tunai untuk pemenang setiap pertandingan.</p>
-          {(() => {
-            const pComp = competitions[prizeIdx] ?? competitions[0];
-            const prizesData: any[] = pComp?.prizes || [];
-            const rows = prizesData.length
-              ? prizesData.map((p: any, i: number) => (
-                  <tr key={i} className={i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : ''}>
-                    <td>#{i + 1}</td>
-                    <td>{p.label || `Tempat ${i + 1}`}</td>
-                    <td className="prize-amount">{p.prize || (p.amount ? `RM ${p.amount}` : 'RM ???')}</td>
-                  </tr>
-                ))
-              : [
-                  <tr key="1" className="rank-1"><td>🥇 #1</td><td>Juara</td><td className="prize-amount">RM ???</td></tr>,
-                  <tr key="2" className="rank-2"><td>🥈 #2</td><td>Naib Juara</td><td className="prize-amount">RM ???</td></tr>,
-                  <tr key="3" className="rank-3"><td>🥉 #3</td><td>Ketiga</td><td className="prize-amount">RM ???</td></tr>,
-                ];
-            const table = (
-              <table className="prizes-table">
-                <thead><tr><th>Tempat</th><th>Kategori</th><th>Hadiah</th></tr></thead>
-                <tbody>{rows}</tbody>
-              </table>
-            );
-            if (competitions.length <= 1) return table;
-            return (
-              <>
-                <div className="prize-nav-wrap">
-                  <button className="prize-nav-btn" onClick={() => switchPrize('prev')} aria-label="Pertandingan sebelumnya">‹</button>
-                  <div
-                    ref={prizeWrapRef}
-                    className={`prize-table-wrap${prizePhase !== 'idle' ? ` prize-phase-${prizePhase}-${prizeSlideDir}` : ''}`}
-                    style={prizeMinH > 0 ? { minHeight: prizeMinH } : undefined}
-                  >
-                    <div className="prize-comp-label">{pComp?.name}</div>
-                    {table}
-                  </div>
-                  <button className="prize-nav-btn" onClick={() => switchPrize('next')} aria-label="Pertandingan seterusnya">›</button>
+      {/* RULES */}
+      <section className="kks-section kks-rules" id="rules">
+        <div className="kks-container kks-rules-grid">
+          <div>
+            <div className="kks-eyebrow">Format Bertanding</div>
+            <h2 className="kks-headline">Macam Mana <span>Ia Berjalan?</span></h2>
+            <button className="btn btn-navy" onClick={() => goToBook()}>Tempah Sekarang</button>
+          </div>
+          <div className="kks-rule-list">
+            {rules.map((r, i) => (
+              <article key={i} className="kks-rule">
+                <div className="kks-rule-num">{(i + 1).toString().padStart(2, '0')}</div>
+                <div>
+                  <h3>{r.title}</h3>
+                  <p>{r.body}</p>
                 </div>
-                <div className="prize-dots">
-                  {competitions.map((_, di) => (
-                    <button
-                      key={di}
-                      className={`prize-dot${di === prizeIdx ? ' active' : ''}`}
-                      onClick={() => {
-                        prizeLastInteractRef.current = Date.now();
-                        if (prizeTransRef.current) window.clearTimeout(prizeTransRef.current);
-                        const sDir: 'left' | 'right' = di > prizeIdxRef.current ? 'left' : 'right';
-                        setPrizeSlideDir(sDir);
-                        setPrizePhase('out'); prizePhaseRef.current = 'out';
-                        prizeTransRef.current = window.setTimeout(() => {
-                          prizeIdxRef.current = di;
-                          setPrizeIdx(di);
-                          setPrizePhase('in'); prizePhaseRef.current = 'in';
-                          prizeTransRef.current = window.setTimeout(() => {
-                            setPrizePhase('idle'); prizePhaseRef.current = 'idle';
-                          }, 420);
-                        }, 220);
-                      }}
-                      aria-label={`Pertandingan ${di + 1}`}
-                    />
-                  ))}
-                </div>
-              </>
-            );
-          })()}
-        </div>
-      </section>
-
-      {/* PAYMENT */}
-      <section className="payment" id="payment">
-        <div className="container">
-          <div className="section-label">Bayaran</div>
-          <h2 className="section-title">Cara<br />Pembayaran</h2>
-          <p className="section-desc">Pilih kaedah bayaran yang sesuai. Semua transaksi selamat dan dilindungi.</p>
-          <div className="payment-cards">
-            <div className="payment-card payment-highlight">
-              <div className="payment-icon">📱</div>
-              <h3>QR Transfer</h3>
-              <p>Scan QR code dan buat pembayaran terus dari aplikasi bank anda.</p>
-            </div>
-            <div className="payment-card">
-              <div className="payment-icon">💵</div>
-              <h3>Tunai</h3>
-              <p>Bayar secara tunai di kaunter pada hari pertandingan.</p>
-            </div>
-            <div className="payment-card">
-              <div className="payment-icon">💳</div>
-              <h3>Deposit 50%</h3>
-              <p>Bayar separuh untuk mengesahkan tempahan. Baki pada hari event.</p>
-            </div>
+              </article>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* CONTACT */}
-      <section className="contact" id="contact">
-        <div className="container">
-          <div className="section-label" style={{ color: 'var(--gold)' }}>Hubungi Kami</div>
-          <h2 className="section-title" style={{ color: '#fff' }}>{db.settings?.contactTitle || 'Ada Soalan?'}</h2>
-          <p className="section-desc" style={{ color: '#8B6A4F' }}>{db.settings?.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.'}</p>
-          <div className="contact-info">
-            <div className="contact-item">
-              <div className="contact-item-icon">📞</div>
-              <h4>Telefon</h4>
-              <p>{db.settings?.phone || db.settings?.whatsapp || '+60 1X-XXX XXXX'}</p>
+      {/* LOKASI */}
+      <section className="kks-section kks-lokasi" id="lokasi">
+        <div className="kks-container kks-location-grid">
+          <div>
+            <div className="kks-eyebrow">Lokasi KKS</div>
+            <h2 className="kks-headline">Jumpa Kami <span>Di Sini</span></h2>
+            <div className="kks-quick-links">
+              <a className="btn btn-red" href={wazeHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-waze"></i> Waze</a>
+              <a className="btn btn-navy" href={gmapsHref} target="_blank" rel="noopener noreferrer"><i className="fa-solid fa-location-dot"></i> Google Map</a>
+              <a className="btn btn-light" href={whatsappHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-whatsapp"></i> WhatsApp Us</a>
             </div>
-            <div className="contact-item">
-              <div className="contact-item-icon">💬</div>
-              <h4>WhatsApp</h4>
-              <p><a href={`https://wa.me/${(db.settings?.whatsapp || db.settings?.phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer">{db.settings?.whatsapp || db.settings?.phone || '+60 1X-XXX XXXX'}</a></p>
-            </div>
-            <div className="contact-item">
-              <div className="contact-item-icon">📧</div>
-              <h4>Emel</h4>
-              <p>{db.settings?.email || 'info@kks.com'}</p>
-            </div>
-            <div className="contact-item">
-              <div className="contact-item-icon">📍</div>
-              <h4>Alamat</h4>
-              <p>{db.settings?.location || 'Alor Setar, Kedah'}</p>
+            <div className="kks-contact-box">
+              <strong className="kks-contact-name">Kolam Keli Sayang</strong>
+              <div className="kks-contact-item">
+                <i className="fa-solid fa-location-dot"></i>
+                <div><strong>Alamat</strong>{settings.location || 'Kubang Rotan, Alor Setar, Kedah.'}</div>
+              </div>
+              <div className="kks-contact-item">
+                <i className="fa-solid fa-envelope"></i>
+                <div><strong>Email</strong>{settings.email || 'hello@kolamkelisayang.com.my'}</div>
+              </div>
+              <div className="kks-contact-item">
+                <i className="fa-solid fa-phone"></i>
+                <div><strong>Telefon</strong>{settings.phone || settings.whatsapp || '017-438 6854'}</div>
+              </div>
             </div>
           </div>
-          <div className="cta-block">
-            <p>Jom sertai komuniti pemancing KKS!</p>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button className="btn btn-primary btn-lg" onClick={() => handleNavigation('competitions')}>Pilih Pertandingan</button>
-              <a className="btn-outline" href={`https://wa.me/${(db.settings?.whatsapp || db.settings?.phone || '').replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer">WhatsApp Kami</a>
-            </div>
+          <div className="kks-map">
+            {mapEmbedSrc ? (
+              <iframe
+                title="Lokasi Kolam Keli Sayang"
+                src={mapEmbedSrc}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                allowFullScreen
+              />
+            ) : (
+              <div className="kks-map-fallback">
+                <span className="kks-map-pin"></span>
+                <div className="kks-map-empty">Lokasi peta belum dikonfigur. Sila tetapkan alamat dalam CMS &gt; Settings.</div>
+              </div>
+            )}
           </div>
         </div>
       </section>
 
     </div>
-  );
+    );
+  };
 
   const renderSection = () => {
     switch (currentSection) {
@@ -1234,10 +1277,7 @@ const AppContent: React.FC = () => {
       {currentSection === 'home' && <SecondaryMobileNav onSectionChange={handleNavigation} />}
       {renderSection()}
       {location.pathname === '/' && (
-        <footer>
-          <div className="footer-logo">KKS Fishing</div>
-          <div className="footer-copy">&copy; {new Date().getFullYear()} Kolam Keli Sayang. Semua hak terpelihara.</div>
-        </footer>
+        <Footer settings={db.settings} onNavigate={handleNavigation} />
       )}
       <AuthModal
         isOpen={authModalOpen}

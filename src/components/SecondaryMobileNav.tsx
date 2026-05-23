@@ -5,9 +5,8 @@ const SECTIONS: { id: string; label: string }[] = [
   { id: 'about',        label: 'Tentang' },
   { id: 'competitions', label: 'Pertandingan' },
   { id: 'how',          label: 'Cara\nTempah' },
-  { id: 'prizes',       label: 'Hadiah' },
-  { id: 'payment',      label: 'Bayaran' },
-  { id: 'contact',      label: 'Hubungi' },
+  { id: 'rules',        label: 'Syarat' },
+  { id: 'lokasi',       label: 'Lokasi' },
 ];
 
 interface Props {
@@ -84,7 +83,7 @@ const SecondaryMobileNav: React.FC<Props> = ({ onSectionChange }) => {
         <path
           d="M0,0 Q-9,7.5 0,15 Q9,22 0,29 Q-9,36 0,44"
           fill="none"
-          stroke="rgba(200,146,42,0.35)"
+          stroke="rgba(22,183,220,0.32)"
           strokeWidth="5"
           strokeLinecap="round"
         />
@@ -93,7 +92,7 @@ const SecondaryMobileNav: React.FC<Props> = ({ onSectionChange }) => {
           className="sec-wave-path"
           d="M0,0 Q-9,7.5 0,15 Q9,22 0,29 Q-9,36 0,44"
           fill="none"
-          stroke="rgba(240,192,96,0.9)"
+          stroke="rgba(231,25,45,0.9)"
           strokeWidth="1.5"
           strokeLinecap="round"
         />
