@@ -132,6 +132,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [competitionEditorOpen, setCompetitionEditorOpen] = useState(false);
   const [competitionDeleteTarget, setCompetitionDeleteTarget] = useState<Competition | null>(null);
   const [settingsEdit, setSettingsEdit] = useState(settings);
+  // Sync settingsEdit when the parent settings prop changes (e.g. after reloadDB)
+  useEffect(() => { setSettingsEdit(settings); }, [settings]);
   const [newPond, setNewPond] = useState<Partial<Pond>>({ name: '', desc: '', seats: [], open: true });
   const [newPondSeatPrice, setNewPondSeatPrice] = useState(100);
   const [newPondMaxSeats, setNewPondMaxSeats] = useState(30);

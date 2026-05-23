@@ -95,6 +95,16 @@ const normalizeSettings = (data: any): Settings => ({
   contactSubtitle: data.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.',
   useLegacyPondView: data.useLegacyPondView === true,
   pondMapImg: data.pondMapImg || '',
+  // Landing v4 — homepage CMS-editable fields
+  heroKicker: data.heroKicker || '',
+  heroTitle: data.heroTitle || '',
+  heroSubtitle: data.heroSubtitle || '',
+  heroStats: Array.isArray(data.heroStats) ? data.heroStats : [],
+  introCopy: data.introCopy || '',
+  rules: Array.isArray(data.rules) ? data.rules : [],
+  wazeUrl: data.wazeUrl || '',
+  googleMapsUrl: data.googleMapsUrl || '',
+  mapEmbedUrl: data.mapEmbedUrl || '',
 });
 
 const buildBooking = (
