@@ -59,7 +59,8 @@ export const emptyDB: DB = {
     ],
     wazeUrl: '',
     googleMapsUrl: '',
-    mapEmbedUrl: ''
+    mapEmbedUrl: '',
+    ocrUsePreprocess: true
   },
   users: []
 };

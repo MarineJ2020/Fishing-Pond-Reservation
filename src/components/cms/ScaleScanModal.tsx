@@ -1,11 +1,19 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CropRectOverlay, { NormRect } from './CropRectOverlay';
-import { scanWeight, confidenceTier, prewarmOcr, ScanResult } from '../../utils/scaleOcr';
+import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 
 export interface ScaleScanApproved {
   weight: number;
+  /**
+   * Sentinel from the ONNX backend: 100 when the model produced a parseable
+   * weight, 0 when not. The HIGH/MEDIUM/LOW tier UI has been removed in favour
+   * of mandatory staff confirmation — see `userEdited` for whether the saved
+   * weight matches the OCR output.
+   */
   ocrConfidence: number;
   ocrRawText: string;
+  /** True when staff edited the auto-filled weight before saving. */
+  userEdited: boolean;
   photoBlob: Blob;
   photoFileName: string;
 }
@@ -14,6 +22,13 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onApprove: (result: ScaleScanApproved) => void;
+  /** Toggleable via CMS Settings (`db.settings.ocrUsePreprocess`). */
+  usePreprocess?: boolean;
+  /**
+   * Force decimal-point position in the OCR output. Undefined = auto-detect
+   * from image structure. See `db.settings.ocrDecimalPlaces`.
+   */
+  decimalPlaces?: 0 | 1 | 2 | 3;
 }
 
 type Step = 'capture' | 'crop' | 'processing' | 'verify';
@@ -31,12 +46,9 @@ function cloneCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
 }
 
 // Render the preview canvas with bbox overlays so staff can visually confirm
-// what segmentation kept and what it threw out:
-//   • Gray box: component the digit-shape filter REJECTED (bezel, label, noise,
-//     wrong-polarity giant blob). Lets the user see why a scan failed.
-//   • Green box + value: digit-shape blob that the 7-seg recognizer classified.
-//   • Red box + "?": digit-shape blob that 7-seg couldn't classify.
-//   • Yellow box: detected decimal point.
+// what segmentation kept and what it threw out. Only meaningful when
+// preprocessing is enabled; with preprocessing off, the rejected/accepted bbox
+// arrays are empty and only the raw image is drawn.
 function renderHighlightedPreview(result: ScanResult): HTMLCanvasElement {
   const src = result.preprocessedCanvas;
   const display = document.createElement('canvas');
@@ -52,7 +64,6 @@ function renderHighlightedPreview(result: ScanResult): HTMLCanvasElement {
   const stroke = Math.max(2, Math.round(display.height * 0.012));
   const fontPx = Math.max(14, Math.round(display.height * 0.20));
 
-  // 1. Gray rejected boxes first (so digit boxes draw on top).
   ctx.lineWidth = Math.max(1, Math.round(stroke * 0.6));
   ctx.strokeStyle = 'rgba(120, 120, 120, 0.7)';
   ctx.setLineDash([4, 3]);
@@ -61,7 +72,6 @@ function renderHighlightedPreview(result: ScanResult): HTMLCanvasElement {
   }
   ctx.setLineDash([]);
 
-  // 2. Accepted digit boxes + value labels.
   ctx.lineWidth = stroke;
   ctx.font = `bold ${fontPx}px sans-serif`;
   ctx.textBaseline = 'top';
@@ -88,7 +98,6 @@ function renderHighlightedPreview(result: ScanResult): HTMLCanvasElement {
     ctx.fillText(label, b.x0 + padX, labelY + 3);
   }
 
-  // 3. Decimal point marker.
   if (seg.decimalBbox) {
     const b = seg.decimalBbox;
     ctx.strokeStyle = '#f59e0b';
@@ -99,7 +108,7 @@ function renderHighlightedPreview(result: ScanResult): HTMLCanvasElement {
   return display;
 }
 
-const ScaleScanModal: React.FC<Props> = ({ isOpen, onClose, onApprove }) => {
+const ScaleScanModal: React.FC<Props> = ({ isOpen, onClose, onApprove, usePreprocess, decimalPlaces }) => {
   const [step, setStep] = useState<Step>('capture');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
@@ -108,6 +117,12 @@ const ScaleScanModal: React.FC<Props> = ({ isOpen, onClose, onApprove }) => {
   const [progress, setProgress] = useState<string>('');
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Editable weight string the staff confirms before save. Pre-filled from the
+   * OCR result when one arrives. The Approve button is disabled until this
+   * parses to a valid finite positive number.
+   */
+  const [confirmedWeight, setConfirmedWeight] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewBoxRef = useRef<HTMLDivElement>(null);
 
@@ -121,6 +136,7 @@ const ScaleScanModal: React.FC<Props> = ({ isOpen, onClose, onApprove }) => {
       setResult(null);
       setError(null);
       setProgress('');
+      setConfirmedWeight('');
     } else {
       prewarmOcr();
     }
@@ -138,6 +154,20 @@ const ScaleScanModal: React.FC<Props> = ({ isOpen, onClose, onApprove }) => {
     canvas.style.borderRadius = '6px';
     box.appendChild(canvas);
   }, [step, result]);
+
+  // Pre-fill the confirm input directly from the ONNX raw text + decimal-place
+  // rule. Going through result.weight (a parsed number then re-formatted with
+  // toFixed) caused the displayed value to drift from the actual OCR reading —
+  // we now mirror the raw model output exactly.
+  useEffect(() => {
+    if (!result) return;
+    setConfirmedWeight(formatScannedWeight(result.rawText, decimalPlaces));
+  }, [result, decimalPlaces]);
+
+  const parsedConfirmed = useMemo(() => {
+    const n = parseFloat(confirmedWeight.replace(',', '.'));
+    return Number.isFinite(n) && n > 0 && n < 100 ? n : null;
+  }, [confirmedWeight]);
 
   if (!isOpen) return null;
 
@@ -185,7 +215,7 @@ const ScaleScanModal: React.FC<Props> = ({ isOpen, onClose, onApprove }) => {
     try {
       const cropCanvas = await buildCropCanvas();
       setProgress('Imbas paparan…');
-      const r = await scanWeight(cloneCanvas(cropCanvas));
+      const r = await scanWeight(cloneCanvas(cropCanvas), undefined, { usePreprocess, decimalPlaces });
       setResult(r);
       setStep('verify');
     } catch (err: any) {
@@ -201,28 +231,26 @@ const ScaleScanModal: React.FC<Props> = ({ isOpen, onClose, onApprove }) => {
     setPhotoBlob(null);
     setResult(null);
     setError(null);
+    setConfirmedWeight('');
     setStep('capture');
     setTimeout(() => fileInputRef.current?.click(), 50);
   };
 
   const handleApprove = () => {
-    if (!result || result.weight === null || !photoBlob) return;
-    const tier = confidenceTier(result.confidence, result.weight);
-    if (tier === 'LOW') return;
+    if (!result || parsedConfirmed === null || !photoBlob) return;
+    // userEdited compares the input STRING to what we pre-filled (the canonical
+    // ONNX-derived string), not the numeric weight. Avoids false positives from
+    // formatting differences (e.g. "123.45" vs "123.450").
+    const prefill = formatScannedWeight(result.rawText, decimalPlaces);
+    const userEdited = confirmedWeight.trim() !== prefill;
     onApprove({
-      weight: result.weight,
+      weight: parsedConfirmed,
       ocrConfidence: result.confidence,
       ocrRawText: result.rawText,
+      userEdited,
       photoBlob,
       photoFileName,
     });
-  };
-
-  const tier = result ? confidenceTier(result.confidence, result.weight) : 'LOW';
-  const tierColors: Record<string, { bg: string; fg: string; label: string }> = {
-    HIGH:   { bg: '#10b981', fg: '#fff', label: 'Yakin Tinggi' },
-    MEDIUM: { bg: '#f59e0b', fg: '#fff', label: 'Sila Sahkan' },
-    LOW:    { bg: '#ef4444', fg: '#fff', label: 'Tidak Jelas — Ambil Semula' },
   };
 
   return (
@@ -316,94 +344,55 @@ const ScaleScanModal: React.FC<Props> = ({ isOpen, onClose, onApprove }) => {
                       background: result.pickedPolarity === 'invert' ? '#1e40af' : '#374151',
                       color: '#fff',
                     }}>
-                      🔄 Auto → {result.pickedPolarity}
+                      🔄 {result.pickedPolarity}{usePreprocess === false ? ' (raw)' : ''}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                      {result.rawText ? JSON.stringify(result.rawText) : '(kosong)'}
+                      ONNX: {result.rawText ? JSON.stringify(result.rawText) : '(kosong)'}
                     </span>
                   </div>
-                  {/* Polarity selection summary: shows the digit counts that drove the auto-pick. */}
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, fontFamily: 'monospace' }}>
-                    {(() => {
-                      const parts = Object.entries(result.polarityScores).map(([pol, s]) =>
-                        `${pol}=${s.digitCount}d${s.rejectedCount > 0 ? `/${s.rejectedCount}r` : ''}`
-                      );
-                      return `7-seg blobs: ${parts.join(' | ')} → picked ${result.pickedPolarity}`;
-                    })()}
-                  </div>
-                  {result.debug && (
-                    <details style={{ marginTop: 6 }}>
-                      <summary style={{ fontSize: 10, color: 'var(--text-muted)', cursor: 'pointer' }}>
-                        Debug ({result.debug.length} runs, {result.votes}/{result.totalRuns} agreed)
-                      </summary>
-                      <pre style={{ fontSize: 10, margin: 0, padding: 6, background: '#1118', color: '#fff', borderRadius: 4, overflow: 'auto', lineHeight: 1.35 }}>
-{Object.entries(result.sevenSegByPolarity).map(([pol, s]) => {
-  const status = s.weight !== null
-    ? `✓ [${s.digits.join('')}]${s.decimalIndex !== null ? ` dec@${s.decimalIndex}` : ''} → ${s.weight}`
-    : `✗ unreadable (${s.digitBboxes.length} digit blobs found)`;
-  const patterns = s.segmentPatterns.length > 0 ? ` patterns=${s.segmentPatterns.join(',')}` : '';
-  return `7-SEG   ${pol.padEnd(6)} ${status}${patterns}`;
-}).join('\n')}
-
-{Object.entries(result.structureByPolarity).map(([pol, s]) =>
-  `STRUCT  ${pol.padEnd(6)} digits=${s.digitCount}  decimalAt=${s.decimalIndex === null ? '—' : s.decimalIndex}`
-).join('\n')}
-
-{result.debug.map(r => {
-  const tag = `${r.polarity.padEnd(6)} ${r.engine.padEnd(13)} PSM${r.psm}`;
-  const isWinner = r.pick === result.weight && result.weight !== null;
-  const winnerMark = isWinner ? ' ←' : '';
-  const native = r.nativePick === null ? 'null' : r.nativePick;
-  const pick = r.pick === null ? 'null' : r.pick;
-  return `OCR     ${tag} conf ${String(r.conf).padStart(3)}  native=${String(native).padEnd(6)} reconstructed=${pick}  ${JSON.stringify(r.text)}${winnerMark}`;
-}).join('\n')}
-                      </pre>
-                    </details>
-                  )}
                 </div>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-                    Bacaan dikesan
+                    Bacaan dikesan (sahkan / ubah suai)
                   </div>
-                  <div style={{ fontSize: 56, fontWeight: 700, lineHeight: 1.1 }}>
-                    {result.weight !== null ? result.weight.toFixed(2) : '—'}
-                    {result.weight !== null && <span style={{ fontSize: 22, fontWeight: 500, marginLeft: 6 }}>kg</span>}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={confirmedWeight}
+                      onChange={(e) => setConfirmedWeight(e.target.value)}
+                      placeholder="0.000"
+                      style={{
+                        fontSize: 44, fontWeight: 700, lineHeight: 1.1, width: '6ch',
+                        textAlign: 'right', border: '2px solid var(--border, #e8edf2)',
+                        borderRadius: 8, padding: '6px 10px', background: '#fff',
+                        color: 'var(--text, #112a41)',
+                      }}
+                    />
+                    <span style={{ fontSize: 22, fontWeight: 500 }}>kg</span>
                   </div>
-                  <div style={{
-                    display: 'inline-block', marginTop: 8, padding: '4px 10px',
-                    borderRadius: 999, fontSize: 12, fontWeight: 600,
-                    background: tierColors[tier].bg, color: tierColors[tier].fg,
-                  }}>
-                    {tierColors[tier].label} · {result.confidence}/100
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                    {result.rawText
+                      ? `OCR baca ${JSON.stringify(result.rawText)} — boleh edit jika perlu`
+                      : 'OCR tidak dapat membaca — masukkan berat secara manual'}
                   </div>
                 </div>
               </div>
 
-              {tier === 'LOW' && (
-                <div style={{
-                  marginTop: 12, padding: 10, borderRadius: 6,
-                  background: '#fef2f2', color: '#7f1d1d', fontSize: 13,
-                }}>
-                  Bacaan tidak jelas atau di luar julat berat yang munasabah.
-                  Sila ambil gambar semula dengan paparan yang lebih jelas.
-                </div>
-              )}
-              {tier === 'MEDIUM' && (
-                <div style={{
-                  marginTop: 12, padding: 10, borderRadius: 6,
-                  background: '#fffbeb', color: '#78350f', fontSize: 13,
-                }}>
-                  Sila sahkan bacaan ini sepadan dengan paparan timbangan sebelum simpan.
-                </div>
-              )}
+              <div style={{
+                marginTop: 12, padding: 10, borderRadius: 6,
+                background: '#eff6ff', color: '#1e3a8a', fontSize: 13,
+              }}>
+                ℹ️ Bandingkan bacaan di atas dengan paparan timbangan sebenar. Edit jika tidak sepadan, kemudian klik Sahkan &amp; Simpan.
+              </div>
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
                 <button className="btn" onClick={handleRetake}>🔄 Ambil Semula</button>
                 <button
                   className="btn btn-primary"
-                  disabled={tier === 'LOW'}
+                  disabled={parsedConfirmed === null}
                   onClick={handleApprove}
-                  style={tier === 'LOW' ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  style={parsedConfirmed === null ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
                   ✅ Sahkan &amp; Simpan
                 </button>

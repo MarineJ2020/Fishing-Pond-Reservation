@@ -424,12 +424,38 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         wazeUrl: settingsEdit.wazeUrl || '',
         googleMapsUrl: settingsEdit.googleMapsUrl || '',
         mapEmbedUrl: settingsEdit.mapEmbedUrl || '',
+        ocrUsePreprocess: settingsEdit.ocrUsePreprocess !== false,
+        ocrDecimalPlaces: settingsEdit.ocrDecimalPlaces,
       });
       await reloadDB();
     } catch (err) {
       console.error('Failed to update landing content settings:', err);
     }
     setSaving(false);
+  };
+
+  const handleOcrPreprocessToggle = async () => {
+    const next = !(settingsEdit.ocrUsePreprocess !== false);
+    setSettingsEdit(s => ({ ...s, ocrUsePreprocess: next }));
+    try {
+      await updateSettingsFirestore({ ocrUsePreprocess: next });
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to update OCR preprocess setting:', err);
+    }
+  };
+
+  const handleOcrDecimalChange = async (value: string) => {
+    let next: 0 | 1 | 2 | 3 | undefined;
+    if (value === 'auto') next = undefined;
+    else next = parseInt(value, 10) as 0 | 1 | 2 | 3;
+    setSettingsEdit(s => ({ ...s, ocrDecimalPlaces: next }));
+    try {
+      await updateSettingsFirestore({ ocrDecimalPlaces: next });
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to update OCR decimal-place setting:', err);
+    }
   };
 
   const updateHeroStat = (idx: number, field: 'label' | 'value', val: string) => {
@@ -526,6 +552,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         photoUrl,
         ocrConfidence: pendingScan.ocrConfidence,
         ocrRawText: pendingScan.ocrRawText,
+        ocrUserVerified: !pendingScan.userEdited,
         capturedBy: user?.uid || user?.email || 'unknown',
       });
       setScoreEntries(await getScoresForCompetition(resultsCompId));
@@ -1412,6 +1439,48 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
               </div>
 
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Imbas Timbangan (OCR)</div></div>
+                <div className="card-body">
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={settingsEdit.ocrUsePreprocess !== false}
+                      onChange={handleOcrPreprocessToggle}
+                      style={{ marginTop: '4px', width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: 600, color: 'var(--text)' }}>Guna pra-pemprosesan imej OCR</div>
+                      <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.5 }}>
+                        Lebih konsisten untuk lampu kurang terang dan paparan LCD berkilau.
+                        Tutup untuk imej terus dari kamera (lebih pantas, sesuai jika paparan timbangan sudah jelas).
+                      </div>
+                    </div>
+                  </label>
+
+                  <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: '1px solid var(--line, #e8edf2)' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>Posisi titik perpuluhan</div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: 1.5 }}>
+                      Model OCR sering terlepas titik perpuluhan pada paparan timbangan.
+                      Tetapkan berapa digit selepas titik perpuluhan untuk paksa kedudukannya.
+                      Contoh: jika ditetapkan "2 digit" dan OCR baca <code>12345</code>, berat = <strong>123.45 kg</strong>.
+                    </div>
+                    <select
+                      className="form-input"
+                      value={settingsEdit.ocrDecimalPlaces === undefined ? 'auto' : String(settingsEdit.ocrDecimalPlaces)}
+                      onChange={(e) => handleOcrDecimalChange(e.target.value)}
+                      style={{ maxWidth: '320px' }}
+                    >
+                      <option value="auto">Auto — kesan dari imej (lalai)</option>
+                      <option value="0">Tiada perpuluhan — berat sebagai integer</option>
+                      <option value="1">1 digit selepas titik — cth. 1234 → 123.4 kg</option>
+                      <option value="2">2 digit selepas titik — cth. 12345 → 123.45 kg</option>
+                      <option value="3">3 digit selepas titik — cth. 12345 → 12.345 kg</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               <div className="form-actions" style={{ marginTop: '14px' }}>
                 <button className="btn btn-primary" disabled={saving} onClick={handleLandingContentSave}>{saving ? 'Menyimpan...' : 'Simpan Laman Utama'}</button>
               </div>
@@ -1688,6 +1757,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         isOpen={scanOpen}
         onClose={() => setScanOpen(false)}
         onApprove={(res) => { setPendingScan(res); setScanOpen(false); }}
+        usePreprocess={settingsEdit.ocrUsePreprocess ?? true}
+        decimalPlaces={settingsEdit.ocrDecimalPlaces}
       />
     </div>
   );

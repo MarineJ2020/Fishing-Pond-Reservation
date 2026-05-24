@@ -72,6 +72,8 @@ export interface ScoreEntry {
   photoUrl?: string;
   ocrConfidence?: number;
   ocrRawText?: string;
+  /** True when the saved weight matched the OCR output (no staff edit). */
+  ocrUserVerified?: boolean;
   capturedBy?: string;
 }
 
@@ -135,6 +137,23 @@ export interface Settings {
   useLegacyPondView?: boolean;
   /** URL of the pond arrangement overview image shown to users during booking */
   pondMapImg?: string;
+  /**
+   * When true (default), the OCR pipeline runs the existing imageProcessing
+   * preprocessing on each crop before invoking the ONNX model. When false,
+   * the raw crop is fed directly to the model. Toggleable via CMS Settings
+   * for A/B testing on real KKS scales.
+   */
+  ocrUsePreprocess?: boolean;
+  /**
+   * Override where the decimal point is injected into the ONNX digit string.
+   * The model reliably reads digits but often misses the decimal dot on real
+   * scale photos. Set to N (1/2/3) to always insert the decimal so that the
+   * last N digits sit after the dot. Example: ONNX reads "12345", N=2 →
+   * 123.45 kg. Set to 0 to treat output as a whole-number weight. Leave
+   * undefined ("auto") to fall back to the existing structure-based decimal
+   * detection (works well only with preprocessing on).
+   */
+  ocrDecimalPlaces?: 0 | 1 | 2 | 3;
 }
 
 export interface User {

@@ -95,6 +95,13 @@ const normalizeSettings = (data: any): Settings => ({
   contactSubtitle: data.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.',
   useLegacyPondView: data.useLegacyPondView === true,
   pondMapImg: data.pondMapImg || '',
+  // OCR pipeline toggle (default true = run existing preprocessing before ONNX)
+  ocrUsePreprocess: data.ocrUsePreprocess !== false,
+  // Decimal-place override for ONNX output. Undefined = auto (use structure detection).
+  ocrDecimalPlaces:
+    typeof data.ocrDecimalPlaces === 'number' && [0, 1, 2, 3].includes(data.ocrDecimalPlaces)
+      ? (data.ocrDecimalPlaces as 0 | 1 | 2 | 3)
+      : undefined,
   // Landing v4 — homepage CMS-editable fields
   heroKicker: data.heroKicker || '',
   heroTitle: data.heroTitle || '',

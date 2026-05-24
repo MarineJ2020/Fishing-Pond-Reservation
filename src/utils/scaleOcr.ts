@@ -1,19 +1,22 @@
 // Orchestrates the scale-OCR pipeline.
 //
-// Per scan, we now:
-//   1. Preprocess the crop under BOTH polarities (cheap, all canvas ops).
-//   2. Run the 7-seg geometric recognizer + structure detector on each.
-//   3. SCORE each polarity by how many digit-shaped blobs were found,
-//      and pick the higher-scoring one (ties broken by fewer rejected blobs).
-//   4. Run Tesseract (dual engine × multi PSM) on the chosen polarity only.
-//   5. Vote — but reject 1-digit 7-seg reads as suspicious (almost always a
-//      polarity-mismatch giant blob that survived the digit-shape filter).
-//   6. Compute confidence based on 7-seg ↔ Tesseract agreement.
+// V2: Tesseract has been replaced with a CNN+BiGRU+CTC ONNX model
+// (seven-segment-ocr-WEB by MarineJ2020), run client-side via onnxruntime-web.
+// One forward pass replaces the previous 6-way Tesseract voting.
 //
-// vs. previous behaviour: we used to bracket BOTH polarities through every
-// downstream stage, which doubled OCR cost and made wrong-polarity
-// hallucinations (the "fake 8" case) compete on equal footing with correct
-// reads. Directed selection cuts both problems in one go.
+// Per scan we:
+//   1. (Optional) Preprocess the crop under BOTH polarities and pick the better
+//      one via the existing geometric digit-shape filter. The chosen pre-canvas
+//      and structure metadata feed both the ONNX model and the verify-step
+//      debug overlay. Toggle via `opts.usePreprocess`.
+//   2. Feed the chosen canvas (preprocessed OR raw crop) to the ONNX session.
+//   3. Parse the ONNX string into a numeric weight, using the structure-aware
+//      reconstruction helpers if available.
+//
+// The exported ScanResult shape is preserved so ScaleScanModal compiles
+// unchanged. Fields specific to the old multi-engine pipeline (votes,
+// totalRuns, debug) are now sentinel values — the verify UI gates on staff
+// confirmation, not on OCR confidence.
 
 import {
   gaussianBlur,
@@ -31,9 +34,10 @@ import {
   SevenSegResult,
   DigitStructure,
 } from './imageProcessing';
+import { getOcrSession } from '../lib/sevenSegmentOcr';
 
 export type Polarity = 'auto' | 'normal' | 'invert';
-export type Engine   = 'letsgodigital' | 'eng';
+export type Engine   = 'letsgodigital' | 'eng'; // kept for legacy DebugRun typing
 
 export interface OcrParams {
   contrastClip: number;
@@ -59,108 +63,85 @@ export interface DebugRun {
   psm: number;
   text: string;
   conf: number;
-  pick: number | null;       // structure-aware reconstructed value
-  nativePick: number | null; // regex-only pick from raw text, for comparison
+  pick: number | null;
+  nativePick: number | null;
 }
 
 export interface PolarityScore {
-  digitCount: number;        // digit-shaped blobs from detectDigitStructure
-  rejectedCount: number;     // non-digit-shaped blobs (for tie-breaking)
-  sevenSegWeight: number | null; // the 7-seg recognizer's reading
-  sevenSegDigits: number;    // how many digits the recognizer accepted
+  digitCount: number;
+  rejectedCount: number;
+  sevenSegWeight: number | null;
+  sevenSegDigits: number;
 }
 
 export interface ScanResult {
   weight: number | null;
-  confidence: number;          // 0-100; high when multiple runs agree
+  confidence: number;
   rawText: string;
   preprocessedCanvas: HTMLCanvasElement;
   pickedPolarity: 'normal' | 'invert';
   structureByPolarity: Record<string, DigitStructure>;
-  sevenSegByPolarity: Record<string, SevenSegResult>; // geometric 7-seg reads
-  polarityScores: Record<string, PolarityScore>;      // for the debug summary line
-  votes: number;               // weighted votes for the winning value
+  sevenSegByPolarity: Record<string, SevenSegResult>;
+  polarityScores: Record<string, PolarityScore>;
+  votes: number;
   totalRuns: number;
   debug?: DebugRun[];
 }
 
 export type ConfidenceTier = 'HIGH' | 'MEDIUM' | 'LOW';
 
-export function confidenceTier(score: number, parsed: number | null): ConfidenceTier {
-  if (parsed === null) return 'LOW';
-  if (score >= 80) return 'HIGH';
-  if (score >= 60) return 'MEDIUM';
-  return 'LOW';
+/**
+ * @deprecated Kept for backwards-compat with ScaleScanModal during the
+ * transition. The new verify-flow requires explicit staff confirmation
+ * regardless of confidence, so this collapses to a binary "do we have a
+ * parseable weight or not" check.
+ */
+export function confidenceTier(_score: number, parsed: number | null): ConfidenceTier {
+  return parsed === null ? 'LOW' : 'HIGH';
 }
 
-// Letters that the `eng` model often spits out instead of seven-segment digits.
-const LETTER_TO_DIGIT: Record<string, string> = {
-  T: '7', t: '7',
-  I: '1', i: '1', l: '1', '|': '1', '!': '1',
-  O: '0', o: '0', Q: '0', D: '0', U: '0',
-  B: '8',
-  S: '5', s: '5',
-  Z: '2', z: '2',
-  G: '6', b: '6',
-  q: '9', g: '9',
-  A: '4',
-};
+/**
+ * Format the ONNX raw text into the canonical weight string. This is the
+ * single source of truth — the displayed pre-fill in the verify dialog and
+ * the numeric `weight` field of ScanResult are both derived from this.
+ *
+ * Behaviour:
+ *   • Strip everything except 0-9 and "." from the raw text.
+ *   • If `decimalPlacesOverride` is set, IGNORE any dot the model emitted and
+ *     inject the decimal so the last N digits sit after it. Empty string if
+ *     there are no digits at all.
+ *   • Otherwise (auto), respect the model's own dot. If it emitted multiple
+ *     dots, keep only the first.
+ */
+export function formatScannedWeight(rawText: string, decimalPlacesOverride?: number): string {
+  const digits = rawText.replace(/[^0-9]/g, '');
+  if (digits.length === 0) return '';
 
-function normaliseDigits(text: string): string {
-  let out = '';
-  for (const c of text) {
-    if (c >= '0' && c <= '9') out += c;
-    else if (LETTER_TO_DIGIT[c]) out += LETTER_TO_DIGIT[c];
+  if (decimalPlacesOverride !== undefined) {
+    const n = decimalPlacesOverride;
+    if (n === 0 || digits.length <= n) return digits;
+    return digits.slice(0, digits.length - n) + '.' + digits.slice(digits.length - n);
   }
-  return out;
+
+  // Auto: keep the model's first dot if any.
+  const cleaned = rawText.replace(/[^0-9.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if (firstDot < 0) return digits;
+  const before = cleaned.slice(0, firstDot).replace(/\./g, '');
+  const after = cleaned.slice(firstDot + 1).replace(/\./g, '');
+  if (after.length === 0) return before || digits;
+  return (before || '0') + '.' + after;
 }
 
-const WEIGHT_FIND = /(\d{1,2})(?:[.,](\d{1,3}))?/g;
-
-function nativeCandidate(text: string): number | null {
-  let best: number | null = null;
-  for (const m of text.matchAll(WEIGHT_FIND)) {
-    const intPart = m[1];
-    const fracPart = m[2] || '';
-    const num = parseFloat(fracPart ? `${intPart}.${fracPart}` : intPart);
-    if (!isFinite(num) || num < 0.01 || num > 50.0) continue;
-    if (best === null || num > best) best = num;
-  }
-  return best;
-}
-
-function reconstructWeight(rawText: string, structure: DigitStructure | null): number | null {
-  if (!structure || structure.digitCount === 0) return nativeCandidate(rawText);
-
-  const digits = normaliseDigits(rawText);
-  if (digits.length === 0) return nativeCandidate(rawText);
-
-  let useDigits = digits;
-  if (digits.length > structure.digitCount) {
-    useDigits = digits.slice(0, structure.digitCount);
-  } else if (digits.length < structure.digitCount) {
-    return nativeCandidate(rawText);
-  }
-
-  let formatted: string;
-  if (
-    structure.decimalIndex !== null
-    && structure.decimalIndex > 0
-    && structure.decimalIndex < useDigits.length
-  ) {
-    formatted = useDigits.slice(0, structure.decimalIndex) + '.' + useDigits.slice(structure.decimalIndex);
-  } else {
-    formatted = useDigits;
-  }
-
+function reconstructWeight(rawText: string, decimalPlacesOverride?: number): number | null {
+  const formatted = formatScannedWeight(rawText, decimalPlacesOverride);
+  if (!formatted) return null;
   const num = parseFloat(formatted);
-  if (!isFinite(num) || num < 0.01 || num > 50.0) return nativeCandidate(rawText);
-  return num;
+  return Number.isFinite(num) ? num : null;
 }
 
 function preprocess(crop: HTMLCanvasElement, params: OcrParams, polarity: 'normal' | 'invert'): HTMLCanvasElement {
   const working = gaussianBlur(crop, params.blurRadius);
-
   const ctx = working.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Canvas 2D context unavailable');
   const img = ctx.getImageData(0, 0, working.width, working.height);
@@ -170,9 +151,6 @@ function preprocess(crop: HTMLCanvasElement, params: OcrParams, polarity: 'norma
   const t = otsuThreshold(img);
   binarize(img, t);
   if (polarity === 'invert') invert(img);
-  // Strip the bezel BEFORE morphology — otherwise dilate will fuse the
-  // outermost digit strokes into the bezel, producing one giant blob that
-  // the digit-shape filter rejects → zero digits found.
   removeBorderComponents(img);
   if (params.morphIterations > 0) morphClose(img, params.morphIterations);
   if (params.minAreaFrac > 0) removeSmallComponents(img, params.minAreaFrac);
@@ -190,52 +168,21 @@ function cloneCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
   return out;
 }
 
-const workerPromises: Partial<Record<Engine, Promise<any>>> = {};
-
-async function getWorker(engine: Engine) {
-  if (!workerPromises[engine]) {
-    workerPromises[engine] = (async () => {
-      const Tesseract = await import('tesseract.js');
-      const worker = await Tesseract.createWorker(engine, 1, {
-        langPath: `${window.location.origin}/tessdata`,
-        gzip: false,
-      });
-      return worker;
-    })();
-  }
-  return workerPromises[engine]!;
+interface PolarityPick {
+  canvas: HTMLCanvasElement;
+  polarity: 'normal' | 'invert';
+  structure: DigitStructure;
+  sevenSeg: SevenSegResult;
+  preByPolarity: Record<string, HTMLCanvasElement>;
+  structureByPolarity: Record<string, DigitStructure>;
+  sevenSegByPolarity: Record<string, SevenSegResult>;
+  polarityScores: Record<string, PolarityScore>;
 }
 
-export function prewarmOcr() {
-  getWorker('letsgodigital').catch(() => { delete workerPromises.letsgodigital; });
-  getWorker('eng').catch(() => { delete workerPromises.eng; });
-}
-
-const PSM_MODES = [7, 6, 11] as const;
-const ENGINES: Engine[] = ['letsgodigital', 'eng'];
-
-// 7-seg reads with FEWER than this many digits are treated as suspicious and
-// contribute zero votes. A 1-digit "8" is almost always the wrong-polarity
-// LCD-interior blob slipping past the shape filter; real scale readings
-// reliably have 2+ digits visible.
-const SEG_MIN_DIGITS = 2;
-
-// Vote weight per accepted 7-seg digit. A clean 4-digit read gets 4×2=8 votes,
-// dwarfing typical Tesseract noise contributions.
-const SEG_VOTE_BASE = 2;
-
-export async function scanWeight(
-  crop: HTMLCanvasElement,
-  params: OcrParams = DEFAULT_PARAMS,
-): Promise<ScanResult> {
-  // Polarities we ATTEMPT (for structure scoring). If polarity is forced,
-  // there's only one candidate; auto evaluates both then picks.
+function preprocessAndPickBestPolarity(crop: HTMLCanvasElement, params: OcrParams): PolarityPick {
   const candidatePolarities: Array<'normal' | 'invert'> =
     params.polarity === 'auto' ? ['normal', 'invert'] : [params.polarity];
 
-  // ── Step 1: Preprocess + geometric analysis for EVERY candidate polarity. ──
-  //   This is cheap (all canvas ops). Tesseract is the expensive part and
-  //   will only run on the chosen polarity below.
   const preByPolarity: Record<string, HTMLCanvasElement> = {};
   const structureByPolarity: Record<string, DigitStructure> = {};
   const sevenSegByPolarity: Record<string, SevenSegResult> = {};
@@ -258,10 +205,6 @@ export async function scanWeight(
     };
   }
 
-  // ── Step 2: Directed polarity selection. ──
-  // Pick the polarity with the most digit-shaped blobs. Ties → fewer rejects.
-  // (If params.polarity was forced, the candidate list has only one entry
-  // and this picks it trivially.)
   const pickedPolarity = candidatePolarities.slice().sort((a, b) => {
     const sa = polarityScores[a];
     const sb = polarityScores[b];
@@ -269,96 +212,100 @@ export async function scanWeight(
     return sa.rejectedCount - sb.rejectedCount;
   })[0];
 
-  const preChosen = preByPolarity[pickedPolarity];
-  const structureChosen = structureByPolarity[pickedPolarity];
-  const sevenSegChosen = sevenSegByPolarity[pickedPolarity];
+  return {
+    canvas: preByPolarity[pickedPolarity],
+    polarity: pickedPolarity,
+    structure: structureByPolarity[pickedPolarity],
+    sevenSeg: sevenSegByPolarity[pickedPolarity],
+    preByPolarity,
+    structureByPolarity,
+    sevenSegByPolarity,
+    polarityScores,
+  };
+}
 
-  // ── Step 3: Tesseract on the chosen polarity only. ──
-  const allRuns: DebugRun[] = [];
-  for (const engine of ENGINES) {
-    const worker = await getWorker(engine);
-    for (const psm of PSM_MODES) {
-      await worker.setParameters({ tessedit_pageseg_mode: String(psm) as any });
-      const { data } = await worker.recognize(preChosen);
-      const text = (data.text ?? '').trim();
-      const conf = typeof data.confidence === 'number' ? data.confidence : 0;
-      const pick = reconstructWeight(text, structureChosen);
-      const nativePick = nativeCandidate(text);
-      allRuns.push({ polarity: pickedPolarity, engine, psm, text, conf, pick, nativePick });
-    }
-  }
+/**
+ * Pre-warm the ONNX OCR session so the first scan in a CMS modal doesn't pay
+ * the ~1.5 s model-load latency. Safe to call repeatedly.
+ */
+export function prewarmOcr(): void {
+  getOcrSession().catch(() => { /* swallow — re-thrown on real scan attempt */ });
+}
 
-  // ── Step 4: Vote tally. ──
-  // - 7-seg with ≥ SEG_MIN_DIGITS digits → digit-weighted vote.
-  // - 7-seg with < SEG_MIN_DIGITS digits → REJECTED (0 votes). Most likely a
-  //   wrong-polarity giant blob that sneaked past the shape filter.
-  // - Tesseract runs → 1 vote each.
-  const votes = new Map<number, number>();
+const EMPTY_SEVEN_SEG: SevenSegResult = {
+  digits: [],
+  digitBboxes: [],
+  rejectedBboxes: [],
+  decimalIndex: null,
+  decimalBbox: null,
+  weight: null,
+  segmentPatterns: [],
+};
+const EMPTY_STRUCTURE: DigitStructure = { digitCount: 0, decimalIndex: null };
 
-  if (
-    sevenSegChosen.weight !== null
-    && sevenSegChosen.digits.length >= SEG_MIN_DIGITS
-  ) {
-    const w = SEG_VOTE_BASE * sevenSegChosen.digits.length;
-    votes.set(sevenSegChosen.weight, (votes.get(sevenSegChosen.weight) ?? 0) + w);
-  }
-  for (const r of allRuns) {
-    if (r.pick !== null) votes.set(r.pick, (votes.get(r.pick) ?? 0) + 1);
-  }
+export interface ScanWeightOpts {
+  /**
+   * When true (default), the crop runs through the historic dual-polarity
+   * preprocessing pipeline and the chosen preprocessed canvas is fed to the
+   * ONNX model. When false, the raw crop is fed directly to the model.
+   * Toggleable from CMS Settings (`db.settings.ocrUsePreprocess`).
+   */
+  usePreprocess?: boolean;
+  /**
+   * Force the decimal-point position in the ONNX digit string. When set,
+   * overrides structure-based detection. See `Settings.ocrDecimalPlaces`.
+   */
+  decimalPlaces?: 0 | 1 | 2 | 3;
+}
 
-  let winner: number | null = null;
-  let topVotes = 0;
-  for (const [val, count] of votes) {
-    if (count > topVotes) { topVotes = count; winner = val; }
-  }
+export async function scanWeight(
+  crop: HTMLCanvasElement,
+  params: OcrParams = DEFAULT_PARAMS,
+  opts: ScanWeightOpts = {},
+): Promise<ScanResult> {
+  const session = await getOcrSession();
+  const usePreprocess = opts.usePreprocess ?? true;
 
-  // ── Step 5: Confidence calibration ────────────────────────────────────────
-  // We've halved the OCR budget (one polarity instead of two), so the
-  // max-achievable vote totals are lower. Re-tune:
-  const sevenSegContributes =
-    sevenSegChosen.weight === winner
-    && winner !== null
-    && sevenSegChosen.digits.length >= SEG_MIN_DIGITS;
-  const tessAgreement = sevenSegContributes
-    ? topVotes - SEG_VOTE_BASE * sevenSegChosen.digits.length
-    : topVotes;
+  let input: HTMLCanvasElement;
+  let pickedPolarity: 'normal' | 'invert' = 'normal';
+  let structureByPolarity: Record<string, DigitStructure>;
+  let sevenSegByPolarity: Record<string, SevenSegResult>;
+  let polarityScores: Record<string, PolarityScore>;
 
-  let confidence: number;
-  if (winner === null) {
-    confidence = 0;
-  } else if (sevenSegContributes && sevenSegChosen.digits.length >= 3 && tessAgreement >= 2) {
-    confidence = 95; // 7-seg with ≥3 digits + Tesseract cross-validation
-  } else if (sevenSegContributes && sevenSegChosen.digits.length >= 2) {
-    confidence = 80; // 7-seg with ≥2 digits, with or without Tesseract help
-  } else if (tessAgreement >= 3) {
-    confidence = 70; // No 7-seg signal but Tesseract agrees strongly
-  } else if (topVotes >= 2) {
-    confidence = 55;
+  if (usePreprocess) {
+    const pick = preprocessAndPickBestPolarity(crop, params);
+    input = pick.canvas;
+    pickedPolarity = pick.polarity;
+    structureByPolarity = pick.structureByPolarity;
+    sevenSegByPolarity = pick.sevenSegByPolarity;
+    polarityScores = pick.polarityScores;
   } else {
-    confidence = 40;
+    input = cloneCanvas(crop);
+    structureByPolarity = { normal: EMPTY_STRUCTURE };
+    sevenSegByPolarity = { normal: EMPTY_SEVEN_SEG };
+    polarityScores = {
+      normal: { digitCount: 0, rejectedCount: 0, sevenSegWeight: null, sevenSegDigits: 0 },
+    };
   }
 
-  const totalRuns =
-    allRuns.length
-    + (sevenSegContributes ? SEG_VOTE_BASE * sevenSegChosen.digits.length : 0);
-
-  // ── Step 6: Build the result. ─────────────────────────────────────────────
-  const repr = allRuns
-    .filter(r => r.pick === winner && winner !== null)
-    .sort((a, b) => b.conf - a.conf)[0]
-    ?? allRuns[0];
+  const raw = await session.recognize(input);
+  // The weight is derived purely from the ONNX text + decimal-place rule.
+  // Structure/seven-seg data is retained on the result for the debug overlay only.
+  const weight = reconstructWeight(raw, opts.decimalPlaces);
 
   return {
-    weight: winner,
-    confidence,
-    rawText: repr?.text ?? '',
-    preprocessedCanvas: preChosen,
+    weight,
+    // Sentinel: 100 when we got something parseable, 0 when we didn't.
+    // Verify-flow UI gates on staff confirmation, not on this number.
+    confidence: weight === null ? 0 : 100,
+    rawText: raw,
+    preprocessedCanvas: input,
     pickedPolarity,
     structureByPolarity,
     sevenSegByPolarity,
     polarityScores,
-    votes: topVotes,
-    totalRuns,
-    debug: allRuns.map(r => ({ ...r, conf: Math.round(r.conf) })),
+    votes: weight === null ? 0 : 1,
+    totalRuns: 1,
+    debug: [],
   };
 }

@@ -1,0 +1,11 @@
+{
+  "alphabet": "0123456789.",
+  "blank": 11,
+  "inputShape": [
+    1,
+    1,
+    31,
+    200
+  ],
+  "inputName": "input"
+}
