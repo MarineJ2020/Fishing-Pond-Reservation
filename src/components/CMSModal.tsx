@@ -17,7 +17,7 @@ import {
   deleteScoreEntry,
 } from '../lib/firestore';
 import { uploadImageToCloudinary } from '../utils/cloudinary';
-import ScaleScanModal, { ScaleScanApproved } from './cms/ScaleScanModal';
+import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 
 type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
 
@@ -531,6 +531,100 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       await deleteScoreEntry(id);
       setScoreEntries(prev => prev.filter(e => e.id !== id));
     } catch (err) { console.error(err); }
+  };
+
+  /**
+   * Resolve a scanned booking id into the full ScannedBookingFull (with seat
+   * list) for the modal to handle. Scoped to the currently-selected Results
+   * competition so staff can't accidentally score a booking for a different
+   * event.
+   */
+  const toScannedBookingFull = (bookingId: string): ScannedBookingFull | null => {
+    const booking = bookings.find((b) => b.id === bookingId || b.bookingRef === bookingId);
+    if (!booking) return null;
+    const compId = booking.competitionId || '';
+    if (resultsCompId && compId && compId !== resultsCompId) return null;
+    if (!booking.seats.length) return null;
+    const pond = ponds.find((p) => p.id === booking.pondId);
+    return {
+      bookingId: booking.id,
+      bookingRef: booking.bookingRef,
+      userId: booking.userId,
+      anglerName: booking.userName,
+      pondId: booking.pondId,
+      pondName: pond?.name || booking.pondName,
+      seats: [...booking.seats].sort((a, b) => a - b),
+      competitionId: booking.competitionId,
+      competitionName: booking.competitionName,
+    };
+  };
+
+  const lookupBookingFullForScan = (bookingId: string) => toScannedBookingFull(bookingId);
+
+  /**
+   * Power the manual booking picker: return every booking the staff is allowed
+   * to weigh for. Scoped to the currently-selected Results competition.
+   */
+  const listBookingsForScan = (): ScannedBookingFull[] => {
+    return bookings
+      .filter((b) => {
+        if (!b.seats.length) return false;
+        // Exclude rejected bookings — they can't legitimately compete.
+        if (b.status === 'rejected') return false;
+        const compId = b.competitionId || '';
+        if (resultsCompId && compId && compId !== resultsCompId) return false;
+        return true;
+      })
+      .map((b): ScannedBookingFull => {
+        const pond = ponds.find((p) => p.id === b.pondId);
+        return {
+          bookingId: b.id,
+          bookingRef: b.bookingRef,
+          userId: b.userId,
+          anglerName: b.userName,
+          pondId: b.pondId,
+          pondName: pond?.name || b.pondName,
+          seats: [...b.seats].sort((x, y) => x - y),
+          competitionId: b.competitionId,
+          competitionName: b.competitionName,
+        };
+      })
+      .sort((a, b) => a.anglerName.localeCompare(b.anglerName));
+  };
+
+  /**
+   * Called when ScaleScanModal has finished both QR + weight scans.
+   * Auto-saves directly — no manual form. Staff cannot edit any field at this
+   * point, the only escape is "Ambil Semula" inside the modal.
+   */
+  const handleScanApprove = async (scan: ScaleScanApproved) => {
+    setScanOpen(false);
+    setSaving(true);
+    try {
+      const photoUrl = await uploadImageToCloudinary(
+        new File([scan.photoBlob], scan.photoFileName, { type: scan.photoBlob.type || 'image/jpeg' }),
+        'fishing-pond-weights',
+      );
+      const sb = scan.scannedBooking;
+      await saveScoreEntry({
+        competitionId: sb.competitionId || resultsCompId,
+        bookingId: sb.bookingId,
+        anglerName: sb.anglerName,
+        pondId: sb.pondId,
+        pondName: sb.pondName,
+        seatNum: sb.seatNum,
+        weight: scan.weight,
+        photoUrl,
+        ocrConfidence: scan.ocrConfidence,
+        ocrRawText: scan.ocrRawText,
+        ocrUserVerified: !scan.userEdited,
+        capturedBy: user?.uid || user?.email || 'unknown',
+      });
+      setScoreEntries(await getScoresForCompetition(resultsCompId));
+    } catch (err) {
+      console.error('Failed to save scanned weight:', err);
+    }
+    setSaving(false);
   };
 
   const handleManualSave = async () => {
@@ -1756,9 +1850,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       <ScaleScanModal
         isOpen={scanOpen}
         onClose={() => setScanOpen(false)}
-        onApprove={(res) => { setPendingScan(res); setScanOpen(false); }}
+        onApprove={handleScanApprove}
         usePreprocess={settingsEdit.ocrUsePreprocess ?? true}
         decimalPlaces={settingsEdit.ocrDecimalPlaces}
+        lookupBookingFull={lookupBookingFullForScan}
+        listBookings={listBookingsForScan}
       />
     </div>
   );

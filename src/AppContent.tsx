@@ -10,6 +10,7 @@ import LiveResults from './components/LiveResults';
 import AuthModal from './components/AuthModal';
 import CMSModal from './components/CMSModal';
 import BookingDetailsModal from './components/BookingDetailsModal';
+import BookingDetailContent from './components/BookingDetailContent';
 import Toast from './components/Toast';
 import Footer from './components/Footer';
 import { useBooking } from './context/BookingContext';
@@ -47,7 +48,7 @@ const AppContent: React.FC = () => {
     reloadDB
   } = useBooking();
   const { addToast, setAuthModalOpen, authModalOpen, cmsModalOpen, setCMSModalOpen } = useUI();
-  const { currentSection, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed } = useNavigation();
+  const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed, goToBookingDetail } = useNavigation();
   const location = useLocation();
   const { login, register, signInWithGoogle, logout, authReady } = useAuth();
 
@@ -1185,7 +1186,7 @@ const AppContent: React.FC = () => {
               </button>
             </div>
             {userBookings.length ? userBookings.map(b => (
-              <div key={b.id} className="card booking-row" onClick={() => { setSelectedBooking(b); setBookingDetailsOpen(true); }}>
+              <div key={b.id} className="card booking-row" onClick={() => goToBookingDetail(b.id)}>
                 <div>
                   <div className="booking-id">{b.id}</div>
                   <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>{fmt(b.createdAt)}</div>
@@ -1248,6 +1249,58 @@ const AppContent: React.FC = () => {
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '28px', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={() => goToMyBookings()}>View My Bookings</button>
               <button className="btn btn-ghost" onClick={() => goHome()}>Back to Home</button>
+            </div>
+          </div>
+        );
+      }
+      case 'bookingDetail': {
+        const booking = bookingDetailId
+          ? db.bookings.find((b) => b.id === bookingDetailId) || null
+          : null;
+        if (!booking) {
+          return (
+            <div style={{ textAlign: 'center', padding: '6rem 2rem', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎣</div>
+              <h2 style={{ marginBottom: '0.5rem' }}>Tempahan tidak dijumpai</h2>
+              <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                Tempahan dengan ID <code>{bookingDetailId}</code> tidak wujud, atau anda tiada akses.
+              </p>
+              <button className="btn btn-primary" onClick={() => goToMyBookings()}>Lihat Tempahan Saya</button>
+            </div>
+          );
+        }
+        // Privacy: only owner (or staff/admin) can view a booking's full details.
+        const canView = !!user && (
+          user.role === 'STAFF' || user.role === 'ADMIN'
+          || booking.userId === user.uid
+          || booking.userId === user.email
+        );
+        if (!canView) {
+          return (
+            <div style={{ textAlign: 'center', padding: '6rem 2rem', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔒</div>
+              <h2 style={{ marginBottom: '0.5rem' }}>Akses dihadkan</h2>
+              <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                Sila log masuk dengan akaun pemilik tempahan ini.
+              </p>
+              <button className="btn btn-primary" onClick={() => setAuthModalOpen(true)}>Log Masuk</button>
+            </div>
+          );
+        }
+        return (
+          <div style={{ maxWidth: '720px', margin: '0 auto', padding: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => goToMyBookings()}>
+                <i className="fa-solid fa-arrow-left"></i> Tempahan Saya
+              </button>
+            </div>
+            <div className="card" style={{ marginBottom: '24px' }}>
+              <div style={{ padding: '20px 28px 0', borderBottom: '1px solid var(--line)' }}>
+                <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: '32px', margin: 0, color: 'var(--navy)' }}>
+                  Butiran Tempahan
+                </h1>
+              </div>
+              <BookingDetailContent booking={booking} inPage />
             </div>
           </div>
         );

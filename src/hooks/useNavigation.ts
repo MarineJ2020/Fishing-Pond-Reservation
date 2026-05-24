@@ -17,11 +17,18 @@ const SECTION_TO_PATH: Record<string, string> = {
   confirmed: '/confirmed',
 };
 
+const BOOKING_PATH_RE = /^\/bookings\/([^/?#]+)/;
+
 export const useNavigation = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const currentSection = PATH_TO_SECTION[location.pathname] ?? 'home';
+  const bookingMatch = BOOKING_PATH_RE.exec(location.pathname);
+  const bookingDetailId = bookingMatch ? decodeURIComponent(bookingMatch[1]) : null;
+
+  const currentSection = bookingDetailId
+    ? 'bookingDetail'
+    : PATH_TO_SECTION[location.pathname] ?? 'home';
 
   const goToSection = useCallback((section: string) => {
     const path = SECTION_TO_PATH[section] ?? `/${section}`;
@@ -34,14 +41,20 @@ export const useNavigation = () => {
   const goToLive = useCallback(() => navigate('/live'), [navigate]);
   const goToMyBookings = useCallback(() => navigate('/my-bookings'), [navigate]);
   const goToConfirmed = useCallback(() => navigate('/confirmed'), [navigate]);
+  const goToBookingDetail = useCallback(
+    (id: string) => navigate(`/bookings/${encodeURIComponent(id)}`),
+    [navigate],
+  );
 
   return {
     currentSection,
+    bookingDetailId,
     goToSection,
     goHome,
     goToBook,
     goToLive,
     goToMyBookings,
     goToConfirmed,
+    goToBookingDetail,
   };
 };
