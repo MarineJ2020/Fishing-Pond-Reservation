@@ -1,15 +1,13 @@
 import express from 'express';
 import cors from 'cors';
-import { json } from 'body-parser';
 import * as functions from 'firebase-functions';
-import { adminAuth, adminDb, verifyToken, requireStaff } from './auth-utils';
-import { sendEmail } from './email';
+import { adminAuth, adminDb, verifyToken, requireStaff } from './auth-utils.js';
+// Email sending has moved to the client-side `mail` Firestore collection,
+// which is consumed by the "Trigger Email from Firestore" Firebase extension.
 
 const app = express();
 app.use(cors({ origin: true }));
-app.use(json());
-
-const appUrl = process.env.APP_URL || 'https://your-app-url.com';
+app.use(express.json());
 
 const randomTempPassword = () => Math.random().toString(36).slice(2, 10) + '!1A';
 const getRole = (user) => user?.role || user?.claims?.role || user?.custom_claims?.role || 'CLIENT';
@@ -21,54 +19,6 @@ const ensureStaffForCreatedByStaff = (req, res, next) => {
         return res.status(403).json({ error: 'Forbidden: staff role required for staff booking mode.' });
     }
     return next();
-};
-
-const htmlLayout = (title, body) => `
-    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#222;max-width:620px;margin:0 auto;padding:16px;">
-        <h2 style="margin:0 0 12px;">${title}</h2>
-        <div>${body}</div>
-    </div>
-`;
-
-const renderWelcomeEmail = ({ name, email }) => htmlLayout(
-    'Welcome to Fishing Competition Portal',
-    `<p>Hello ${name},</p>
-     <p>Your account has been created for <strong>${email}</strong>.</p>
-     <p><a href="${appUrl}">Open portal</a></p>`
-);
-
-const renderBookingReceivedEmail = ({ bookingRef, amount }) => htmlLayout(
-    'Booking Received',
-    `<p>Your booking <strong>${bookingRef}</strong> has been submitted and is pending approval.</p>
-     <p>Recorded amount: <strong>RM ${Number(amount || 0).toFixed(2)}</strong></p>
-     <p><a href="${appUrl}">View portal</a></p>`
-);
-
-const renderBookingApprovedEmail = ({ bookingRef }) => htmlLayout(
-    'Booking Approved',
-    `<p>Your booking <strong>${bookingRef}</strong> has been approved.</p>
-     <p><a href="${appUrl}">View booking</a></p>`
-);
-
-const renderBookingRejectedEmail = ({ bookingRef }) => htmlLayout(
-    'Booking Rejected',
-    `<p>Your booking <strong>${bookingRef}</strong> has been rejected.</p>
-     <p><a href="${appUrl}">Open portal</a></p>`
-);
-
-const getUserEmailByBooking = async (bookingData) => {
-    const userRef = bookingData?.userId;
-    const uid = typeof userRef === 'string' ? userRef : userRef?.id;
-    if (!uid) return null;
-
-    try {
-        const userRecord = await adminAuth.getUser(uid);
-        return userRecord.email || null;
-    } catch {
-        const userDoc = await adminDb.collection('users').doc(uid).get();
-        const data = userDoc.exists ? userDoc.data() : null;
-        return data?.email || null;
-    }
 };
 
 const updateSeatsForBooking = async (bookingData, nextSeatStatus) => {
@@ -145,13 +95,6 @@ app.post('/createClientAccount', verifyToken, requireStaff, async (req, res) => 
             updatedAt: new Date(),
             updatedBy: req.user.uid,
         }, { merge: true });
-
-        const html = renderWelcomeEmail({ name, email });
-        await sendEmail({
-            to: email,
-            subject: 'Welcome to the Fishing Competition Portal',
-            html,
-        });
 
         return res.json({ success: true, uid: userRecord.uid });
     } catch (error) {
@@ -264,16 +207,6 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
                 snapshot.forEach((docSnap) => docSnap.ref.delete());
             });
 
-        const html = renderBookingReceivedEmail({ bookingRef, amount });
-        const userRecord = await adminAuth.getUser(user.uid);
-        if (userRecord.email) {
-            await sendEmail({
-                to: userRecord.email,
-                subject: 'Booking Received - Pending Approval',
-                html,
-            });
-        }
-
         return res.json({ bookingId: bookingDoc.id, bookingRef });
     } catch (error) {
         console.error(error);
@@ -304,16 +237,6 @@ app.post('/approveBooking', verifyToken, requireStaff, async (req, res) => {
 
         await updateSeatsForBooking(booking, 'booked');
 
-        const recipientEmail = await getUserEmailByBooking(booking);
-        if (recipientEmail) {
-            const html = renderBookingApprovedEmail({ bookingRef: booking?.bookingRef || '' });
-            await sendEmail({
-                to: recipientEmail,
-                subject: 'Booking Approved',
-                html,
-            });
-        }
-
         return res.json({ success: true });
     } catch (error) {
         console.error(error);
@@ -343,16 +266,6 @@ app.post('/rejectBooking', verifyToken, requireStaff, async (req, res) => {
         });
 
         await updateSeatsForBooking(booking, 'available');
-
-        const recipientEmail = await getUserEmailByBooking(booking);
-        if (recipientEmail) {
-            const html = renderBookingRejectedEmail({ bookingRef: booking?.bookingRef || '' });
-            await sendEmail({
-                to: recipientEmail,
-                subject: 'Booking Rejected',
-                html,
-            });
-        }
 
         return res.json({ success: true });
     } catch (error) {
@@ -456,3 +369,61 @@ app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
 });
 
 export const api = functions.https.onRequest(app);
+
+// Sends the email-verification link via the Zoho-backed Trigger Email extension
+// (instead of Firebase's default noreply@...firebaseapp.com sender) by queueing
+// a branded doc in the `mail` collection. Admin SDK writes bypass Firestore rules.
+const CONTINUE_URL = process.env.APP_URL || 'https://kolamkelisayang.web.app';
+const STAFF_CC = 'hello@kolamkelisayang.com.my';
+
+const renderVerificationEmail = (link) => `
+    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#222;max-width:620px;margin:0 auto;padding:24px;background:#fff;">
+      <div style="border-top:4px solid #b91c1c;padding-top:16px;">
+        <h2 style="margin:0 0 14px;color:#112a41;font-size:22px;">Sahkan Email Anda</h2>
+        <p>Salam sejahtera,</p>
+        <p>Terima kasih kerana mendaftar dengan Kolam Keli Sayang. Sila klik butang di bawah untuk mengesahkan alamat email anda dan mengaktifkan akaun.</p>
+        <p style="text-align:center;margin:24px 0;">
+          <a href="${link}" style="display:inline-block;background:#b91c1c;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">Sahkan Email</a>
+        </p>
+        <p style="font-size:12px;color:#666;">Jika butang tidak berfungsi, salin pautan ini ke pelayar anda:<br/><a href="${link}" style="color:#112a41;">${link}</a></p>
+        <p style="font-size:12px;color:#888;">Jika anda tidak mendaftar, abaikan email ini.</p>
+        <hr style="border:none;border-top:1px solid #eee;margin:24px 0 12px;" />
+        <p style="font-size:12px;color:#888;margin:0;">Kolam Keli Sayang &middot; hello@kolamkelisayang.com.my</p>
+      </div>
+    </div>
+`;
+
+export const requestEmailVerification = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+    }
+
+    const userRecord = await adminAuth.getUser(context.auth.uid);
+    if (!userRecord.email) {
+        throw new functions.https.HttpsError('failed-precondition', 'No email on account.');
+    }
+    if (userRecord.emailVerified) {
+        return { alreadyVerified: true };
+    }
+
+    try {
+        const link = await adminAuth.generateEmailVerificationLink(userRecord.email, {
+            url: CONTINUE_URL,
+            handleCodeInApp: false,
+        });
+
+        await adminDb.collection('mail').add({
+            to: userRecord.email,
+            cc: [STAFF_CC],
+            message: {
+                subject: 'Sahkan Email Anda - Kolam Keli Sayang',
+                html: renderVerificationEmail(link),
+            },
+        });
+
+        return { sent: true };
+    } catch (error) {
+        console.error('requestEmailVerification failed:', error);
+        throw new functions.https.HttpsError('internal', 'Failed to send verification email.');
+    }
+});

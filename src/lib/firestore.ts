@@ -144,6 +144,7 @@ const buildBooking = (
     competitionId: competitionIdRef?.toString() || undefined,
     competitionName: competition?.name || data.competitionName || 'Pertandingan',
     userId: data.userId?.id ? data.userId.id : data.userId || '',
+    userEmail: data.userEmail || '',
     userName: data.userName || data.guestName || 'Guest',
     userPhone: data.userPhone || data.phone || '',
     pondId: pond?.id ?? 0,
@@ -368,6 +369,8 @@ export const createBookingDocument = async (data: any) => {
       where('competitionId', '==', data.competitionId)
     )
   );
+  // Seats are implicitly locked between submission and staff decision: any existing
+  // booking in PENDING_APPROVAL / APPROVED / CONFIRMED holds its seats here.
   const requestedSeats = new Set<number>(data.seatNumbers ?? []);
   snap.forEach((d) => {
     const s = (d.data().status || '').toUpperCase();

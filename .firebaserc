@@ -1,5 +1,14 @@
 {
   "projects": {
-    "default": "fishingpond-e34e9"
+    "default": "fishingpond-e34e9",
+    "prod": "kolamkelisayang"
+  },
+  "targets": {},
+  "etags": {
+    "kolamkelisayang": {
+      "extensionInstances": {
+        "firestore-send-email": "1d1afc49bc4fa84428a5f8a42a349e71bc66866eeecf77477acd848544bc2a48"
+      }
+    }
   }
 }

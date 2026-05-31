@@ -32,6 +32,7 @@ export interface Booking {
   competitionId?: string;
   competitionName?: string;
   userId: string;
+  userEmail?: string;
   userName: string;
   userPhone: string;
   pondId: number;
@@ -159,6 +160,7 @@ export interface Settings {
 export interface User {
   uid?: string;
   email: string;
+  emailVerified?: boolean;
   name: string;
   phone: string;
   pass?: string;

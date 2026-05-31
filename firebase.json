@@ -9,13 +9,16 @@
     {
       "source": "functions",
       "codebase": "default",
+      "runtime": "nodejs22",
       "disallowLegacyRuntimeConfig": true,
       "ignore": [
         "node_modules",
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
-        "*.local"
+        "*.local",
+        "lib",
+        "**/*.bak"
       ],
       "predeploy": [
         "npm --prefix \"$RESOURCE_DIR\" run lint",
@@ -42,8 +45,11 @@
       "emailPassword": true,
       "googleSignIn": {
         "oAuthBrandDisplayName": "KKS",
-        "supportEmail": "marinej2020@gmail.com"
+        "supportEmail": "hello@kolamkelisayang.com.my"
       }
     }
+  },
+  "extensions": {
+    "firestore-send-email": "firebase/firestore-send-email@0.2.9"
   }
 }

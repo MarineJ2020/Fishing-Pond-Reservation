@@ -11,7 +11,10 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         {
-          src: 'node_modules/onnxruntime-web/dist/*.{wasm,mjs}',
+          // Only the wasm-only (non-JSEP) single-threaded build is loaded at
+          // runtime — see src/lib/sevenSegmentOcr/index.ts. Copying just these
+          // keeps the unused 26 MB JSEP/JSPI/asyncify blobs out of the deploy.
+          src: 'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{wasm,mjs}',
           dest: 'ort',
         },
       ],

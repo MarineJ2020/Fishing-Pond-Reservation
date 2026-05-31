@@ -6,6 +6,7 @@ interface AuthModalProps {
   onLogin: (email: string, pass: string) => Promise<boolean>;
   onRegister: (name: string, email: string, phone: string, pass: string) => Promise<boolean>;
   onGoogleLogin: () => Promise<boolean>;
+  onResendVerification: () => Promise<boolean>;
 }
 
 const GoogleIcon = () => (
@@ -18,7 +19,7 @@ const GoogleIcon = () => (
   </svg>
 );
 
-const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegister, onGoogleLogin }) => {
+const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegister, onGoogleLogin, onResendVerification }) => {
   const [tab, setTab] = useState<'login' | 'register'>('login');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPass, setLoginPass] = useState('');
@@ -72,7 +73,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
             <p style={{ marginTop: '16px', color: '#888', fontSize: '14px', lineHeight: '1.5' }}>
               Sila semak inbox (dan folder spam) anda dan klik pautan pengesahan untuk mengaktifkan akaun anda.
             </p>
-            <button className="form-submit" style={{ marginTop: '24px' }} onClick={handleClose}>
+            <button
+              className="btn btn-ghost"
+              style={{ marginTop: '20px', width: '100%', justifyContent: 'center' }}
+              disabled={loading}
+              onClick={async () => { setLoading(true); await onResendVerification(); setLoading(false); }}
+            >
+              Hantar semula email pengesahan
+            </button>
+            <button className="form-submit" style={{ marginTop: '10px' }} onClick={handleClose}>
               Tutup
             </button>
           </div>

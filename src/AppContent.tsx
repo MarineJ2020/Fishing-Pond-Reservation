@@ -50,7 +50,7 @@ const AppContent: React.FC = () => {
   const { addToast, setAuthModalOpen, authModalOpen, cmsModalOpen, setCMSModalOpen } = useUI();
   const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed, goToBookingDetail } = useNavigation();
   const location = useLocation();
-  const { login, register, signInWithGoogle, logout, authReady } = useAuth();
+  const { login, register, signInWithGoogle, logout, resendVerification, refreshUser, authReady } = useAuth();
 
   const [homeScrollTarget, setHomeScrollTarget] = useState<string | null>(null);
   const [pondPickerOpen, setPondPickerOpen] = useState(false);
@@ -269,6 +269,11 @@ const AppContent: React.FC = () => {
   const handleSubmitBooking = async () => {
     if (!user) {
       setAuthModalOpen(true);
+      return;
+    }
+    const isStaff = user.role === 'ADMIN' || user.role === 'STAFF';
+    if (!isStaff && user.emailVerified === false) {
+      addToast('Sila sahkan email anda dahulu sebelum menempah.', 'error');
       return;
     }
     if (!selectedSeats.length) {
@@ -1108,6 +1113,8 @@ const AppContent: React.FC = () => {
                     onOpenAuth={() => setAuthModalOpen(true)}
                     onAdminProxyNameChange={setAdminProxyName}
                     onAdminProxyEmailChange={setAdminProxyEmail}
+                    onResendVerification={resendVerification}
+                    onRefreshVerification={refreshUser}
                   />
                 </div>
               )}
@@ -1338,6 +1345,7 @@ const AppContent: React.FC = () => {
         onLogin={handleLogin}
         onRegister={handleRegister}
         onGoogleLogin={handleGoogleLogin}
+        onResendVerification={resendVerification}
       />
       <CMSModal
         isOpen={cmsModalOpen}

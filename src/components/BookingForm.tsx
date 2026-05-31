@@ -16,6 +16,8 @@ interface BookingFormProps {
   onOpenAuth: () => void;
   onAdminProxyNameChange: (v: string) => void;
   onAdminProxyEmailChange: (v: string) => void;
+  onResendVerification: () => Promise<boolean>;
+  onRefreshVerification: () => Promise<boolean>;
 }
 
 const BookingForm: React.FC<BookingFormProps> = ({
@@ -33,8 +35,11 @@ const BookingForm: React.FC<BookingFormProps> = ({
   onOpenAuth,
   onAdminProxyNameChange,
   onAdminProxyEmailChange,
+  onResendVerification,
+  onRefreshVerification,
 }) => {
   const [notes, setNotes] = useState('');
+  const [verifyBusy, setVerifyBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const calcAmt = () => {
@@ -81,6 +86,20 @@ const BookingForm: React.FC<BookingFormProps> = ({
 
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'STAFF';
   const isAdminProxyMode = isAdmin && adminProxyName.trim() !== '';
+  // Email/password users must verify before booking (Google accounts are pre-verified).
+  const needsVerification = !!user && !isAdmin && user.emailVerified === false;
+
+  const handleResend = async () => {
+    setVerifyBusy(true);
+    await onResendVerification();
+    setVerifyBusy(false);
+  };
+
+  const handleRefresh = async () => {
+    setVerifyBusy(true);
+    await onRefreshVerification();
+    setVerifyBusy(false);
+  };
 
   return (
     <div className="panel">
@@ -178,11 +197,23 @@ const BookingForm: React.FC<BookingFormProps> = ({
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
       />
+      {needsVerification && (
+        <div style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '10px', padding: '14px 16px', marginTop: '16px' }}>
+          <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--red)', marginBottom: '6px' }}>✉️ Sahkan email anda dahulu</div>
+          <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: 1.5 }}>
+            Kami telah menghantar pautan pengesahan ke <strong>{user?.email}</strong>. Klik pautan tersebut, kemudian tekan "Saya sudah sahkan".
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost btn-sm" onClick={handleResend} disabled={verifyBusy}>Hantar semula</button>
+            <button className="btn btn-primary btn-sm" onClick={handleRefresh} disabled={verifyBusy}>Saya sudah sahkan</button>
+          </div>
+        </div>
+      )}
       <button
         id="btn-submit"
         className="btn btn-primary w-full btn-lg mt-4"
         onClick={onSubmitBooking}
-        disabled={!selectedSeats.length || !receiptData || (isAdmin && !adminProxyName.trim())}
+        disabled={!selectedSeats.length || !receiptData || (isAdmin && !adminProxyName.trim()) || needsVerification}
       >
         {isAdminProxyMode ? `Tempah untuk ${adminProxyName.trim()}` : 'Hantar Tempahan'}
       </button>

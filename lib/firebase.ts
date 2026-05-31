@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import {
   getAuth,
   connectAuthEmulator,
@@ -24,6 +25,25 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
+// Firebase App Check — required to prevent scripted abuse of the `mail`
+// Firestore collection (which the Zoho-SMTP-backed email extension consumes).
+// Must be enforced on Firestore in the Firebase console under App Check → APIs.
+// Skipped when running against emulators or when no site key is configured so
+// local development still works.
+const appCheckSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
+const skipAppCheck =
+  import.meta.env.DEV && import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
+if (appCheckSiteKey && !skipAppCheck && typeof window !== 'undefined') {
+  try {
+    initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(appCheckSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (error) {
+    console.warn('Unable to initialize Firebase App Check:', error);
+  }
+}
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);

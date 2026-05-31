@@ -1,6 +1,11 @@
 {
   "name": "fishingpond-functions",
   "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": "22"
+  },
   "scripts": {
     "build": "echo 'Using precompiled JavaScript functions'",
     "serve": "firebase emulators:start --only functions",
@@ -10,12 +15,8 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "body-parser": "^1.20.2",
     "firebase-admin": "^12.1.0",
-    "firebase-functions": "^4.6.0",
-    "resend": "^3.0.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "firebase-functions": "^4.6.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3",

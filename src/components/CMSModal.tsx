@@ -17,6 +17,7 @@ import {
   deleteScoreEntry,
 } from '../lib/firestore';
 import { uploadImageToCloudinary } from '../utils/cloudinary';
+import { queueBookingApprovedEmail } from '../lib/email';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 
 type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
@@ -30,7 +31,7 @@ interface CMSModalProps {
   comp: Competition;
   competitions?: Competition[];
   settings: Settings;
-  bookings: { id: string; competitionId?: string; competitionName?: string; userName: string; pondName: string; seats: number[]; amount: number; userId: string; userPhone: string; receiptData: string; status: string; pondId: number; createdAt?: string; paymentType?: string }[];
+  bookings: { id: string; bookingRef?: string; competitionId?: string; competitionName?: string; userName: string; pondName: string; pondDate?: string; seats: number[]; amount: number; userId: string; userEmail?: string; userPhone: string; receiptData: string; status: string; pondId: number; createdAt?: string; paymentType?: string }[];
   onUpdateData: (updates: { ponds?: Pond[]; comp?: Competition }) => void;
   reloadDB: () => Promise<void>;
 }
@@ -347,8 +348,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       if (alreadyConfirmed && !window.confirm('⚠ Tempat ini sudah disahkan pada tempahan lain. Teruskan sahaja?')) return;
     }
     setSaving(true);
-    try { await updateBookingStatusFirestore(bookingId, 'confirmed'); await reloadDB(); }
-    catch (err) { console.error('Failed to approve booking:', err); }
+    try {
+      await updateBookingStatusFirestore(bookingId, 'confirmed');
+      if (target?.userEmail) {
+        await queueBookingApprovedEmail({
+          to: target.userEmail,
+          bookingId: target.id,
+          bookingRef: target.bookingRef ?? target.id,
+          pondName: target.pondName,
+          pondDate: target.pondDate ?? '',
+          seats: target.seats,
+        });
+      }
+      await reloadDB();
+    } catch (err) { console.error('Failed to approve booking:', err); }
     setSaving(false);
   };
 

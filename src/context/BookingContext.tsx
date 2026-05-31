@@ -3,7 +3,9 @@ import { DB, User, Pond, Booking } from '../types';
 import { emptyDB, setDB } from '../data';
 import { loadAppDB } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
+import { queueBookingReceivedEmail } from '../lib/email';
 import { uploadDataUrlToCloudinary } from '../utils/cloudinary';
+import { auth } from '../../lib/firebase';
 
 interface BookingContextType {
   db: DB;
@@ -150,10 +152,20 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const submitBooking = useCallback(async (pond: Pond): Promise<Booking | null> => {
     if (!user || !selectedSeats.length || !receiptData || !receiptFile) return null;
 
-    const isAdminProxy = (user.role === 'ADMIN' || user.role === 'STAFF') && adminProxyName.trim() !== '';
+    const isStaff = user.role === 'ADMIN' || user.role === 'STAFF';
+    // Gate: email/password users must verify before booking. Google accounts and
+    // staff are exempt (Google is pre-verified; staff manage bookings directly).
+    if (!isStaff && user.emailVerified === false) return null;
+
+    const isAdminProxy = isStaff && adminProxyName.trim() !== '';
     const effectiveName = isAdminProxy ? adminProxyName.trim() : user.name;
     const effectiveEmail = isAdminProxy ? adminProxyEmail.trim() : (user.uid || user.email);
     const effectivePhone = isAdminProxy ? '' : (user.phone || '');
+    // Real email address for notifications: proxy form when staff books on behalf of a guest,
+    // Firebase auth email for self-service. Stored on the booking so approval flow doesn't need a lookup.
+    const notifyEmail = isAdminProxy
+      ? adminProxyEmail.trim()
+      : (auth.currentUser?.email || user.email || '');
     const seatIds = selectedSeats
       .map((num) => pond.seats.find((s) => s.num === num)?.id)
       .filter(Boolean) as string[];
@@ -174,6 +186,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       competitionName: db.competitions.find((c) => c.id === (selectedCompetitionId || db.comp.id || ''))?.name || db.comp.name,
       pondId: pond.id,
       userId: effectiveEmail,
+      userEmail: notifyEmail,
       userName: effectiveName,
       userPhone: effectivePhone,
       seatIds,
@@ -190,12 +203,24 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const result = await createBookingApi(payload);
     if (!result?.bookingId) return null;
 
+    if (notifyEmail) {
+      await queueBookingReceivedEmail({
+        to: notifyEmail,
+        bookingRef: result.bookingRef || bookingRef,
+        amount: payAmt,
+        pondName: pond.name,
+        pondDate: pond.date,
+        seats: selectedSeats,
+      });
+    }
+
     const booking: Booking = {
       id: result.bookingId,
       bookingRef: result.bookingRef,
       competitionId: selectedCompetitionId || db.comp.id || '',
       competitionName: db.competitions.find((c) => c.id === (selectedCompetitionId || db.comp.id || ''))?.name || db.comp.name,
       userId: effectiveEmail,
+      userEmail: notifyEmail,
       userName: effectiveName,
       userPhone: effectivePhone,
       pondId: pond.id,

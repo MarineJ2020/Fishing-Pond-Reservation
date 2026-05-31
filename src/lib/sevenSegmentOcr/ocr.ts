@@ -1,4 +1,4 @@
-import * as ort from "onnxruntime-web";
+import * as ort from "onnxruntime-web/wasm";
 
 import { greedyCtcDecode } from "./ctc";
 import { preprocess, type ImageSource, type InputSpec } from "./preprocess";
