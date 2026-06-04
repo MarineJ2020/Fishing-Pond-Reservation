@@ -21,7 +21,6 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const [cdBlocks, setCdBlocks] = useState({ d: '--', h: '--', m: '--', s: '--' });
   const [cdStatus, setCdStatus] = useState<'upcoming' | 'live' | 'ended'>('upcoming');
   const [topN, setTopN] = useState(comp.topN || 20);
-  const [lpf, setLpf] = useState('all');
   const [slideDir, setSlideDir] = useState<'left' | 'right'>('right');
   const [compAnimKey, setCompAnimKey] = useState(0);
 
@@ -76,7 +75,6 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     setSlideDir(dir === 'next' ? 'left' : 'right');
     setCompAnimKey(k => k + 1);
     setSelectedCompId(nextComp.id || '');
-    setLpf('all');
     setTopN(nextComp.topN || 20);
   };
 
@@ -114,13 +112,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     scoresRecord[e.seatNum] = { weight: e.weight, anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName };
   });
 
-  // Active ponds for this competition
-  const displayPonds = displayComp.activePondIds?.length
-    ? ponds.filter(p => displayComp.activePondIds!.includes(p._docId || p.id.toString()))
-    : ponds;
-
-  const filter = lpf === 'all' ? null : parseInt(lpf);
-  const lb = getLB(scoresRecord, filter).slice(0, topN);
+  const lb = getLB(scoresRecord).slice(0, topN);
 
   const displayBookings = bookings.filter(b => (b.competitionId || comp.id) === selectedCompId);
   const userPegs = user ? displayBookings.filter(b => b.userId === user.email && b.status === 'confirmed').flatMap(b => b.seats) : [];
@@ -130,11 +122,6 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     const idx = lb.findIndex(e => e.peg === peg);
     if (idx !== -1 && (myRank === -1 || idx < myRank)) { myRank = idx; myEntry = lb[idx]; }
   });
-
-  const pondFilterBtns = [
-    { key: 'all', label: 'Semua Kolam' },
-    ...displayPonds.map(p => ({ key: p.id.toString(), label: p.name.split('—')[0].trim() }))
-  ];
 
   return (
     <div className="live-page">
@@ -150,7 +137,6 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 setSlideDir(dir);
                 setCompAnimKey(k => k + 1);
                 setSelectedCompId(c.id || '');
-                setLpf('all');
                 setTopN(c.topN || 20);
               }}
             >
@@ -237,14 +223,6 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             Kedudukan Teratas
           </div>
         </div>
-      </div>
-
-      <div className="pond-filter">
-        {pondFilterBtns.map(btn => (
-          <div key={btn.key} className={`pf-btn ${lpf === btn.key ? 'active' : ''}`} onClick={() => setLpf(btn.key)}>
-            {btn.label}
-          </div>
-        ))}
       </div>
 
       <div className="rank-wrap">

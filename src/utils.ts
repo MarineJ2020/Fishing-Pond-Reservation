@@ -34,7 +34,6 @@ export const rbc2 = (r: number): string => r === 1 ? 'gold' : r === 2 ? 'silver'
 export const getLB = (scores: Record<number, Score>, pondFilter?: number | null): { peg: number; name: string; weight: number; pondId: number }[] => {
   const e: { peg: number; name: string; weight: number; pondId: number }[] = [];
   for (const [peg, d] of Object.entries(scores)) {
-    if (pondFilter && pondFilter !== null && d.pondId !== pondFilter) continue;
     if (d.weight == null || d.weight === '' || isNaN(parseFloat(d.weight.toString()))) continue;
     e.push({ peg: parseInt(peg), name: d.anglerName || 'Angler #' + peg, weight: parseFloat(d.weight.toString()), pondId: d.pondId });
   }
