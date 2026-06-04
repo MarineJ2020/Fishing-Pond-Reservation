@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
-import { checkInBooking } from '../lib/api';
+import { checkInBooking, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
 import {
   createPond as createPondFirestore,
   createCompetition as createCompetitionFirestore,
@@ -31,7 +31,7 @@ interface CMSModalProps {
   comp: Competition;
   competitions?: Competition[];
   settings: Settings;
-  bookings: { id: string; bookingRef?: string; competitionId?: string; competitionName?: string; userName: string; pondName: string; pondDate?: string; seats: number[]; amount: number; userId: string; userEmail?: string; userPhone: string; receiptData: string; status: string; pondId: number; createdAt?: string; paymentType?: string }[];
+  bookings: { id: string; bookingRef?: string; competitionId?: string; competitionName?: string; userName: string; pondName: string; pondDate?: string; seats: number[]; amount: number; totalAmount?: number; paidAmount?: number; balanceDue?: number; receipts?: { url: string; amount: number; status: 'pending' | 'accepted' | 'rejected'; submittedAt: string }[]; userId: string; userEmail?: string; userPhone: string; receiptData: string; status: string; pondId: number; createdAt?: string; paymentType?: string; createdByStaff?: boolean }[];
   onUpdateData: (updates: { ponds?: Pond[]; comp?: Competition }) => void;
   reloadDB: () => Promise<void>;
 }
@@ -339,9 +339,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
-  const handleApproveBooking = async (bookingId: string) => {
+  const handleRejectBooking = async (bookingId: string) => {
+    setSaving(true);
+    try { await updateBookingStatusFirestore(bookingId, 'rejected'); await reloadDB(); }
+    catch (err) { console.error('Failed to reject booking:', err); }
+    setSaving(false);
+  };
+
+  // Accept a single payment receipt. The server confirms the booking + holds
+  // seats on the first accepted receipt; here we fire the approval email on that
+  // pending→confirmed transition.
+  const handleAcceptReceipt = async (bookingId: string, receiptIndex: number) => {
     const target = bookings.find(b => b.id === bookingId);
-    if (target) {
+    const wasPending = target?.status === 'pending';
+    if (wasPending && target) {
       const alreadyConfirmed = (target.seats ?? []).some((seatNum) =>
         bookings.some(b => b.id !== bookingId && b.status === 'confirmed' && b.pondId === target.pondId && b.seats.includes(seatNum))
       );
@@ -349,8 +360,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
     setSaving(true);
     try {
-      await updateBookingStatusFirestore(bookingId, 'confirmed');
-      if (target?.userEmail) {
+      await acceptBookingReceipt({ bookingId, receiptIndex });
+      if (wasPending && target?.userEmail) {
         await queueBookingApprovedEmail({
           to: target.userEmail,
           bookingId: target.id,
@@ -361,16 +372,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         });
       }
       await reloadDB();
-    } catch (err) { console.error('Failed to approve booking:', err); }
+    } catch (err) { console.error('Failed to accept receipt:', err); }
     setSaving(false);
   };
 
-  const handleRejectBooking = async (bookingId: string) => {
+  const handleRejectReceipt = async (bookingId: string, receiptIndex: number) => {
     setSaving(true);
-    try { await updateBookingStatusFirestore(bookingId, 'rejected'); await reloadDB(); }
-    catch (err) { console.error('Failed to reject booking:', err); }
+    try { await rejectBookingReceipt({ bookingId, receiptIndex }); await reloadDB(); }
+    catch (err) { console.error('Failed to reject receipt:', err); }
     setSaving(false);
   };
+
+  // A booking needs staff attention while any of its receipts is pending review.
+  const pendingReceiptIndexes = (b: { receipts?: { status: string }[] }) =>
+    (b.receipts || []).map((r, i) => (r.status === 'pending' ? i : -1)).filter(i => i >= 0);
 
   const handleViewReceipt = (receiptData: string) => {
     const w = window.open('', '_blank');
@@ -1089,13 +1104,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             </div>
           )}
-          {page === 'approvals' && (
+          {page === 'approvals' && (() => {
+            const reviewBookings = bookings.filter(b => b.status !== 'rejected' && (b.status === 'pending' || pendingReceiptIndexes(b).length > 0));
+            return (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Kelulusan Tempahan</div><div className="page-sub">{pendingCount} tempahan menunggu kelulusan</div></div></div>
+              <div className="page-header"><div><div className="page-title">Kelulusan Tempahan</div><div className="page-sub">{reviewBookings.length} tempahan menunggu semakan resit</div></div></div>
               <div className="card"><div className="card-body"><div className="table-wrap"><table>
-                <thead><tr><th>Ref</th><th>Pertandingan</th><th>Nama</th><th>Kolam</th><th>Pegs</th><th>Jumlah</th><th>Bayaran</th><th>Resit</th><th>Tindakan</th></tr></thead>
+                <thead><tr><th>Ref</th><th>Pertandingan</th><th>Nama</th><th>Kolam</th><th>Pegs</th><th>Dibayar / Jumlah</th><th>Bayaran</th><th>Resit &amp; Tindakan</th><th></th></tr></thead>
                 <tbody>
-                  {bookings.filter(b => b.status === 'pending').map(b => (
+                  {reviewBookings.map(b => {
+                    const receipts = b.receipts && b.receipts.length
+                      ? b.receipts
+                      : (b.receiptData ? [{ url: b.receiptData, amount: b.amount, status: 'pending' as const, submittedAt: b.createdAt || '' }] : []);
+                    const total = b.totalAmount ?? b.amount;
+                    const paid = b.paidAmount ?? 0;
+                    const balance = b.balanceDue ?? Math.max(0, total - paid);
+                    return (
                     <tr key={b.id}>
                       <td className="td-ref">{b.id.slice(0, 10)}</td>
                       <td>{b.competitionName || comp.name || '-'}</td>
@@ -1105,17 +1129,38 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </td>
                       <td>{b.pondName}</td>
                       <td>{b.seats.join(', ')}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
-                      <td>RM {b.amount}</td>
+                      <td>
+                        RM {paid} / {total}
+                        {balance > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {balance}</div>}
+                      </td>
                       <td><span className={`badge ${b.paymentType === 'deposit' ? 'badge-deposit' : 'badge-paid'}`}>{b.paymentType === 'deposit' ? 'Deposit' : 'Penuh'}</span></td>
-                      <td>{b.receiptData && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(b.receiptData)}>Lihat</button>}</td>
-                      <td><div style={{ display: 'flex', gap: '6px' }}><button className="btn btn-sm btn-green" disabled={saving} onClick={() => handleApproveBooking(b.id)}>✓</button><button className="btn btn-sm btn-red" disabled={saving} onClick={() => handleRejectBooking(b.id)}>✕</button></div></td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 220 }}>
+                          {receipts.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Tiada resit</span>}
+                          {receipts.map((r, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.78rem', minWidth: 78 }}>#{i + 1} RM {r.amount}</span>
+                              {r.url && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(r.url)}>Lihat</button>}
+                              {r.status === 'pending'
+                                ? (<>
+                                    <button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit" onClick={() => handleAcceptReceipt(b.id, i)}>✓</button>
+                                    <button className="btn btn-sm btn-red" disabled={saving} title="Tolak resit" onClick={() => handleRejectReceipt(b.id, i)}>✕</button>
+                                  </>)
+                                : (<span className={`badge badge-${r.status === 'accepted' ? 'approved' : 'rejected'}`} style={{ fontSize: '0.66rem' }}>{r.status === 'accepted' ? 'Disahkan' : 'Ditolak'}</span>)}
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td><button className="btn btn-sm btn-red" disabled={saving} title="Tolak keseluruhan tempahan" onClick={() => handleRejectBooking(b.id)}>Tolak Tempahan</button></td>
                     </tr>
-                  ))}
-                  {bookings.filter(b => b.status === 'pending').length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan menunggu</td></tr>}
+                    );
+                  })}
+                  {reviewBookings.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan menunggu</td></tr>}
                 </tbody>
               </table></div></div></div>
             </div>
-          )}
+            );
+          })()}
           {page === 'manual-booking' && (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Tempahan Manual</div><div className="page-sub">Buat tempahan untuk pelanggan</div></div></div>
@@ -1180,12 +1225,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </td>
                         <td>{b.pondName}</td>
                         <td>{b.seats.join(', ')}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
-                        <td>RM {b.amount}</td>
+                        <td>
+                          RM {b.paidAmount ?? b.amount}{(b.totalAmount ?? b.amount) !== (b.paidAmount ?? b.amount) && <span style={{ color: 'var(--text-muted)' }}> / {b.totalAmount ?? b.amount}</span>}
+                          {(b.balanceDue ?? 0) > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {b.balanceDue}</div>}
+                        </td>
                         <td><span className={`badge badge-${b.status === 'confirmed' ? 'approved' : b.status}`}>{b.status}</span></td>
                         <td style={{ fontSize: '0.82rem' }}>{b.createdAt ? new Date(b.createdAt).toLocaleDateString('ms-MY') : '-'}</td>
                         <td><div style={{ display: 'flex', gap: '6px' }}>
                           {b.receiptData && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(b.receiptData)}>Resit</button>}
-                          {b.status === 'pending' && (<><button className="btn btn-sm btn-green" disabled={saving} onClick={() => handleApproveBooking(b.id)}>✓</button><button className="btn btn-sm btn-red" disabled={saving} onClick={() => handleRejectBooking(b.id)}>✕</button></>)}
+                          {pendingReceiptIndexes(b).length > 0 && (<button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit menunggu" onClick={() => handleAcceptReceipt(b.id, pendingReceiptIndexes(b)[0])}>✓</button>)}
+                          {b.status === 'pending' && (<button className="btn btn-sm btn-red" disabled={saving} onClick={() => handleRejectBooking(b.id)}>✕</button>)}
                         </div></td>
                       </tr>
                     ))}

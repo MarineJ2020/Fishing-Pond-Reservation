@@ -40,6 +40,18 @@ export const createBooking = async (payload: any) => {
   }
   return postJson('/createBooking', payload);
 };
+export const submitBookingReceipt = async (payload: { bookingId: string; receiptUrl: string; amount: number }) => {
+  if (!baseUrl) throw new Error('Penghantaran resit baki memerlukan sambungan pelayan. Sila cuba sebentar lagi.');
+  return postJson('/submitBookingReceipt', payload);
+};
+export const acceptBookingReceipt = async (payload: { bookingId: string; receiptIndex: number }) => {
+  if (!baseUrl) throw new Error('Tindakan ini memerlukan sambungan pelayan.');
+  return postJson('/acceptBookingReceipt', payload);
+};
+export const rejectBookingReceipt = async (payload: { bookingId: string; receiptIndex: number }) => {
+  if (!baseUrl) throw new Error('Tindakan ini memerlukan sambungan pelayan.');
+  return postJson('/rejectBookingReceipt', payload);
+};
 export const approveBooking = async (payload: { bookingId: string }) => postJson('/approveBooking', payload);
 export const rejectBooking = async (payload: { bookingId: string }) => postJson('/rejectBooking', payload);
 export const checkInBooking = async (payload: { bookingRef: string; amount: number; method: string }) => postJson('/checkInBooking', payload);

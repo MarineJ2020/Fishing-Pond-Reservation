@@ -17,6 +17,39 @@ export async function uploadImageToCloudinary(file: Blob | File, folder: string)
   return result.secure_url as string;
 }
 
+/**
+ * Compress an image File to a JPEG data URL (max 1600px, q0.82). Non-image
+ * files (e.g. PDF) fall back to a raw data-URL read. Mirrors the receipt
+ * compression used in the booking form.
+ */
+export function compressImageToDataUrl(file: File): Promise<string> {
+  const MAX_DIM = 1600;
+  const QUALITY = 0.82;
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(objectUrl);
+      resolve(canvas.toDataURL('image/jpeg', QUALITY));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = () => reject(new Error('Gagal membaca fail'));
+      reader.readAsDataURL(file);
+    };
+    img.src = objectUrl;
+  });
+}
+
 export async function uploadDataUrlToCloudinary(dataUrl: string, folder: string): Promise<string> {
   const commaIdx = dataUrl.indexOf(',');
   const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;

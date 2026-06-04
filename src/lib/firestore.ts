@@ -139,6 +139,35 @@ const buildBooking = (
   const competitionIdRef = data.competitionId?.id ?? data.competitionId ?? '';
   const competition = competitionMap.get(competitionIdRef?.toString() || '');
 
+  const statusLower = (data.status || 'PENDING_APPROVAL').toLowerCase();
+  const isConfirmed = statusLower === 'approved' || statusLower === 'confirmed' || statusLower === 'live';
+  const amount = data.amount || 0;
+  const totalAmount = data.totalAmount || data.amount || 0;
+
+  // Map the receipts array; fall back to the legacy single-receipt shape so
+  // pre-change bookings still render. A legacy confirmed booking counts its
+  // single receipt as accepted; otherwise pending.
+  const receipts = Array.isArray(data.receipts) && data.receipts.length
+    ? data.receipts.map((r: any) => ({
+        url: r?.url || '',
+        amount: Number(r?.amount) || 0,
+        status: (r?.status || 'pending') as 'pending' | 'accepted' | 'rejected',
+        submittedAt: normalizeTimestamp(r?.submittedAt) || new Date().toISOString(),
+      }))
+    : (data.receiptUrl
+        ? [{
+            url: data.receiptUrl,
+            amount,
+            status: (isConfirmed ? 'accepted' : 'pending') as 'pending' | 'accepted' | 'rejected',
+            submittedAt: normalizeTimestamp(data.createdAt) || new Date().toISOString(),
+          }]
+        : []);
+
+  const paidAmount = typeof data.paidAmount === 'number'
+    ? data.paidAmount
+    : receipts.filter((r) => r.status === 'accepted').reduce((s, r) => s + r.amount, 0);
+  const balanceDue = Math.max(0, totalAmount - paidAmount);
+
   return {
     id: docSnap.id,
     competitionId: competitionIdRef?.toString() || undefined,
@@ -152,15 +181,15 @@ const buildBooking = (
     pondDate: pond?.date || normalizeTimestamp(data.eventDate) || new Date().toISOString(),
     seats: seatNumbers,
     paymentType: data.paymentType || 'full',
-    amount: data.amount || 0,
-    totalAmount: data.totalAmount || data.amount || 0,
-    receiptData: data.receiptUrl || '',
+    amount,
+    totalAmount,
+    receiptData: data.receiptUrl || receipts[0]?.url || '',
     receiptName: data.receiptName || 'receipt',
+    receipts,
+    paidAmount,
+    balanceDue,
     notes: data.staffNotes || data.notes || '',
-    status: (() => {
-      const s = (data.status || 'PENDING_APPROVAL').toLowerCase();
-      return (s === 'pending_approval' ? 'pending' : s) as 'pending' | 'confirmed' | 'rejected';
-    })(),
+    status: (statusLower === 'rejected' ? 'rejected' : isConfirmed ? 'confirmed' : 'pending') as 'pending' | 'confirmed' | 'rejected',
     createdAt: normalizeTimestamp(data.createdAt) || new Date().toISOString(),
     bookingRef: data.bookingRef || undefined,
     createdByStaff: data.createdByStaff === true,

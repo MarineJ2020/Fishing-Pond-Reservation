@@ -9,9 +9,11 @@ interface NavbarProps {
   onOpenAuth: () => void;
   onOpenCMS: () => void;
   onLogout: () => void;
+  /** Number of the user's bookings with an outstanding balance (drives the red dot). */
+  outstandingCount?: number;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOpenCMS, onLogout }) => {
+const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOpenCMS, onLogout, outstandingCount = 0 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -58,8 +60,15 @@ const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOp
             onClick={() => setMenuOpen(o => !o)}
             aria-label="Buka menu"
             aria-expanded={menuOpen}
+            style={{ position: 'relative' }}
           >
             <span></span><span></span><span></span>
+            {!menuOpen && user && outstandingCount > 0 && (
+              <span
+                aria-label={`${outstandingCount} tempahan menunggu baki`}
+                style={{ position: 'absolute', top: '-3px', right: '-3px', width: '10px', height: '10px', borderRadius: '50%', background: 'var(--red)', border: '2px solid #fff' }}
+              />
+            )}
           </button>
         </div>
       </div>
@@ -72,7 +81,14 @@ const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOp
         <hr />
         {user ? (
           <>
-            <a onClick={() => handleNav('mybookings')}><i className="fa-solid fa-clipboard-list"></i> Tempahan Saya</a>
+            <a onClick={() => handleNav('mybookings')}>
+              <i className="fa-solid fa-clipboard-list"></i> Tempahan Saya
+              {outstandingCount > 0 && (
+                <span style={{ marginLeft: '8px', background: 'var(--red)', color: '#fff', fontSize: '11px', fontWeight: 700, borderRadius: '999px', padding: '1px 8px' }}>
+                  {outstandingCount} baki
+                </span>
+              )}
+            </a>
             {(user.role === 'ADMIN' || user.role === 'STAFF') && (
               <a onClick={() => handleAction(onOpenCMS)}><i className="fa-solid fa-shield-halved"></i> Staff CMS</a>
             )}

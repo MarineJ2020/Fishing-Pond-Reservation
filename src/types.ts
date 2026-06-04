@@ -26,6 +26,13 @@ export interface Pond {
   shape?: PondVertex[]; // polygon vertices for the custom visual editor
 }
 
+export interface BookingReceipt {
+  url: string;
+  amount: number;
+  status: 'pending' | 'accepted' | 'rejected';
+  submittedAt: string;
+}
+
 export interface Booking {
   id: string;
   bookingRef?: string;
@@ -45,6 +52,9 @@ export interface Booking {
   totalAmount: number;
   receiptData: string;
   receiptName: string;
+  receipts?: BookingReceipt[];
+  paidAmount?: number;
+  balanceDue?: number;
   notes: string;
   status: 'pending' | 'confirmed' | 'rejected';
   createdAt: string;

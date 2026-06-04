@@ -19,6 +19,7 @@ import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
 import { useCountdown } from './hooks/useCountdown';
 import { fmt } from './utils';
+import { countOutstanding, hasOutstandingBalance } from './utils/booking';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -365,6 +366,7 @@ const AppContent: React.FC = () => {
   };
 
   const userBookings = user ? db.bookings.filter(b => b.userId === user.uid || b.userId === user.email) : [];
+  const outstandingCount = countOutstanding(userBookings);
 
   const handleNavigation = (section: string) => {
     const homeAnchors = ['about', 'competitions', 'how', 'rules', 'lokasi'];
@@ -1182,7 +1184,17 @@ const AppContent: React.FC = () => {
           <div className="bookings-page">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px', marginBottom: '28px' }}>
               <div>
-                <div style={{ fontFamily: 'var(--fd)', fontSize: '28px', fontWeight: 800, letterSpacing: '.5px', marginBottom: '4px' }}>My Bookings</div>
+                <div style={{ fontFamily: 'var(--fd)', fontSize: '28px', fontWeight: 800, letterSpacing: '.5px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  My Bookings
+                  {outstandingCount > 0 && (
+                    <span
+                      title={`${outstandingCount} tempahan menunggu pembayaran baki`}
+                      style={{ background: 'var(--red)', color: '#fff', fontSize: '12px', fontWeight: 700, borderRadius: '999px', padding: '2px 9px', lineHeight: 1.6 }}
+                    >
+                      {outstandingCount} baki
+                    </span>
+                  )}
+                </div>
                 <div style={{ color: 'var(--muted)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green-bright)' }}></span>
                   {user.name} · {user.email}
@@ -1195,7 +1207,15 @@ const AppContent: React.FC = () => {
             {userBookings.length ? userBookings.map(b => (
               <div key={b.id} className="card booking-row" onClick={() => goToBookingDetail(b.id)}>
                 <div>
-                  <div className="booking-id">{b.id}</div>
+                  <div className="booking-id" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {hasOutstandingBalance(b) && (
+                      <span
+                        title="Baki belum dibayar"
+                        style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: 'var(--red)', flex: '0 0 auto' }}
+                      />
+                    )}
+                    {b.id}
+                  </div>
                   <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>{fmt(b.createdAt)}</div>
                 </div>
                 <div>
@@ -1203,8 +1223,11 @@ const AppContent: React.FC = () => {
                   <div style={{ fontSize: '11px', color: 'var(--gold)', marginTop: '2px', fontWeight: 600 }}>{b.competitionName || selectedCompetition?.name || db.comp.name}</div>
                   <div className="booking-meta">
                     <span>📍 Pegs: {b.seats.join(', ')}</span>
-                    <span>💰 RM {b.amount}</span>
+                    <span>💰 RM {b.paidAmount ?? b.amount}</span>
                     <span>{b.paymentType === 'deposit' ? '💳 Deposit' : '💳 Full'}</span>
+                    {hasOutstandingBalance(b) && (
+                      <span style={{ color: 'var(--red)', fontWeight: 700 }}>⚠ Baki RM {b.balanceDue}</span>
+                    )}
                   </div>
                 </div>
                 <div>
@@ -1307,7 +1330,7 @@ const AppContent: React.FC = () => {
                   Butiran Tempahan
                 </h1>
               </div>
-              <BookingDetailContent booking={booking} inPage />
+              <BookingDetailContent booking={booking} inPage onReceiptSubmitted={reloadDB} />
             </div>
           </div>
         );
@@ -1333,6 +1356,7 @@ const AppContent: React.FC = () => {
         onOpenAuth={() => setAuthModalOpen(true)}
         onOpenCMS={() => setCMSModalOpen(true)}
         onLogout={handleLogout}
+        outstandingCount={outstandingCount}
       />
       {currentSection === 'home' && <SecondaryMobileNav onSectionChange={handleNavigation} />}
       {renderSection()}

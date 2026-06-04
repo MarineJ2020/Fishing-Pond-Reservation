@@ -137,6 +137,18 @@ email automatically and don't need hash params.
 > claims with the Admin SDK (or rely on the `users.role` doc field, which Option A
 > import preserves). Verify at least one ADMIN can reach the CMS.
 
+### 1.8.1 Important: deleting a user in Firestore vs Authentication
+- Deleting `users/{uid}` in Firestore **does not** disable login. Sign-in is controlled by
+   Firebase Authentication.
+- To actually block a person from signing in, disable/delete the account in
+   **Authentication → Users** (and optionally revoke refresh tokens for immediate logout).
+- Deleting an Authentication user **does not cascade-delete** their Firestore bookings by
+   default. Existing `bookings` docs remain unless you explicitly remove/anonymize them.
+- Recommended offboarding sequence:
+   1. Disable/delete user in Firebase Authentication.
+   2. Decide retention policy for booking history (keep, anonymize, or delete).
+   3. Clean up `users/{uid}` profile doc and any role claims after step 1.
+
 ### 1.9 Install the "Trigger Email from Firestore" extension (Zoho SMTP)
 ```bash
 firebase ext:install firebase/firestore-send-email --project=<new-project-id>

@@ -13,6 +13,22 @@ const randomTempPassword = () => Math.random().toString(36).slice(2, 10) + '!1A'
 const getRole = (user) => user?.role || user?.claims?.role || user?.custom_claims?.role || 'CLIENT';
 const isStaffUser = (user) => ['STAFF', 'ADMIN'].includes(getRole(user));
 
+const MAX_RECEIPTS = 3;
+
+const sumAccepted = (receipts) =>
+    (Array.isArray(receipts) ? receipts : [])
+        .filter((r) => r?.status === 'accepted')
+        .reduce((sum, r) => sum + (Number(r?.amount) || 0), 0);
+
+// A booking's userId is stored as a users/{uid} DocumentReference (server path)
+// or, on the legacy direct-write path, the raw email string.
+const ownsBooking = (bookingData, user) => {
+    const ownerId = bookingData?.userId?.id || bookingData?.userId;
+    return ownerId === user.uid
+        || (!!bookingData?.userEmail && bookingData.userEmail === user.email)
+        || (!!user.email && ownerId === user.email);
+};
+
 const ensureStaffForCreatedByStaff = (req, res, next) => {
     if (!req.body?.createdByStaff) return next();
     if (!isStaffUser(req.user)) {
@@ -168,6 +184,12 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
         }
 
         const bookingRef = `BKG-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+        const now = new Date();
+        // Seed the receipts array with the initial payment receipt. Staff-mode
+        // bookings are pre-accepted; self-service start as pending staff review.
+        const initialReceipts = receiptUrl
+            ? [{ url: receiptUrl, amount, status: staffMode ? 'accepted' : 'pending', submittedAt: now }]
+            : [];
         const bookingDoc = await adminDb.collection('bookings').add({
             bookingRef,
             userId: adminDb.doc(`users/${user.uid}`),
@@ -178,14 +200,16 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
             paymentType,
             paymentStatus: staffMode ? 'APPROVED' : 'PENDING_APPROVAL',
             receiptUrl: receiptUrl || null,
+            receipts: initialReceipts,
+            paidAmount: staffMode ? amount : 0,
             staffNotes: notes || '',
             createdByStaff: staffMode,
             checkedIn: false,
             status: staffMode ? 'APPROVED' : 'PENDING_APPROVAL',
             amount,
             totalAmount: totalAmount ?? amount,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: now,
+            updatedAt: now,
             updatedBy: user.uid,
         });
 
@@ -211,6 +235,152 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to create booking.' });
+    }
+});
+
+// A booking owner submits an additional payment receipt (e.g. the balance for a
+// deposit booking). Capped at MAX_RECEIPTS total; appended as 'pending' for staff review.
+app.post('/submitBookingReceipt', verifyToken, async (req, res) => {
+    const { bookingId, receiptUrl, amount } = req.body;
+    if (!bookingId || !receiptUrl || amount == null) {
+        return res.status(400).json({ error: 'bookingId, receiptUrl and amount are required.' });
+    }
+
+    try {
+        const bookingDocRef = adminDb.collection('bookings').doc(bookingId);
+        const bookingSnap = await bookingDocRef.get();
+        if (!bookingSnap.exists) {
+            return res.status(404).json({ error: 'Booking not found.' });
+        }
+
+        const booking = bookingSnap.data();
+        if (!ownsBooking(booking, req.user)) {
+            return res.status(403).json({ error: 'Forbidden: not your booking.' });
+        }
+        if ((booking.status || '').toUpperCase() === 'REJECTED') {
+            return res.status(409).json({ error: 'Booking has been rejected.' });
+        }
+
+        const receipts = Array.isArray(booking.receipts) ? booking.receipts : [];
+        if (receipts.length >= MAX_RECEIPTS) {
+            return res.status(409).json({ error: `Maximum of ${MAX_RECEIPTS} receipts reached.` });
+        }
+
+        const totalAmount = Number(booking.totalAmount) || 0;
+        if (sumAccepted(receipts) >= totalAmount && totalAmount > 0) {
+            return res.status(409).json({ error: 'Booking is already fully paid.' });
+        }
+
+        const next = [...receipts, { url: receiptUrl, amount: Number(amount) || 0, status: 'pending', submittedAt: new Date() }];
+        await bookingDocRef.update({
+            receipts: next,
+            receiptUrl,
+            updatedAt: new Date(),
+            updatedBy: req.user.uid,
+        });
+
+        return res.json({ receipts: next });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to submit receipt.' });
+    }
+});
+
+// Staff accept a single receipt. Recomputes paidAmount, records a payment, and
+// (on the first accepted receipt) confirms the booking + holds the seats.
+app.post('/acceptBookingReceipt', verifyToken, requireStaff, async (req, res) => {
+    const { bookingId, receiptIndex } = req.body;
+    if (!bookingId || receiptIndex == null) {
+        return res.status(400).json({ error: 'bookingId and receiptIndex are required.' });
+    }
+
+    try {
+        const bookingDocRef = adminDb.collection('bookings').doc(bookingId);
+        const bookingSnap = await bookingDocRef.get();
+        if (!bookingSnap.exists) {
+            return res.status(404).json({ error: 'Booking not found.' });
+        }
+
+        const booking = bookingSnap.data();
+        const receipts = Array.isArray(booking.receipts) ? [...booking.receipts] : [];
+        if (receiptIndex < 0 || receiptIndex >= receipts.length) {
+            return res.status(400).json({ error: 'Invalid receiptIndex.' });
+        }
+
+        const wasAccepted = receipts[receiptIndex].status === 'accepted';
+        receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'accepted' };
+
+        const paidAmount = sumAccepted(receipts);
+        const totalAmount = Number(booking.totalAmount) || 0;
+        const fullyPaid = totalAmount > 0 && paidAmount >= totalAmount;
+        const wasPending = (booking.status || '').toUpperCase() === 'PENDING_APPROVAL';
+
+        const update = {
+            receipts,
+            paidAmount,
+            paymentStatus: fullyPaid ? 'APPROVED' : 'PARTIAL',
+            updatedAt: new Date(),
+            updatedBy: req.user.uid,
+        };
+        if (wasPending) update.status = 'APPROVED';
+
+        await bookingDocRef.update(update);
+
+        // Record the payment (only when newly accepted) and hold seats on first confirm.
+        if (!wasAccepted) {
+            await bookingDocRef.collection('payments').add({
+                amount: Number(receipts[receiptIndex].amount) || 0,
+                method: 'receipt',
+                recordedBy: req.user.uid,
+                createdAt: new Date(),
+            });
+        }
+        if (wasPending) {
+            await updateSeatsForBooking(booking, 'booked');
+        }
+
+        return res.json({ success: true, paidAmount, fullyPaid, status: update.status || booking.status });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to accept receipt.' });
+    }
+});
+
+// Staff reject a single receipt (e.g. unreadable / wrong amount). Does not reject
+// the whole booking — the user can re-upload while under the receipt cap.
+app.post('/rejectBookingReceipt', verifyToken, requireStaff, async (req, res) => {
+    const { bookingId, receiptIndex } = req.body;
+    if (!bookingId || receiptIndex == null) {
+        return res.status(400).json({ error: 'bookingId and receiptIndex are required.' });
+    }
+
+    try {
+        const bookingDocRef = adminDb.collection('bookings').doc(bookingId);
+        const bookingSnap = await bookingDocRef.get();
+        if (!bookingSnap.exists) {
+            return res.status(404).json({ error: 'Booking not found.' });
+        }
+
+        const booking = bookingSnap.data();
+        const receipts = Array.isArray(booking.receipts) ? [...booking.receipts] : [];
+        if (receiptIndex < 0 || receiptIndex >= receipts.length) {
+            return res.status(400).json({ error: 'Invalid receiptIndex.' });
+        }
+
+        receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'rejected' };
+        const paidAmount = sumAccepted(receipts);
+
+        await bookingDocRef.update({
+            receipts,
+            paidAmount,
+            updatedAt: new Date(),
+            updatedBy: req.user.uid,
+        });
+
+        return res.json({ success: true, paidAmount });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to reject receipt.' });
     }
 });
 

@@ -1,13 +1,27 @@
 import React from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Booking } from '../types';
+import { outstandingBalance } from '../utils/booking';
+import BalanceReceiptUpload from './BalanceReceiptUpload';
 
 interface Props {
   booking: Booking;
   /** When true, hides the close button (rendered as a page, not a modal). */
   inPage?: boolean;
   onClose?: () => void;
+  /**
+   * When provided, the booking owner can upload a balance receipt (deposit
+   * bookings with an outstanding balance). Called after a successful submit so
+   * the parent can refresh the booking from Firestore.
+   */
+  onReceiptSubmitted?: () => void | Promise<void>;
 }
+
+const RECEIPT_STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Menunggu Pengesahan', color: 'var(--gold)' },
+  accepted: { label: 'Disahkan', color: 'var(--green-bright, #16a34a)' },
+  rejected: { label: 'Ditolak', color: 'var(--red)' },
+};
 
 /**
  * Build the QR payload for a booking. The QR encodes the booking-detail URL
@@ -27,7 +41,16 @@ export function buildBookingSeatUrl(bookingId: string, _seatNum: number): string
   return buildBookingUrl(bookingId);
 }
 
-const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose }) => {
+const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onReceiptSubmitted }) => {
+  const receipts = booking.receipts && booking.receipts.length
+    ? booking.receipts
+    : (booking.receiptData ? [{ url: booking.receiptData, amount: booking.amount, status: 'pending' as const, submittedAt: booking.createdAt }] : []);
+  const balanceDue = outstandingBalance(booking);
+  const canSubmitBalance = !!onReceiptSubmitted
+    && booking.paymentType === 'deposit'
+    && balanceDue > 0
+    && booking.status !== 'rejected'
+    && receipts.length < 3;
   return (
     <div
       style={{
@@ -139,25 +162,61 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose }) => 
           </div>
           <div>
             <div style={{ fontSize: '.68rem', color: 'var(--red)', marginBottom: '6px', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '1px' }}>Jumlah Dibayar</div>
-            <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--red)', fontFamily: 'var(--font-heading)' }}>RM {booking.amount}</div>
+            <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--red)', fontFamily: 'var(--font-heading)' }}>RM {booking.paidAmount ?? booking.amount}</div>
           </div>
         </div>
         <div style={{ fontSize: '.78rem', color: 'var(--text-muted)' }}>Jumlah Keseluruhan: RM {booking.totalAmount}</div>
+        {balanceDue > 0 && (
+          <div style={{ marginTop: '8px', fontSize: '.85rem', fontWeight: 700, color: 'var(--red)' }}>
+            Baki Tertunggak: RM {balanceDue}
+          </div>
+        )}
       </div>
 
-      {/* Receipt */}
-      {booking.receiptData && (
+      {/* Receipts */}
+      {receipts.length > 0 && (
         <div style={{ background: 'var(--cream)', padding: '18px', borderRadius: '14px', border: '1px solid var(--line)' }}>
-          <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '14px', fontWeight: 700 }}>Resit Bayaran</div>
-          <img src={booking.receiptData} alt="Receipt" style={{ width: '100%', maxHeight: '300px', borderRadius: '12px', objectFit: 'cover', border: '1px solid var(--line)' }} />
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => window.open(booking.receiptData, '_blank')}
-            style={{ marginTop: '10px', width: '100%', justifyContent: 'center' }}
-          >
-            Lihat Resit Penuh
-          </button>
+          <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '14px', fontWeight: 700 }}>
+            Resit Bayaran ({receipts.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {receipts.map((r, i) => {
+              const meta = RECEIPT_STATUS_LABEL[r.status] || RECEIPT_STATUS_LABEL.pending;
+              return (
+                <div key={i}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '.82rem', fontWeight: 700 }}>
+                      Resit #{i + 1} · RM {r.amount}
+                    </span>
+                    <span style={{ fontSize: '.72rem', fontWeight: 700, color: meta.color }}>{meta.label}</span>
+                  </div>
+                  {r.url && (
+                    <>
+                      <img src={r.url} alt={`Receipt ${i + 1}`} style={{ width: '100%', maxHeight: '300px', borderRadius: '12px', objectFit: 'cover', border: '1px solid var(--line)' }} />
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => window.open(r.url, '_blank')}
+                        style={{ marginTop: '10px', width: '100%', justifyContent: 'center' }}
+                      >
+                        Lihat Resit Penuh
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
+      )}
+
+      {/* Balance receipt upload (deposit bookings with outstanding balance) */}
+      {canSubmitBalance && (
+        <BalanceReceiptUpload
+          bookingId={booking.id}
+          balanceDue={balanceDue}
+          receiptCount={receipts.length}
+          onSubmitted={onReceiptSubmitted!}
+        />
       )}
 
       {/* Booking Date */}
