@@ -204,6 +204,26 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   };
 
+  const getCompetitionPhase = (competition: Partial<Competition>): 'upcoming' | 'live' | 'ended' => {
+    const now = Date.now();
+    const start = competition.startDate ? new Date(competition.startDate).getTime() : NaN;
+    const end = competition.endDate
+      ? new Date(competition.endDate).getTime()
+      : (competition.startDate ? new Date(competition.startDate).getTime() : NaN);
+
+    if (Number.isNaN(start)) return 'upcoming';
+    if (!Number.isNaN(end) && now >= end) return 'ended';
+    if (now < start) return 'upcoming';
+    return 'live';
+  };
+
+  const getCompetitionStatusMeta = (competition: Partial<Competition>) => {
+    const phase = getCompetitionPhase(competition);
+    if (phase === 'upcoming') return { label: 'Akan Datang', badgeClass: 'badge-draft' };
+    if (phase === 'ended') return { label: 'Tamat', badgeClass: 'badge-completed' };
+    return { label: 'Aktif', badgeClass: 'badge-live' };
+  };
+
   const openDatePicker = (event: React.MouseEvent<HTMLButtonElement>) => {
     const wrap = event.currentTarget.closest('.date-input-wrap') as HTMLElement | null;
     const input = wrap?.querySelector('input[type="date"], input[type="datetime-local"]') as HTMLInputElement | null;
@@ -271,6 +291,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleCompetitionUpdate = async () => {
+    const start = new Date(compEdit.startDate).getTime();
+    const end = new Date(compEdit.endDate || compEdit.startDate).getTime();
+    if (!Number.isNaN(start) && !Number.isNaN(end) && end < start) {
+      window.alert('Tarikh tamat mesti sama atau selepas tarikh mula.');
+      return;
+    }
+
     setSaving(true);
     try {
       if (!compEdit.id) { setSaving(false); return; }
@@ -759,6 +786,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const hasConflict = (b: { pondId: number; seats: number[] }) =>
     (b.seats ?? []).some((n) => (seatConflictMap.get(`${b.pondId}-${n}`) ?? []).length > 1);
   const totalRevenue = bookings.filter(b => b.status === 'confirmed').reduce((s, b) => s + b.amount, 0);
+  const competitionsForCms = compList.length ? compList : (comp.name ? [comp] : []);
+  const competitionForDashboard =
+    competitionsForCms.find((c) => getCompetitionPhase(c) === 'live') ||
+    competitionsForCms.find((c) => getCompetitionPhase(c) === 'upcoming') ||
+    competitionsForCms[0] ||
+    null;
+  const dashboardStatus = competitionForDashboard ? getCompetitionStatusMeta(competitionForDashboard) : null;
 
   const navSections = [
     { label: 'Utama', items: [{ id: 'dashboard' as CMSPage, icon: '📊', text: 'Dashboard' }] },
@@ -869,14 +903,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card">
                   <div className="card-header"><div className="card-title">Pertandingan Aktif</div></div>
                   <div className="card-body">
-                    {comp.name ? (
+                    {competitionForDashboard?.name ? (
                       <div style={{ padding: '1rem', background: 'var(--cream)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                          <span className="live-dot"></span>
-                          <strong>{comp.name}</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                          {getCompetitionPhase(competitionForDashboard) === 'live' && <span className="live-dot"></span>}
+                          <strong>{competitionForDashboard.name}</strong>
+                          {dashboardStatus && <span className={`badge ${dashboardStatus.badgeClass}`}>{dashboardStatus.label}</span>}
                         </div>
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                          📅 {new Date(comp.startDate).toLocaleDateString('ms-MY')}<br />
+                          📅 {new Date(competitionForDashboard.startDate).toLocaleDateString('ms-MY')}<br />
                           👥 {ponds.reduce((s, p) => s + p.seats.filter(se => se.status === 'available').length, 0)} tempat tersedia
                         </div>
                       </div>
@@ -896,7 +931,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-body"><div className="table-wrap"><table>
                   <thead><tr><th>Nama</th><th>Tarikh</th><th>Kolam Aktif</th><th>Tempat</th><th>Status</th><th>Tindakan</th></tr></thead>
                   <tbody>
-                    {(compList.length ? compList : (comp.name ? [comp] : [])).map((competition) => (
+                    {competitionsForCms.map((competition) => (
                       <tr key={competition.id || competition.name}>
                         <td className="td-name">{competition.name}</td>
                         <td>{competition.startDate ? new Date(competition.startDate).toLocaleDateString('ms-MY') : '-'}</td>
@@ -907,7 +942,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           const safeConfigured = typeof configured === 'number' ? Math.max(0, Math.min(p.seats.length, Math.floor(configured))) : p.seats.length;
                           return s + safeConfigured;
                         }, 0)}</td>
-                        <td><span className="badge badge-open">Aktif</span></td>
+                        <td>{(() => {
+                          const status = getCompetitionStatusMeta(competition);
+                          return <span className={`badge ${status.badgeClass}`}>{status.label}</span>;
+                        })()}</td>
                         <td>
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button className="btn btn-sm btn-ghost" onClick={() => { setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Manage</button>
@@ -1676,7 +1714,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={compEdit.name || ''} onChange={(e) => setCompEdit({ ...compEdit, name: e.target.value })} /></div>
                   <div className="form-group"><label className="form-label">Tarikh Mula</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.startDate)} onChange={(e) => e.target.value && setCompEdit({ ...compEdit, startDate: new Date(e.target.value).toISOString() })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
                   <div className="form-group"><label className="form-label">Tarikh Tamat</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.endDate)} onChange={(e) => e.target.value && setCompEdit({ ...compEdit, endDate: new Date(e.target.value).toISOString() })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
-                  <div className="form-group"><label className="form-label">Top N</label><input className="form-input" type="number" value={compEdit.topN || 20} onChange={(e) => setCompEdit({ ...compEdit, topN: parseInt(e.target.value) || 20 })} /></div>
+                  <div className="form-group">
+                    <label className="form-label">Jumlah Kedudukan Dipaparkan</label>
+                    <input className="form-input" type="number" value={compEdit.topN || 20} onChange={(e) => setCompEdit({ ...compEdit, topN: parseInt(e.target.value) || 20 })} />
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      Berapa ramai peserta teratas yang dipaparkan di papan markah.
+                    </div>
+                  </div>
                 </div>
 
                 <div className="card" style={{ marginTop: '12px' }}>

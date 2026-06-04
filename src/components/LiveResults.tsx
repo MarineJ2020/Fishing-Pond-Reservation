@@ -233,8 +233,8 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             : <span className="last-upd">Dikemaskini {lastUpdated}</span>
           }
           <div className="top-n-ctl">
-            Tunjuk Top <input type="number" value={topN} min={1} max={500} onChange={(e) => setTopN(parseInt(e.target.value) || 20)} />
-            Pemancingan
+            Tunjuk <input type="number" value={topN} min={1} max={500} onChange={(e) => setTopN(parseInt(e.target.value) || 20)} />
+            Kedudukan Teratas
           </div>
         </div>
       </div>
