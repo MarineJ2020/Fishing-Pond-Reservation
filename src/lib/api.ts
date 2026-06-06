@@ -6,7 +6,7 @@ const baseUrl = import.meta.env.VITE_FUNCTIONS_BASE_URL || '';
 const getAuthHeader = async () => {
   const currentUser = auth.currentUser;
   if (!currentUser) {
-    throw new Error('Authentication required. Please sign in and try again.');
+    throw new Error('Pengesahan diperlukan. Sila log masuk dan cuba lagi. / Authentication required. Please sign in and try again.');
   }
   const token = await currentUser.getIdToken();
   return `Bearer ${token}`;

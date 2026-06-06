@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Booking } from '../types';
 import { outstandingBalance } from '../utils/booking';
 import BalanceReceiptUpload from './BalanceReceiptUpload';
+import ReceiptReupload from './ReceiptReupload';
 
 interface Props {
   booking: Booking;
@@ -51,6 +52,14 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
     && balanceDue > 0
     && booking.status !== 'rejected'
     && receipts.length < 3;
+
+  // One-time receipt correction: allowed on a still-pending receipt that hasn't
+  // been re-uploaded yet, while the booking is still under review.
+  const firstPendingReceiptIdx = receipts.findIndex((r) => r.status === 'pending');
+  const canReuploadReceipt = !!onReceiptSubmitted
+    && booking.status !== 'rejected'
+    && !booking.receiptReuploadUsed
+    && firstPendingReceiptIdx >= 0;
   return (
     <div
       style={{
@@ -206,6 +215,20 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* One-time receipt correction (replace a wrongly-uploaded pending receipt) */}
+      {canReuploadReceipt && (
+        <ReceiptReupload
+          bookingId={booking.id}
+          receiptIndex={firstPendingReceiptIdx}
+          onSubmitted={onReceiptSubmitted!}
+        />
+      )}
+      {!!onReceiptSubmitted && booking.receiptReuploadUsed && booking.status !== 'rejected' && (
+        <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+          Muat naik semula sekali sahaja telah digunakan. / Your one-time receipt re-upload has been used.
         </div>
       )}
 

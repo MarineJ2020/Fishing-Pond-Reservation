@@ -63,6 +63,8 @@ export interface Booking {
   checkedIn?: boolean;
   /** Last time a balance-due reminder email was sent to the user (ISO). */
   balanceReminderSentAt?: string;
+  /** True once the owner has used their one-time receipt re-upload (correction). */
+  receiptReuploadUsed?: boolean;
 }
 
 export interface Score {

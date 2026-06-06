@@ -5,6 +5,7 @@ import { loadAppDB } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
 import { queueBookingReceivedEmail } from '../lib/email';
 import { uploadDataUrlToCloudinary } from '../utils/cloudinary';
+import { isCompetitionEnded } from '../utils/competition';
 import { auth } from '../../lib/firebase';
 
 interface BookingContextType {
@@ -151,6 +152,13 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const submitBooking = useCallback(async (pond: Pond): Promise<Booking | null> => {
     if (!user || !selectedSeats.length || !receiptData || !receiptFile) return null;
+
+    // Block bookings for competitions that have already ended ("tamat").
+    const targetCompetitionId = selectedCompetitionId || db.comp.id || '';
+    const targetCompetition = db.competitions.find((c) => c.id === targetCompetitionId) || db.comp;
+    if (isCompetitionEnded(targetCompetition)) {
+      throw new Error('Pertandingan ini telah tamat dan tidak menerima tempahan baharu. / This competition has ended and is no longer accepting new bookings.');
+    }
 
     const isStaff = user.role === 'ADMIN' || user.role === 'STAFF';
     // Gate: email/password users must verify before booking. Google accounts and

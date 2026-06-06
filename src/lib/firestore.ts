@@ -196,6 +196,7 @@ const buildBooking = (
     bookingRef: data.bookingRef || undefined,
     createdByStaff: data.createdByStaff === true,
     balanceReminderSentAt: normalizeTimestamp(data.balanceReminderSentAt) || undefined,
+    receiptReuploadUsed: data.receiptReuploadUsed === true,
   };
 };
 
@@ -409,7 +410,7 @@ export const createBookingDocument = async (data: any) => {
     if (!['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED'].includes(s)) return;
     const taken = (d.data().seatNumbers ?? []) as number[];
     const clash = taken.find((n) => requestedSeats.has(n));
-    if (clash) throw new Error(`Tempat #${clash} telah ditempah. Sila pilih tempat lain.`);
+    if (clash) throw new Error(`Tempat #${clash} telah ditempah. Sila pilih tempat lain. / Seat #${clash} is already booked. Please choose another seat.`);
   });
 
   const bookingsRef = collection(db, 'bookings');
@@ -749,21 +750,21 @@ const MAX_RECEIPTS = 3;
 export const submitBookingReceiptDirect = async (bookingId: string, receiptUrl: string, amount: number) => {
   const bookingRef = doc(db, 'bookings', bookingId);
   const snap = await getDoc(bookingRef);
-  if (!snap.exists()) throw new Error('Booking not found.');
+  if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
   const booking = snap.data() as any;
 
   if ((booking.status || '').toUpperCase() === 'REJECTED') {
-    throw new Error('Tempahan ini telah ditolak.');
+    throw new Error('Tempahan ini telah ditolak. / This booking has been rejected.');
   }
 
   const receipts = deriveReceiptsFromBooking(booking);
   if (receipts.length >= MAX_RECEIPTS) {
-    throw new Error(`Maksimum ${MAX_RECEIPTS} resit telah dicapai.`);
+    throw new Error(`Maksimum ${MAX_RECEIPTS} resit telah dicapai. / Maximum of ${MAX_RECEIPTS} receipts reached.`);
   }
 
   const totalAmount = Number(booking.totalAmount) || 0;
   if (totalAmount > 0 && sumAcceptedReceipts(receipts) >= totalAmount) {
-    throw new Error('Tempahan ini telah dibayar sepenuhnya.');
+    throw new Error('Tempahan ini telah dibayar sepenuhnya. / This booking is already fully paid.');
   }
 
   const next = [
@@ -780,13 +781,50 @@ export const submitBookingReceiptDirect = async (bookingId: string, receiptUrl: 
   return { receipts: next };
 };
 
+// One-time receipt correction: the owner replaces the image of a still-pending
+// receipt (e.g. they uploaded the wrong photo). Allowed once per booking — guarded
+// by `receiptReuploadUsed`. Owner-scoped write (see firestore.rules).
+export const replaceBookingReceiptDirect = async (bookingId: string, receiptIndex: number, newReceiptUrl: string) => {
+  const bookingRef = doc(db, 'bookings', bookingId);
+  const snap = await getDoc(bookingRef);
+  if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
+  const booking = snap.data() as any;
+
+  if (booking.receiptReuploadUsed === true) {
+    throw new Error('Anda telah menggunakan muat naik semula sekali sahaja anda. / You have already used your one-time re-upload.');
+  }
+  if ((booking.status || '').toUpperCase() === 'REJECTED') {
+    throw new Error('Tempahan ini telah ditolak. / This booking has been rejected.');
+  }
+
+  const receipts = deriveReceiptsFromBooking(booking);
+  if (receiptIndex < 0 || receiptIndex >= receipts.length) {
+    throw new Error('Indeks resit tidak sah. / Invalid receipt index.');
+  }
+  if (receipts[receiptIndex].status !== 'pending') {
+    throw new Error('Hanya resit yang masih menunggu pengesahan boleh digantikan. / Only a receipt still pending review can be replaced.');
+  }
+
+  receipts[receiptIndex] = { ...receipts[receiptIndex], url: newReceiptUrl, submittedAt: new Date().toISOString() };
+
+  await setDoc(bookingRef, {
+    receipts,
+    receiptUrl: newReceiptUrl,
+    receiptReuploadUsed: true,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null,
+  }, { merge: true });
+
+  return { receipts };
+};
+
 export const acceptBookingReceiptDirect = async (bookingId: string, receiptIndex: number) => {
   const bookingRef = doc(db, 'bookings', bookingId);
   const snap = await getDoc(bookingRef);
-  if (!snap.exists()) throw new Error('Booking not found.');
+  if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
   const booking = snap.data() as any;
   const receipts = deriveReceiptsFromBooking(booking);
-  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Invalid receiptIndex.');
+  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Indeks resit tidak sah. / Invalid receipt index.');
 
   const wasAccepted = receipts[receiptIndex]?.status === 'accepted';
   receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'accepted' };
@@ -837,10 +875,10 @@ export const markBalanceReminderSent = async (bookingId: string) => {
 export const rejectBookingReceiptDirect = async (bookingId: string, receiptIndex: number) => {
   const bookingRef = doc(db, 'bookings', bookingId);
   const snap = await getDoc(bookingRef);
-  if (!snap.exists()) throw new Error('Booking not found.');
+  if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
   const booking = snap.data() as any;
   const receipts = deriveReceiptsFromBooking(booking);
-  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Invalid receiptIndex.');
+  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Indeks resit tidak sah. / Invalid receipt index.');
 
   receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'rejected' };
   const paidAmount = sumAcceptedReceipts(receipts);

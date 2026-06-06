@@ -90,7 +90,7 @@ service cloud.firestore {
         return ownsBooking()
           && resource.data.status != 'REJECTED'
           && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['receipts', 'receiptUrl', 'updatedAt', 'updatedBy']);
+              .hasOnly(['receipts', 'receiptUrl', 'receiptReuploadUsed', 'updatedAt', 'updatedBy']);
       }
 
       allow read: if true;

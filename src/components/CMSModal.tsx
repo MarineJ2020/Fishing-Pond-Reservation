@@ -20,6 +20,7 @@ import {
 import { uploadImageToCloudinary } from '../utils/cloudinary';
 import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
+import { getCompetitionPhase } from '../utils/competition';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 
 type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
@@ -161,11 +162,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [scanOpen, setScanOpen] = useState(false);
   const [pendingScan, setPendingScan] = useState<ScaleScanApproved | null>(null);
   const [anglerSuggestOpen, setAnglerSuggestOpen] = useState(false);
+  // Tracks the last angler name we auto-filled from pond+seat, so we re-autofill
+  // when the seat changes but never overwrite a name the admin typed themselves.
+  const autofilledAnglerRef = useRef<string>('');
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
   const [pondMapUploading, setPondMapUploading] = useState(false);
 
   // In-page receipt lightbox (replaces opening a new browser tab).
   const [receiptViewerUrl, setReceiptViewerUrl] = useState<string | null>(null);
+  // Dimensions (from <img> onLoad) + byte size (from a HEAD request / data-URL) of
+  // the receipt currently shown in the lightbox.
+  const [receiptViewerMeta, setReceiptViewerMeta] = useState<{ width: number; height: number; bytes: number | null }>({ width: 0, height: 0, bytes: null });
   // Reusable confirmation dialog for decision actions (accept/reject/check-in/remind).
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
@@ -198,6 +205,30 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     getScoresForCompetition(resultsCompId).then(setScoreEntries);
   }, [page, resultsCompId]);
 
+  // Auto-fill the participant name when the admin enters pond + seat first.
+  // Never overwrites a name the admin typed (only an empty or previously
+  // auto-filled value), and re-runs when the pond/seat changes.
+  useEffect(() => {
+    if (page !== 'results') return;
+    const current = manualEntry.anglerName;
+    if (current && current !== autofilledAnglerRef.current) return; // admin typed a name — leave it
+    const seatNum = parseInt(manualEntry.seatNum, 10);
+    if (!manualEntry.pondId || !seatNum) return;
+    const pond = ponds.find(p => (p._docId || p.id.toString()) === manualEntry.pondId);
+    if (!pond) return;
+    const match = bookings.find(b =>
+      b.status !== 'rejected' &&
+      b.pondId === pond.id &&
+      b.seats.includes(seatNum) &&
+      (!resultsCompId || !b.competitionId || b.competitionId === resultsCompId)
+    );
+    const name = match?.userName || '';
+    if (name && name !== current) {
+      autofilledAnglerRef.current = name;
+      setManualEntry(m => ({ ...m, anglerName: name }));
+    }
+  }, [manualEntry.pondId, manualEntry.seatNum, page]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     setCompEdit(comp);
     setCompList(competitions.length ? competitions : (comp.name ? [comp] : []));
@@ -221,19 +252,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     if (!iso) return '';
     const d = new Date(iso);
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-  };
-
-  const getCompetitionPhase = (competition: Partial<Competition>): 'upcoming' | 'live' | 'ended' => {
-    const now = Date.now();
-    const start = competition.startDate ? new Date(competition.startDate).getTime() : NaN;
-    const end = competition.endDate
-      ? new Date(competition.endDate).getTime()
-      : (competition.startDate ? new Date(competition.startDate).getTime() : NaN);
-
-    if (Number.isNaN(start)) return 'upcoming';
-    if (!Number.isNaN(end) && now >= end) return 'ended';
-    if (now < start) return 'upcoming';
-    return 'live';
   };
 
   const getCompetitionStatusMeta = (competition: Partial<Competition>) => {
@@ -414,7 +432,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       await reloadDB();
     } catch (err) {
       console.error('Failed to accept receipt:', err);
-      window.alert(`Gagal mengesahkan resit: ${err instanceof Error ? err.message : 'Ralat tidak diketahui'}`);
+      window.alert(`Gagal mengesahkan resit / Failed to accept receipt: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
     }
     setSaving(false);
   };
@@ -424,7 +442,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try { await rejectBookingReceipt({ bookingId, receiptIndex }); await reloadDB(); }
     catch (err) {
       console.error('Failed to reject receipt:', err);
-      window.alert(`Gagal menolak resit: ${err instanceof Error ? err.message : 'Ralat tidak diketahui'}`);
+      window.alert(`Gagal menolak resit / Failed to reject receipt: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
     }
     setSaving(false);
   };
@@ -435,7 +453,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     if (!target) return;
     const recipient = target.userEmail || target.userId;
     if (!recipient || !recipient.includes('@')) {
-      window.alert('Tiada alamat email sah untuk tempahan ini.');
+      window.alert('Tiada alamat email sah untuk tempahan ini. / No valid email address for this booking.');
       return;
     }
     setSaving(true);
@@ -453,7 +471,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       await reloadDB();
     } catch (err) {
       console.error('Failed to send balance reminder:', err);
-      window.alert(`Gagal menghantar peringatan: ${err instanceof Error ? err.message : 'Ralat tidak diketahui'}`);
+      window.alert(`Gagal menghantar peringatan / Failed to send reminder: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
     }
     setSaving(false);
   };
@@ -521,7 +539,27 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleViewReceipt = (receiptData: string) => {
-    if (receiptData) setReceiptViewerUrl(receiptData);
+    if (!receiptData) return;
+    setReceiptViewerUrl(receiptData);
+    setReceiptViewerMeta({ width: 0, height: 0, bytes: null });
+    // Resolve the file size: derive it from a data-URL directly, otherwise ask
+    // the host for Content-Length via a HEAD request (best-effort; ignored on CORS failure).
+    if (receiptData.startsWith('data:')) {
+      const base64 = receiptData.split(',')[1] || '';
+      const padding = (base64.match(/=+$/) || [''])[0].length;
+      const bytes = Math.max(0, Math.floor(base64.length * 3 / 4) - padding);
+      setReceiptViewerMeta(m => ({ ...m, bytes }));
+    } else {
+      fetch(receiptData, { method: 'HEAD' })
+        .then(r => { const len = r.headers.get('content-length'); if (len) setReceiptViewerMeta(m => ({ ...m, bytes: parseInt(len, 10) })); })
+        .catch(() => {});
+    }
+  };
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
   const handleCheckin = () => {
@@ -1851,7 +1889,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       {ponds.map((pond) => {
                         const pondKey  = pond._docId || pond.id.toString();
                         const checked  = (compEdit.activePondIds || []).includes(pondKey);
-                        const openSeats = Math.max(0, Math.min(pond.seats.length, Math.floor(compEdit.pondSeats?.[pondKey] ?? pond.seats.length)));
+                        const edits    = pondSeatEdits[pondKey] || {};
+                        const hasUnsavedEdits = Object.keys(edits).length > 0;
+                        // Effective active state per seat = unsaved edit if present, else saved flag.
+                        const isSeatActive = (s: { num: number; active?: boolean }) =>
+                          edits[s.num] !== undefined ? edits[s.num] : s.active !== false;
+                        // Seats held by a non-rejected booking can't be deactivated.
+                        const heldSeats = pond.seats
+                          .filter(s => (seatConflictMap.get(`${pond.id}-${s.num}`)?.length ?? 0) > 0)
+                          .map(s => s.num);
+                        const heldSet = new Set(heldSeats);
+                        const activeCount = pond.seats.filter(isSeatActive).length;
+                        const inactiveCount = pond.seats.length - activeCount;
+                        // "Seat available" (bookable count) is capped at the active-seat count.
+                        const openSeats = Math.max(0, Math.min(activeCount, Math.floor(compEdit.pondSeats?.[pondKey] ?? activeCount)));
                         return (
                           <div key={pondKey} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px', background: checked ? 'var(--cream)' : 'transparent' }}>
                             {/* Row 1: checkbox + count input */}
@@ -1875,17 +1926,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   className="form-input"
                                   type="number"
                                   min={0}
-                                  max={pond.seats.length}
+                                  max={activeCount}
                                   disabled={!checked}
                                   style={{ width: '80px', padding: '5px 8px' }}
                                   value={openSeats}
                                   onChange={(e) => {
                                     const raw  = parseInt(e.target.value) || 0;
-                                    const safe = Math.max(0, Math.min(pond.seats.length, raw));
+                                    const safe = Math.max(0, Math.min(activeCount, raw));
                                     setCompEdit({ ...compEdit, pondSeats: { ...(compEdit.pondSeats || {}), [pondKey]: safe } });
                                   }}
                                 />
-                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>/ {pond.seats.length}</span>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>/ {activeCount} aktif</span>
                               </div>
                             </div>
 
@@ -1897,19 +1948,32 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 </div>
                                 <CMSPondSeatEditor
                                   pond={pond}
-                                  seatEdits={pondSeatEdits[pondKey] || {}}
+                                  seatEdits={edits}
                                   useLegacyView={!!settingsEdit.useLegacyPondView}
-                                  onToggle={(num, active) =>
-                                    setPondSeatEdits(prev => ({
-                                      ...prev,
-                                      [pondKey]: { ...(prev[pondKey] || {}), [num]: active },
-                                    }))
-                                  }
+                                  onToggle={(num, active) => {
+                                    // Prevent deactivating a seat that is booked / pending approval.
+                                    if (!active && heldSet.has(num)) return;
+                                    setPondSeatEdits(prev => {
+                                      const nextSeat = { ...(prev[pondKey] || {}), [num]: active };
+                                      const nextEdits = { ...prev, [pondKey]: nextSeat };
+                                      // Keep the bookable "Seat available" count from exceeding active seats.
+                                      const nextActive = pond.seats.filter(s =>
+                                        nextSeat[s.num] !== undefined ? nextSeat[s.num] : s.active !== false
+                                      ).length;
+                                      const cur = compEdit.pondSeats?.[pondKey];
+                                      if (typeof cur === 'number' && cur > nextActive) {
+                                        setCompEdit(ce => ({ ...ce, pondSeats: { ...(ce.pondSeats || {}), [pondKey]: nextActive } }));
+                                      }
+                                      return nextEdits;
+                                    });
+                                  }}
                                 />
-                                {pondSeatEdits[pondKey] && Object.keys(pondSeatEdits[pondKey]).length > 0 && (
-                                  <div className="sag-hint" style={{ marginTop: '5px' }}>
-                                    {Object.values(pondSeatEdits[pondKey]).filter(Boolean).length} aktif ·{' '}
-                                    {Object.values(pondSeatEdits[pondKey]).filter(v => !v).length} tidak aktif (belum disimpan)
+                                <div className="sag-hint" style={{ marginTop: '5px' }}>
+                                  {activeCount} aktif · {inactiveCount} tidak aktif{hasUnsavedEdits ? ' (belum disimpan)' : ''}
+                                </div>
+                                {heldSeats.length > 0 && (
+                                  <div style={{ marginTop: '4px', fontSize: '0.72rem', color: 'var(--red)' }}>
+                                    🔒 Peg telah ditempah (tidak boleh dinyahaktifkan) / Booked pegs (cannot be deactivated): {heldSeats.sort((a, b) => a - b).map(n => `#${n}`).join(', ')}
                                   </div>
                                 )}
                               </div>
@@ -2097,8 +2161,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             <img
               src={receiptViewerUrl}
               alt="Resit"
-              style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, display: 'block', background: '#000' }}
+              onLoad={(e) => setReceiptViewerMeta(m => ({ ...m, width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight }))}
+              style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, display: 'block', background: '#000' }}
             />
+            <div style={{ marginTop: 8, textAlign: 'center', color: '#fff', fontSize: '0.78rem', display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
+              {receiptViewerMeta.width > 0 && (
+                <span>📐 {receiptViewerMeta.width} × {receiptViewerMeta.height} px</span>
+              )}
+              {receiptViewerMeta.bytes != null && (
+                <span>💾 {formatBytes(receiptViewerMeta.bytes)}</span>
+              )}
+            </div>
           </div>
         </div>
       )}

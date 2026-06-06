@@ -20,6 +20,7 @@ import { useAuth } from './hooks/useAuth';
 import { useCountdown } from './hooks/useCountdown';
 import { fmt } from './utils';
 import { countOutstanding, hasOutstandingBalance } from './utils/booking';
+import { isCompetitionEnded } from './utils/competition';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -1026,7 +1027,8 @@ const AppContent: React.FC = () => {
         return renderHome();
       case 'book': {
         const bookedPond = activePond;
-        const hasCompetition = Boolean(selectedCompetition?.id);
+        const competitionEnded = isCompetitionEnded(selectedCompetition);
+        const hasCompetition = Boolean(selectedCompetition?.id) && !competitionEnded;
         const hasPond = Boolean(bookedPond);
         const hasSeats = selectedSeats.length > 0;
         return (
@@ -1059,17 +1061,35 @@ const AppContent: React.FC = () => {
                 <div className="panel-title">Pilih Pertandingan</div>
                 <div className="panel-subtitle">Pilih pertandingan untuk tempahan ini. Menukar pertandingan akan reset pilihan kolam, peg, dan resit bayaran.</div>
                 <div className="pond-tabs">
-                  {competitions.map((competition) => (
-                    <div
-                      key={competition.id || competition.name}
-                      className={`pond-tab ${(selectedCompetition?.id || '') === (competition.id || '') ? 'active' : ''}`}
-                      onClick={() => handleSelectCompetitionForBooking(competition.id)}
-                    >
-                      {competition.name}
-                    </div>
-                  ))}
+                  {competitions.map((competition) => {
+                    const ended = isCompetitionEnded(competition);
+                    return (
+                      <div
+                        key={competition.id || competition.name}
+                        className={`pond-tab ${(selectedCompetition?.id || '') === (competition.id || '') ? 'active' : ''}`}
+                        onClick={() => handleSelectCompetitionForBooking(competition.id)}
+                      >
+                        {competition.name}
+                        {ended && (
+                          <span style={{ marginLeft: '6px', fontSize: '0.68rem', fontWeight: 700, color: 'var(--red)', border: '1px solid var(--red)', borderRadius: '4px', padding: '0 5px' }}>Tamat</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
+
+              {selectedCompetition?.id && competitionEnded && (
+                <div className="panel booking-stage-enter" style={{ textAlign: 'center', padding: '2.5rem 1.5rem' }}>
+                  <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🏁</div>
+                  <div className="panel-title" style={{ marginBottom: '0.4rem' }}>Pertandingan Telah Tamat</div>
+                  <div className="panel-subtitle" style={{ maxWidth: '460px', margin: '0 auto' }}>
+                    Pertandingan ini telah tamat dan tidak lagi menerima tempahan baharu. Sila pilih pertandingan lain yang masih aktif.
+                    <br /><br />
+                    <em>This competition has ended and is no longer accepting new bookings. Please choose another active competition.</em>
+                  </div>
+                </div>
+              )}
 
               {hasCompetition && (
                 <div className="panel booking-stage-enter">

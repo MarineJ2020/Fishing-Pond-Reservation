@@ -712,6 +712,10 @@ footer {
 .form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--gold); background: var(--white); }
 .date-input-wrap { position: relative; display: flex; align-items: center; }
 .date-input-wrap .form-input { padding-right: 2.4rem; }
+/* Hide the browser's native date/calendar icon so only the custom button shows
+   (avoids two redundant calendar icons on the same field). */
+.date-input-wrap .form-input::-webkit-calendar-picker-indicator { display: none; -webkit-appearance: none; }
+.date-input-wrap .form-input { appearance: none; }
 .date-picker-btn {
   position: absolute;
   right: 0.35rem;
