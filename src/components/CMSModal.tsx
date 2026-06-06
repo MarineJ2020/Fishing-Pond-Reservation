@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Pond, Competition, Prize, Settings, ScoreEntry } from '../types';
+import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
 import { checkInBooking, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
@@ -15,9 +15,11 @@ import {
   getScoresForCompetition,
   saveScoreEntry,
   deleteScoreEntry,
+  markBalanceReminderSent,
 } from '../lib/firestore';
 import { uploadImageToCloudinary } from '../utils/cloudinary';
-import { queueBookingApprovedEmail } from '../lib/email';
+import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
+import { balanceReminderInfo } from '../utils/booking';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 
 type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
@@ -31,7 +33,7 @@ interface CMSModalProps {
   comp: Competition;
   competitions?: Competition[];
   settings: Settings;
-  bookings: { id: string; bookingRef?: string; competitionId?: string; competitionName?: string; userName: string; pondName: string; pondDate?: string; seats: number[]; amount: number; totalAmount?: number; paidAmount?: number; balanceDue?: number; receipts?: { url: string; amount: number; status: 'pending' | 'accepted' | 'rejected'; submittedAt: string }[]; userId: string; userEmail?: string; userPhone: string; receiptData: string; status: string; pondId: number; createdAt?: string; paymentType?: string; createdByStaff?: boolean }[];
+  bookings: Booking[];
   onUpdateData: (updates: { ponds?: Pond[]; comp?: Competition }) => void;
   reloadDB: () => Promise<void>;
 }
@@ -161,6 +163,23 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [anglerSuggestOpen, setAnglerSuggestOpen] = useState(false);
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
   const [pondMapUploading, setPondMapUploading] = useState(false);
+
+  // In-page receipt lightbox (replaces opening a new browser tab).
+  const [receiptViewerUrl, setReceiptViewerUrl] = useState<string | null>(null);
+  // Reusable confirmation dialog for decision actions (accept/reject/check-in/remind).
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    tone: 'danger' | 'primary';
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+  // Ticking clock so the balance-reminder countdowns refresh while the page is open.
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!resultsCompId && comp.id) setResultsCompId(comp.id);
@@ -373,22 +392,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
-  // Accept a single payment receipt. The server confirms the booking + holds
-  // seats on the first accepted receipt; here we fire the approval email on that
-  // pending→confirmed transition.
+  // Accept a single payment receipt. The booking is only confirmed (and the
+  // approval email fired) once it becomes fully paid — a deposit booking with just
+  // the deposit receipt accepted stays pending until the balance receipt is in.
   const handleAcceptReceipt = async (bookingId: string, receiptIndex: number) => {
     const target = bookings.find(b => b.id === bookingId);
     const wasPending = target?.status === 'pending';
-    if (wasPending && target) {
-      const alreadyConfirmed = (target.seats ?? []).some((seatNum) =>
-        bookings.some(b => b.id !== bookingId && b.status === 'confirmed' && b.pondId === target.pondId && b.seats.includes(seatNum))
-      );
-      if (alreadyConfirmed && !window.confirm('⚠ Tempat ini sudah disahkan pada tempahan lain. Teruskan sahaja?')) return;
-    }
     setSaving(true);
     try {
-      await acceptBookingReceipt({ bookingId, receiptIndex });
-      if (wasPending && target?.userEmail) {
+      const result = await acceptBookingReceipt({ bookingId, receiptIndex });
+      if (wasPending && result?.fullyPaid && target?.userEmail) {
         await queueBookingApprovedEmail({
           to: target.userEmail,
           bookingId: target.id,
@@ -399,30 +412,116 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         });
       }
       await reloadDB();
-    } catch (err) { console.error('Failed to accept receipt:', err); }
+    } catch (err) {
+      console.error('Failed to accept receipt:', err);
+      window.alert(`Gagal mengesahkan resit: ${err instanceof Error ? err.message : 'Ralat tidak diketahui'}`);
+    }
     setSaving(false);
   };
 
   const handleRejectReceipt = async (bookingId: string, receiptIndex: number) => {
     setSaving(true);
     try { await rejectBookingReceipt({ bookingId, receiptIndex }); await reloadDB(); }
-    catch (err) { console.error('Failed to reject receipt:', err); }
+    catch (err) {
+      console.error('Failed to reject receipt:', err);
+      window.alert(`Gagal menolak resit: ${err instanceof Error ? err.message : 'Ralat tidak diketahui'}`);
+    }
     setSaving(false);
+  };
+
+  // Manually email the user a balance-due reminder and reset the 7-day auto-remind clock.
+  const handleSendBalanceReminder = async (bookingId: string) => {
+    const target = bookings.find(b => b.id === bookingId);
+    if (!target) return;
+    const recipient = target.userEmail || target.userId;
+    if (!recipient || !recipient.includes('@')) {
+      window.alert('Tiada alamat email sah untuk tempahan ini.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await queueBalanceReminderEmail({
+        to: recipient,
+        bookingId: target.id,
+        bookingRef: target.bookingRef ?? target.id,
+        pondName: target.pondName,
+        pondDate: target.pondDate ?? '',
+        seats: target.seats,
+        balanceDue: target.balanceDue ?? 0,
+      });
+      await markBalanceReminderSent(bookingId);
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to send balance reminder:', err);
+      window.alert(`Gagal menghantar peringatan: ${err instanceof Error ? err.message : 'Ralat tidak diketahui'}`);
+    }
+    setSaving(false);
+  };
+
+  // ── Confirmation-dialog wrappers ─────────────────────────────────────────
+  // Each opens the shared confirm dialog; the real work runs only on confirm.
+  const askAcceptReceipt = (bookingId: string, receiptIndex: number) => {
+    const target = bookings.find(b => b.id === bookingId);
+    const seatClash = target && (target.seats ?? []).some((seatNum) =>
+      bookings.some(b => b.id !== bookingId && b.status === 'confirmed' && b.pondId === target.pondId && b.seats.includes(seatNum))
+    );
+    const amount = target?.receipts?.[receiptIndex]?.amount;
+    setConfirmDialog({
+      title: 'Sahkan Resit',
+      message: `Sahkan resit${amount != null ? ` RM ${amount}` : ''} untuk tempahan ini?${seatClash ? '\n\n⚠ Amaran: salah satu peg ini sudah disahkan pada tempahan lain.' : ''}`,
+      confirmLabel: 'Sahkan',
+      tone: 'primary',
+      onConfirm: () => handleAcceptReceipt(bookingId, receiptIndex),
+    });
+  };
+
+  const askRejectReceipt = (bookingId: string, receiptIndex: number) => {
+    setConfirmDialog({
+      title: 'Tolak Resit',
+      message: 'Tolak resit ini? Pengguna boleh memuat naik resit baharu selepas ini.',
+      confirmLabel: 'Tolak Resit',
+      tone: 'danger',
+      onConfirm: () => handleRejectReceipt(bookingId, receiptIndex),
+    });
+  };
+
+  const askRejectBooking = (bookingId: string) => {
+    setConfirmDialog({
+      title: 'Tolak Tempahan',
+      message: 'Tolak keseluruhan tempahan ini? Tempat akan dilepaskan dan tindakan ini tidak boleh diundur dengan mudah.',
+      confirmLabel: 'Tolak Tempahan',
+      tone: 'danger',
+      onConfirm: () => handleRejectBooking(bookingId),
+    });
+  };
+
+  const askSendReminder = (bookingId: string) => {
+    setConfirmDialog({
+      title: 'Hantar Peringatan',
+      message: 'Hantar e-mel peringatan baki bayaran kepada pengguna sekarang? Kiraan auto-peringat akan ditetapkan semula ke 7 hari.',
+      confirmLabel: 'Hantar',
+      tone: 'primary',
+      onConfirm: () => handleSendBalanceReminder(bookingId),
+    });
   };
 
   // A booking needs staff attention while any of its receipts is pending review.
   const pendingReceiptIndexes = (b: { receipts?: { status: string }[] }) =>
     (b.receipts || []).map((r, i) => (r.status === 'pending' ? i : -1)).filter(i => i >= 0);
 
+  // Human-readable balance-reminder status for a deposit booking awaiting its balance.
+  const reminderLabel = (info: ReturnType<typeof balanceReminderInfo>): string => {
+    if (info.msUntilRemind <= 0) return 'tertunggak';
+    const totalMins = Math.floor(info.msUntilRemind / 60000);
+    const days = Math.floor(totalMins / (60 * 24));
+    const hours = Math.floor((totalMins % (60 * 24)) / 60);
+    if (days > 0) return `${days}h ${hours}j`;
+    const mins = totalMins % 60;
+    return `${hours}j ${mins}m`;
+  };
+
   const handleViewReceipt = (receiptData: string) => {
-    const w = window.open('', '_blank');
-    if (w) {
-      const img = w.document.createElement('img');
-      img.src = receiptData;
-      img.style.cssText = 'max-width:100%;max-height:100vh;';
-      w.document.body.style.cssText = 'margin:0;background:#000;display:flex;justify-content:center;align-items:center;min-height:100vh;';
-      w.document.body.appendChild(img);
-    }
+    if (receiptData) setReceiptViewerUrl(receiptData);
   };
 
   const handleCheckin = () => {
@@ -1181,15 +1280,31 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               {r.url && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(r.url)}>Lihat</button>}
                               {r.status === 'pending'
                                 ? (<>
-                                    <button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit" onClick={() => handleAcceptReceipt(b.id, i)}>✓</button>
-                                    <button className="btn btn-sm btn-red" disabled={saving} title="Tolak resit" onClick={() => handleRejectReceipt(b.id, i)}>✕</button>
+                                    <button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit" onClick={() => askAcceptReceipt(b.id, i)}>✓</button>
+                                    <button className="btn btn-sm btn-red" disabled={saving} title="Tolak resit" onClick={() => askRejectReceipt(b.id, i)}>✕</button>
                                   </>)
                                 : (<span className={`badge badge-${r.status === 'accepted' ? 'approved' : 'rejected'}`} style={{ fontSize: '0.66rem' }}>{r.status === 'accepted' ? 'Disahkan' : 'Ditolak'}</span>)}
                             </div>
                           ))}
+                          {(() => {
+                            const info = balanceReminderInfo(b, nowTick);
+                            if (!info.awaitingBalance) return null;
+                            const overdue = info.msUntilRemind <= 0;
+                            return (
+                              <div style={{ marginTop: 4, padding: '6px 8px', background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.25)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                  ⏳ Deposit dihantar {info.daysSinceDeposit} hari lalu
+                                </span>
+                                <span style={{ fontSize: '0.7rem', color: overdue ? 'var(--red)' : 'var(--text-muted)', fontWeight: overdue ? 700 : 400 }}>
+                                  📧 Auto-peringat {overdue ? 'tertunggak' : `dalam ${reminderLabel(info)}`}
+                                </span>
+                                <button className="btn btn-sm btn-ghost" disabled={saving} title="Hantar peringatan baki sekarang" style={{ alignSelf: 'flex-start' }} onClick={() => askSendReminder(b.id)}>Hantar Peringatan</button>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </td>
-                      <td><button className="btn btn-sm btn-red" disabled={saving} title="Tolak keseluruhan tempahan" onClick={() => handleRejectBooking(b.id)}>Tolak Tempahan</button></td>
+                      <td><button className="btn btn-sm btn-red" disabled={saving} title="Tolak keseluruhan tempahan" onClick={() => askRejectBooking(b.id)}>Tolak Tempahan</button></td>
                     </tr>
                     );
                   })}
@@ -1271,8 +1386,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <td style={{ fontSize: '0.82rem' }}>{b.createdAt ? new Date(b.createdAt).toLocaleDateString('ms-MY') : '-'}</td>
                         <td><div style={{ display: 'flex', gap: '6px' }}>
                           {b.receiptData && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(b.receiptData)}>Resit</button>}
-                          {pendingReceiptIndexes(b).length > 0 && (<button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit menunggu" onClick={() => handleAcceptReceipt(b.id, pendingReceiptIndexes(b)[0])}>✓</button>)}
-                          {b.status === 'pending' && (<button className="btn btn-sm btn-red" disabled={saving} onClick={() => handleRejectBooking(b.id)}>✕</button>)}
+                          {pendingReceiptIndexes(b).length > 0 && (<button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit menunggu" onClick={() => askAcceptReceipt(b.id, pendingReceiptIndexes(b)[0])}>✓</button>)}
+                          {b.status === 'pending' && (<button className="btn btn-sm btn-red" disabled={saving} onClick={() => askRejectBooking(b.id)}>✕</button>)}
                         </div></td>
                       </tr>
                     ))}
@@ -1302,7 +1417,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Jumlah</span><span className="checkin-detail-val">RM {checkinResult.amount}</span></div>
                     {checkinResult.status !== 'confirmed' && <div className="warning-banner">⚠️ Tempahan ini belum disahkan.</div>}
                     {checkinResult.status === 'confirmed' && !checkinDone && (
-                      <button className="btn btn-green w-full mt-3" onClick={handlePerformCheckin} disabled={checkinLoading}>
+                      <button className="btn btn-green w-full mt-3" disabled={checkinLoading} onClick={() => setConfirmDialog({
+                        title: 'Check-In Peserta',
+                        message: `Sahkan check-in untuk ${checkinResult.userName} (${checkinResult.pondName}, peg ${checkinResult.seats.join(', ')})?`,
+                        confirmLabel: 'Check-In',
+                        tone: 'primary',
+                        onConfirm: handlePerformCheckin,
+                      })}>
                         {checkinLoading ? '⏳ Memproses...' : '✓ Check-In Peserta'}
                       </button>
                     )}
@@ -1962,6 +2083,56 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         lookupBookingFull={lookupBookingFullForScan}
         listBookings={listBookingsForScan}
       />
+
+      {/* In-page receipt lightbox (replaces opening a new browser tab) */}
+      {receiptViewerUrl && (
+        <div className="modal-overlay open" style={{ zIndex: 600 }} onClick={() => setReceiptViewerUrl(null)}>
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+            <button
+              className="modal-close"
+              onClick={() => setReceiptViewerUrl(null)}
+              style={{ position: 'absolute', top: -36, right: 0, color: '#fff', fontSize: '1.8rem' }}
+              aria-label="Tutup"
+            >×</button>
+            <img
+              src={receiptViewerUrl}
+              alt="Resit"
+              style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, display: 'block', background: '#000' }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Reusable confirmation dialog for decision actions */}
+      {confirmDialog && (
+        <div className="modal-overlay open" style={{ zIndex: 650 }} onClick={() => setConfirmDialog(null)}>
+          <div className="modal" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">{confirmDialog.title}</div>
+              <button className="modal-close" onClick={() => setConfirmDialog(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--text-muted)', marginBottom: '16px', whiteSpace: 'pre-line' }}>
+                {confirmDialog.message}
+              </p>
+              <div className="form-actions">
+                <button className="btn btn-ghost" disabled={saving} onClick={() => setConfirmDialog(null)}>Batal</button>
+                <button
+                  className={`btn ${confirmDialog.tone === 'danger' ? 'btn-danger' : 'btn-primary'}`}
+                  disabled={saving}
+                  onClick={async () => {
+                    const action = confirmDialog.onConfirm;
+                    setConfirmDialog(null);
+                    await action();
+                  }}
+                >
+                  {confirmDialog.confirmLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

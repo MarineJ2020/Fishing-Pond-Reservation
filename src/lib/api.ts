@@ -1,4 +1,4 @@
-import { createBookingDocument } from './firestore';
+import { createBookingDocument, acceptBookingReceiptDirect, rejectBookingReceiptDirect, submitBookingReceiptDirect } from './firestore';
 import { auth } from '../../lib/firebase';
 
 const baseUrl = import.meta.env.VITE_FUNCTIONS_BASE_URL || '';
@@ -41,15 +41,15 @@ export const createBooking = async (payload: any) => {
   return postJson('/createBooking', payload);
 };
 export const submitBookingReceipt = async (payload: { bookingId: string; receiptUrl: string; amount: number }) => {
-  if (!baseUrl) throw new Error('Penghantaran resit baki memerlukan sambungan pelayan. Sila cuba sebentar lagi.');
+  if (!baseUrl) return submitBookingReceiptDirect(payload.bookingId, payload.receiptUrl, payload.amount);
   return postJson('/submitBookingReceipt', payload);
 };
 export const acceptBookingReceipt = async (payload: { bookingId: string; receiptIndex: number }) => {
-  if (!baseUrl) throw new Error('Tindakan ini memerlukan sambungan pelayan.');
+  if (!baseUrl) return acceptBookingReceiptDirect(payload.bookingId, payload.receiptIndex);
   return postJson('/acceptBookingReceipt', payload);
 };
 export const rejectBookingReceipt = async (payload: { bookingId: string; receiptIndex: number }) => {
-  if (!baseUrl) throw new Error('Tindakan ini memerlukan sambungan pelayan.');
+  if (!baseUrl) return rejectBookingReceiptDirect(payload.bookingId, payload.receiptIndex);
   return postJson('/rejectBookingReceipt', payload);
 };
 export const approveBooking = async (payload: { bookingId: string }) => postJson('/approveBooking', payload);

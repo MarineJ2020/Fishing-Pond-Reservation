@@ -48,8 +48,8 @@ const AppContent: React.FC = () => {
     updateDB,
     reloadDB
   } = useBooking();
-  const { addToast, setAuthModalOpen, authModalOpen, cmsModalOpen, setCMSModalOpen } = useUI();
-  const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed, goToBookingDetail } = useNavigation();
+  const { addToast, setAuthModalOpen, authModalOpen } = useUI();
+  const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed, goToBookingDetail, goToCMS } = useNavigation();
   const location = useLocation();
   const { login, register, signInWithGoogle, logout, resendVerification, refreshUser, authReady } = useAuth();
 
@@ -1335,6 +1335,42 @@ const AppContent: React.FC = () => {
           </div>
         );
       }
+      case 'cms': {
+        // Client-side guard: signed-out users get a sign-in prompt; the CMSModal
+        // itself renders an "Akses Terhad" screen for signed-in non-staff. Real
+        // enforcement is server-side (Firestore rules require an admin role).
+        if (!user) {
+          return (
+            <div style={{ textAlign: 'center', padding: '6rem 2rem', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔒</div>
+              <h2 style={{ marginBottom: '0.5rem' }}>Akses dihadkan</h2>
+              <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                Sila log masuk dengan akaun kakitangan untuk mengakses CMS.
+              </p>
+              <button className="btn btn-primary" onClick={() => setAuthModalOpen(true)}>Log Masuk</button>
+            </div>
+          );
+        }
+        return (
+          <CMSModal
+            isOpen
+            onClose={() => goHome()}
+            onGoToBooking={() => goToBook()}
+            user={user}
+            ponds={db.ponds}
+            comp={db.comp}
+            competitions={db.competitions}
+            settings={db.settings}
+            bookings={db.bookings}
+            onUpdateData={({ ponds: updatedPonds, comp: updatedComp }) => {
+              if (updatedPonds || updatedComp) {
+                addToast('Settings updated successfully!', 'success');
+              }
+            }}
+            reloadDB={reloadDB}
+          />
+        );
+      }
       default:
         return (
           <div style={{ textAlign: 'center', padding: '6rem 2rem', color: 'var(--text-muted)' }}>
@@ -1354,7 +1390,7 @@ const AppContent: React.FC = () => {
         currentSection={currentSection}
         onSectionChange={handleNavigation}
         onOpenAuth={() => setAuthModalOpen(true)}
-        onOpenCMS={() => setCMSModalOpen(true)}
+        onOpenCMS={() => goToCMS()}
         onLogout={handleLogout}
         outstandingCount={outstandingCount}
       />
@@ -1370,23 +1406,6 @@ const AppContent: React.FC = () => {
         onRegister={handleRegister}
         onGoogleLogin={handleGoogleLogin}
         onResendVerification={resendVerification}
-      />
-      <CMSModal
-        isOpen={cmsModalOpen}
-        onClose={() => setCMSModalOpen(false)}
-        onGoToBooking={() => { setCMSModalOpen(false); goToBook(); }}
-        user={user}
-        ponds={db.ponds}
-        comp={db.comp}
-        competitions={db.competitions}
-        settings={db.settings}
-        bookings={db.bookings}
-        onUpdateData={({ ponds: updatedPonds, comp: updatedComp }) => {
-          if (updatedPonds || updatedComp) {
-            addToast('Settings updated successfully!', 'success');
-          }
-        }}
-        reloadDB={reloadDB}
       />
       <BookingDetailsModal
         isOpen={bookingDetailsOpen}

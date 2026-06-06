@@ -313,7 +313,12 @@ app.post('/acceptBookingReceipt', verifyToken, requireStaff, async (req, res) =>
         const paidAmount = sumAccepted(receipts);
         const totalAmount = Number(booking.totalAmount) || 0;
         const fullyPaid = totalAmount > 0 && paidAmount >= totalAmount;
-        const wasPending = (booking.status || '').toUpperCase() === 'PENDING_APPROVAL';
+        const statusUpper = (booking.status || '').toUpperCase();
+        const alreadyConfirmed = ['APPROVED', 'CONFIRMED', 'LIVE'].includes(statusUpper);
+        // Confirm the booking (status + hold seats) only once it is fully paid. A deposit
+        // booking with only the deposit receipt accepted stays PENDING_APPROVAL — its seats
+        // remain held by the pending-booking seat-conflict logic — until the balance is in.
+        const shouldConfirm = fullyPaid && !alreadyConfirmed;
 
         const update = {
             receipts,
@@ -322,11 +327,11 @@ app.post('/acceptBookingReceipt', verifyToken, requireStaff, async (req, res) =>
             updatedAt: new Date(),
             updatedBy: req.user.uid,
         };
-        if (wasPending) update.status = 'APPROVED';
+        if (shouldConfirm) update.status = 'APPROVED';
 
         await bookingDocRef.update(update);
 
-        // Record the payment (only when newly accepted) and hold seats on first confirm.
+        // Record the payment (only when newly accepted) and hold seats once fully paid.
         if (!wasAccepted) {
             await bookingDocRef.collection('payments').add({
                 amount: Number(receipts[receiptIndex].amount) || 0,
@@ -335,7 +340,7 @@ app.post('/acceptBookingReceipt', verifyToken, requireStaff, async (req, res) =>
                 createdAt: new Date(),
             });
         }
-        if (wasPending) {
+        if (shouldConfirm) {
             await updateSeatsForBooking(booking, 'booked');
         }
 
@@ -597,3 +602,107 @@ export const requestEmailVerification = functions.https.onCall(async (data, cont
         throw new functions.https.HttpsError('internal', 'Failed to send verification email.');
     }
 });
+
+// ── Balance-reminder scheduler ──────────────────────────────────────────────
+// Deposit bookings that still owe a balance get an email nudge every 7 days until
+// the balance receipt is uploaded. Mirrors the client-side timing in
+// src/utils/booking.ts (BALANCE_REMINDER_DAYS). Admin SDK writes bypass rules.
+const BALANCE_REMINDER_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const APP_URL = process.env.APP_URL || 'https://kolamkelisayang.web.app';
+
+const esc = (v) =>
+    String(v ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+// Firestore values may be a Timestamp, a Date, or an ISO string (direct-write path).
+const toMillis = (value) => {
+    if (!value) return 0;
+    if (typeof value.toMillis === 'function') return value.toMillis();
+    if (value instanceof Date) return value.getTime();
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) ? t : 0;
+};
+
+const renderBalanceReminderEmail = ({ bookingUrl, bookingRef, pondName, seats, balanceDue }) => `
+    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#222;max-width:620px;margin:0 auto;padding:24px;background:#fff;">
+      <div style="border-top:4px solid #b91c1c;padding-top:16px;">
+        <h2 style="margin:0 0 14px;color:#112a41;font-size:22px;">Peringatan: Baki Bayaran Tertunggak</h2>
+        <p>Salam sejahtera,</p>
+        <p>Tempahan deposit anda masih menunggu <strong style="color:#b91c1c;">baki bayaran</strong>. Sila muat naik resit bayaran baki anda untuk mengesahkan tempahan dan mengekalkan tempat anda.</p>
+        <table style="width:100%;border-collapse:collapse;margin:14px 0;">
+          <tr><td style="padding:6px 0;color:#666;width:40%;">No. Rujukan</td><td style="padding:6px 0;font-weight:700;">${esc(bookingRef) || '-'}</td></tr>
+          <tr><td style="padding:6px 0;color:#666;">Kolam</td><td style="padding:6px 0;font-weight:700;">${esc(pondName)}</td></tr>
+          <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${(seats || []).map((n) => `#${esc(n)}`).join(', ') || '-'}</td></tr>
+          <tr><td style="padding:6px 0;color:#666;">Baki Tertunggak</td><td style="padding:6px 0;font-weight:700;color:#b91c1c;">RM ${Number(balanceDue || 0).toFixed(2)}</td></tr>
+        </table>
+        <p style="text-align:center;margin:24px 0;">
+          <a href="${esc(bookingUrl)}" style="display:inline-block;background:#b91c1c;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">Muat Naik Resit Baki</a>
+        </p>
+        <p style="font-size:12px;color:#666;">Pautan terus: <a href="${esc(bookingUrl)}" style="color:#112a41;">${esc(bookingUrl)}</a></p>
+        <p style="font-size:12px;color:#888;">Jika anda telah membuat bayaran, sila abaikan e-mel ini.</p>
+        <hr style="border:none;border-top:1px solid #eee;margin:24px 0 12px;" />
+        <p style="font-size:12px;color:#888;margin:0;">Kolam Keli Sayang &middot; hello@kolamkelisayang.com.my</p>
+      </div>
+    </div>
+`;
+
+export const remindOutstandingBalances = functions.pubsub
+    .schedule('every 24 hours')
+    .timeZone('Asia/Kuala_Lumpur')
+    .onRun(async () => {
+        const now = Date.now();
+        // Filter the deposit candidates in code to avoid a composite index.
+        const snapshot = await adminDb.collection('bookings')
+            .where('paymentType', '==', 'deposit')
+            .get();
+
+        let sent = 0;
+        for (const docSnap of snapshot.docs) {
+            const booking = docSnap.data();
+            const statusUpper = (booking.status || '').toUpperCase();
+            if (statusUpper === 'REJECTED') continue;
+
+            const receipts = Array.isArray(booking.receipts) ? booking.receipts : [];
+            const totalAmount = Number(booking.totalAmount) || 0;
+            const paidAmount = typeof booking.paidAmount === 'number' ? booking.paidAmount : sumAccepted(receipts);
+            if (totalAmount <= 0 || paidAmount >= totalAmount) continue; // fully paid / no balance
+
+            // If a receipt is awaiting staff review, the ball is in staff's court — skip.
+            if (receipts.some((r) => r?.status === 'pending')) continue;
+
+            const recipient = booking.userEmail || booking.userId;
+            if (!recipient || typeof recipient !== 'string' || !recipient.includes('@')) continue;
+
+            const depositSubmittedMs = toMillis(receipts[0]?.submittedAt) || toMillis(booking.createdAt);
+            const lastReminderMs = toMillis(booking.balanceReminderSentAt);
+            const anchorMs = Math.max(depositSubmittedMs, lastReminderMs);
+            if (anchorMs === 0 || now - anchorMs < BALANCE_REMINDER_DAYS * DAY_MS) continue;
+
+            const bookingUrl = `${APP_URL}/bookings/${encodeURIComponent(docSnap.id)}`;
+            try {
+                await adminDb.collection('mail').add({
+                    to: recipient,
+                    cc: [STAFF_CC],
+                    message: {
+                        subject: `Peringatan Baki Bayaran - ${esc(booking.bookingRef) || docSnap.id}`,
+                        html: renderBalanceReminderEmail({
+                            bookingUrl,
+                            bookingRef: booking.bookingRef,
+                            pondName: booking.pondName || booking.competitionName || 'Tempahan',
+                            seats: booking.seatNumbers || [],
+                            balanceDue: Math.max(0, totalAmount - paidAmount),
+                        }),
+                    },
+                });
+                await docSnap.ref.update({ balanceReminderSentAt: new Date() });
+                sent += 1;
+            } catch (error) {
+                console.error(`Failed to queue balance reminder for ${docSnap.id}:`, error);
+            }
+        }
+
+        console.log(`remindOutstandingBalances: queued ${sent} reminder(s).`);
+        return null;
+    });

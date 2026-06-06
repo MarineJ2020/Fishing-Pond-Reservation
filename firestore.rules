@@ -73,9 +73,30 @@ service cloud.firestore {
     // Bookings: publicly readable (client policy). Any signed-in user can create.
     // Admin manually approves every booking, so no field-level validation here.
     match /bookings/{bookingId} {
+      // The booking owner is matched by email — bookings store userId/userEmail as
+      // the signing email on the no-Functions direct-write path.
+      function ownsBooking() {
+        return isSignedIn() && request.auth.token.email != null && (
+          request.auth.token.email == resource.data.userId ||
+          request.auth.token.email == resource.data.userEmail
+        );
+      }
+
+      // Owners may append payment receipts (deposit balance flow) when there is no
+      // Cloud Functions backend. Constrained to receipt fields only so a client can
+      // never self-approve (status/paidAmount/totals stay admin-only). Rejected
+      // bookings are frozen.
+      function ownerReceiptUpdate() {
+        return ownsBooking()
+          && resource.data.status != 'REJECTED'
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['receipts', 'receiptUrl', 'updatedAt', 'updatedBy']);
+      }
+
       allow read: if true;
       allow create: if isSignedIn();
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() || ownerReceiptUpdate();
+      allow delete: if isAdmin();
 
       match /payments/{paymentId} {
         allow read: if isAdmin() || request.auth.uid == get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId;

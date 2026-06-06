@@ -11,7 +11,9 @@ import {
   deleteDoc,
   serverTimestamp,
   Timestamp,
+  writeBatch,
 } from 'firebase/firestore';
+import { auth } from '../../lib/firebase';
 import { db } from '../../lib/firebase';
 import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry } from '../types';
 import { emptyDB } from '../data';
@@ -193,6 +195,7 @@ const buildBooking = (
     createdAt: normalizeTimestamp(data.createdAt) || new Date().toISOString(),
     bookingRef: data.bookingRef || undefined,
     createdByStaff: data.createdByStaff === true,
+    balanceReminderSentAt: normalizeTimestamp(data.balanceReminderSentAt) || undefined,
   };
 };
 
@@ -680,4 +683,174 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
 
 export const deleteScoreEntry = async (id: string): Promise<void> => {
   await deleteDoc(doc(db, 'eventResults', id));
+};
+
+const sumAcceptedReceipts = (receipts: any[]) =>
+  (Array.isArray(receipts) ? receipts : [])
+    .filter((r) => r?.status === 'accepted')
+    .reduce((sum, r) => sum + (Number(r?.amount) || 0), 0);
+
+// Mirror buildBooking's receipt derivation so the on-disk document matches the
+// indexes the CMS renders. Legacy bookings store a single `receiptUrl` with no
+// `receipts` array; we materialize that into the array shape before writing.
+const deriveReceiptsFromBooking = (booking: any): any[] => {
+  if (Array.isArray(booking?.receipts) && booking.receipts.length) {
+    return booking.receipts.map((r: any) => ({
+      url: r?.url || '',
+      amount: Number(r?.amount) || 0,
+      status: (r?.status || 'pending') as 'pending' | 'accepted' | 'rejected',
+      submittedAt: r?.submittedAt ?? new Date().toISOString(),
+    }));
+  }
+  if (booking?.receiptUrl) {
+    const statusUpper = (booking.status || '').toUpperCase();
+    const isConfirmed = ['APPROVED', 'CONFIRMED', 'LIVE'].includes(statusUpper);
+    return [{
+      url: booking.receiptUrl,
+      amount: Number(booking.amount) || 0,
+      status: (isConfirmed ? 'accepted' : 'pending') as 'pending' | 'accepted' | 'rejected',
+      submittedAt: booking.createdAt ?? new Date().toISOString(),
+    }];
+  }
+  return [];
+};
+
+const setSeatStatusForBooking = async (bookingData: any, nextStatus: 'booked' | 'pending' | 'available') => {
+  const rawSeatIds: string[] = Array.isArray(bookingData?.seatIds)
+    ? bookingData.seatIds
+        .map((ref: any) => (typeof ref === 'string' ? ref : ref?.id || ref?.path?.split('/').pop() || null))
+        .filter(Boolean)
+    : [];
+
+  let seatIds = rawSeatIds;
+  if (!seatIds.length && Array.isArray(bookingData?.seatNumbers)) {
+    const rawPondId = bookingData.pondId;
+    const pondDocId = typeof rawPondId === 'string' ? rawPondId : rawPondId?.id;
+    if (pondDocId) {
+      const seatSnap = await getDocs(query(collection(db, 'seats'), where('pondId', '==', pondDocId)));
+      const seatNumberSet = new Set<number>(bookingData.seatNumbers);
+      seatSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (seatNumberSet.has(data.seatNumber)) seatIds.push(docSnap.id);
+      });
+    }
+  }
+
+  if (!seatIds.length) return;
+  const batch = writeBatch(db);
+  seatIds.forEach((seatId) => {
+    batch.set(doc(db, 'seats', seatId), { status: nextStatus, updatedAt: serverTimestamp() }, { merge: true });
+  });
+  await batch.commit();
+};
+
+const MAX_RECEIPTS = 3;
+
+export const submitBookingReceiptDirect = async (bookingId: string, receiptUrl: string, amount: number) => {
+  const bookingRef = doc(db, 'bookings', bookingId);
+  const snap = await getDoc(bookingRef);
+  if (!snap.exists()) throw new Error('Booking not found.');
+  const booking = snap.data() as any;
+
+  if ((booking.status || '').toUpperCase() === 'REJECTED') {
+    throw new Error('Tempahan ini telah ditolak.');
+  }
+
+  const receipts = deriveReceiptsFromBooking(booking);
+  if (receipts.length >= MAX_RECEIPTS) {
+    throw new Error(`Maksimum ${MAX_RECEIPTS} resit telah dicapai.`);
+  }
+
+  const totalAmount = Number(booking.totalAmount) || 0;
+  if (totalAmount > 0 && sumAcceptedReceipts(receipts) >= totalAmount) {
+    throw new Error('Tempahan ini telah dibayar sepenuhnya.');
+  }
+
+  const next = [
+    ...receipts,
+    { url: receiptUrl, amount: Number(amount) || 0, status: 'pending' as const, submittedAt: new Date().toISOString() },
+  ];
+  await setDoc(bookingRef, {
+    receipts: next,
+    receiptUrl,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null,
+  }, { merge: true });
+
+  return { receipts: next };
+};
+
+export const acceptBookingReceiptDirect = async (bookingId: string, receiptIndex: number) => {
+  const bookingRef = doc(db, 'bookings', bookingId);
+  const snap = await getDoc(bookingRef);
+  if (!snap.exists()) throw new Error('Booking not found.');
+  const booking = snap.data() as any;
+  const receipts = deriveReceiptsFromBooking(booking);
+  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Invalid receiptIndex.');
+
+  const wasAccepted = receipts[receiptIndex]?.status === 'accepted';
+  receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'accepted' };
+  const paidAmount = sumAcceptedReceipts(receipts);
+  const totalAmount = Number(booking.totalAmount) || 0;
+  const fullyPaid = totalAmount > 0 && paidAmount >= totalAmount;
+  const statusUpper = (booking.status || '').toUpperCase();
+  const alreadyConfirmed = ['APPROVED', 'CONFIRMED', 'LIVE'].includes(statusUpper);
+  // Confirm the booking (status + hold seats) only once it is fully paid. A deposit
+  // booking with only the deposit receipt accepted stays PENDING_APPROVAL — its seats
+  // remain held by the pending-booking seat-conflict logic — until the balance is in.
+  const shouldConfirm = fullyPaid && !alreadyConfirmed;
+
+  const update: Record<string, any> = {
+    receipts,
+    paidAmount,
+    paymentStatus: fullyPaid ? 'APPROVED' : 'PARTIAL',
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null,
+  };
+  if (shouldConfirm) update.status = 'APPROVED';
+
+  await setDoc(bookingRef, update, { merge: true });
+
+  if (!wasAccepted) {
+    await addDoc(collection(db, 'bookings', bookingId, 'payments'), {
+      amount: Number(receipts[receiptIndex].amount) || 0,
+      method: 'receipt',
+      recordedBy: auth.currentUser?.uid || null,
+      createdAt: serverTimestamp(),
+    });
+  }
+  if (shouldConfirm) await setSeatStatusForBooking(booking, 'booked');
+
+  return { success: true, paidAmount, fullyPaid, status: update.status || booking.status };
+};
+
+// Stamp the time a balance reminder was sent so the 7-day auto-remind window
+// resets. Admin-only write (allowed by the bookings update rule for staff).
+export const markBalanceReminderSent = async (bookingId: string) => {
+  await setDoc(doc(db, 'bookings', bookingId), {
+    balanceReminderSentAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null,
+  }, { merge: true });
+};
+
+export const rejectBookingReceiptDirect = async (bookingId: string, receiptIndex: number) => {
+  const bookingRef = doc(db, 'bookings', bookingId);
+  const snap = await getDoc(bookingRef);
+  if (!snap.exists()) throw new Error('Booking not found.');
+  const booking = snap.data() as any;
+  const receipts = deriveReceiptsFromBooking(booking);
+  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Invalid receiptIndex.');
+
+  receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'rejected' };
+  const paidAmount = sumAcceptedReceipts(receipts);
+
+  await setDoc(bookingRef, {
+    receipts,
+    paidAmount,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null,
+  }, { merge: true });
+
+  return { success: true, paidAmount };
 };

@@ -7,6 +7,7 @@ const PATH_TO_SECTION: Record<string, string> = {
   '/live': 'live',
   '/my-bookings': 'mybookings',
   '/confirmed': 'confirmed',
+  '/cms': 'cms',
 };
 
 const SECTION_TO_PATH: Record<string, string> = {
@@ -15,6 +16,7 @@ const SECTION_TO_PATH: Record<string, string> = {
   live: '/live',
   mybookings: '/my-bookings',
   confirmed: '/confirmed',
+  cms: '/cms',
 };
 
 const BOOKING_PATH_RE = /^\/bookings\/([^/?#]+)/;
@@ -41,6 +43,7 @@ export const useNavigation = () => {
   const goToLive = useCallback(() => navigate('/live'), [navigate]);
   const goToMyBookings = useCallback(() => navigate('/my-bookings'), [navigate]);
   const goToConfirmed = useCallback(() => navigate('/confirmed'), [navigate]);
+  const goToCMS = useCallback(() => navigate('/cms'), [navigate]);
   const goToBookingDetail = useCallback(
     (id: string) => navigate(`/bookings/${encodeURIComponent(id)}`),
     [navigate],
@@ -56,5 +59,6 @@ export const useNavigation = () => {
     goToMyBookings,
     goToConfirmed,
     goToBookingDetail,
+    goToCMS,
   };
 };

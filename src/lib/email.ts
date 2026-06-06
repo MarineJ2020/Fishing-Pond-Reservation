@@ -111,6 +111,50 @@ export const queueBookingReceivedEmail = async (args: ReceivedArgs): Promise<voi
   }
 };
 
+interface BalanceReminderArgs {
+  to: string;
+  bookingId: string;
+  bookingRef?: string;
+  pondName: string;
+  pondDate: string;
+  seats: number[];
+  balanceDue: number;
+}
+
+export const queueBalanceReminderEmail = async (args: BalanceReminderArgs): Promise<void> => {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const bookingUrl = `${origin}/bookings/${encodeURIComponent(args.bookingId)}`;
+  const bookingUrlEsc = esc(bookingUrl);
+
+  const html = layout(
+    'Peringatan: Baki Bayaran Tertunggak',
+    `<p>Salam sejahtera,</p>
+     <p>Tempahan deposit anda masih menunggu <strong style="color:${BRAND_RED};">baki bayaran</strong>.
+        Sila muat naik resit bayaran baki anda untuk mengesahkan tempahan dan mengekalkan tempat anda.</p>
+     <table style="width:100%;border-collapse:collapse;margin:14px 0;">
+       <tr><td style="padding:6px 0;color:#666;width:40%;">No. Rujukan</td><td style="padding:6px 0;font-weight:700;">${esc(args.bookingRef) || '-'}</td></tr>
+       <tr><td style="padding:6px 0;color:#666;">Kolam</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondName)}</td></tr>
+       <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondDate)}</td></tr>
+       <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats)}</td></tr>
+       <tr><td style="padding:6px 0;color:#666;">Baki Tertunggak</td><td style="padding:6px 0;font-weight:700;color:${BRAND_RED};">RM ${Number(args.balanceDue || 0).toFixed(2)}</td></tr>
+     </table>
+     <p style="text-align:center;margin:22px 0;">
+       <a href="${bookingUrlEsc}" style="display:inline-block;background:${BRAND_RED};color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;">Muat Naik Resit Baki</a>
+     </p>
+     <p style="font-size:12px;color:#666;">Pautan terus: <a href="${bookingUrlEsc}" style="color:${BRAND_NAVY};">${bookingUrlEsc}</a></p>
+     <p>Jika anda telah membuat bayaran, sila abaikan e-mel ini. Terima kasih.</p>`
+  );
+
+  await addDoc(collection(db, 'mail'), {
+    to: args.to,
+    cc: [STAFF_CC],
+    message: {
+      subject: `Peringatan Baki Bayaran - ${esc(args.bookingRef) || args.bookingId}`,
+      html,
+    },
+  });
+};
+
 export const queueBookingApprovedEmail = async (args: ApprovedArgs): Promise<void> => {
   try {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';

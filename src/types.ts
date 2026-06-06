@@ -61,6 +61,8 @@ export interface Booking {
   updatedAt?: string;
   createdByStaff?: boolean;
   checkedIn?: boolean;
+  /** Last time a balance-due reminder email was sent to the user (ISO). */
+  balanceReminderSentAt?: string;
 }
 
 export interface Score {
