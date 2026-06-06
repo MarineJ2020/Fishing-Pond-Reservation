@@ -23,8 +23,6 @@ import { countOutstanding, hasOutstandingBalance } from './utils/booking';
 import { isCompetitionEnded } from './utils/competition';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db as firestoreDb } from '../lib/firebase';
 
 const AppContent: React.FC = () => {
   const {
@@ -410,30 +408,13 @@ const AppContent: React.FC = () => {
     if (!stillAvailable) setPond(null);
   }, [bookablePonds, selectedPond, setPond]);
 
-  // Real-time guard: watch selected seat documents; auto-deselect if another user books one
-  const selectedSeatsRef = useRef(selectedSeats);
-  useEffect(() => { selectedSeatsRef.current = selectedSeats; }, [selectedSeats]);
-
-  useEffect(() => {
-    if (!selectedSeats.length || !selectedPond) return;
-    const pond = db.ponds.find(p => p.id === selectedPond);
-    if (!pond) return;
-    const watchedSeats = selectedSeats
-      .map(num => pond.seats.find(s => s.num === num))
-      .filter((s): s is NonNullable<typeof s> => !!s?.id);
-    if (!watchedSeats.length) return;
-
-    const unsubs = watchedSeats.map(seat =>
-      onSnapshot(doc(firestoreDb, 'seats', seat.id!), (snap) => {
-        const data = snap.data();
-        if (data && data.status !== 'available' && selectedSeatsRef.current.includes(seat.num)) {
-          setSeats(selectedSeatsRef.current.filter(n => n !== seat.num));
-          addToast(`Tempat #${seat.num} baru sahaja ditempah oleh orang lain`, 'error');
-        }
-      })
-    );
-    return () => unsubs.forEach(u => u());
-  }, [selectedSeats, selectedPond, db.ponds]);
+  // Note: seat availability is derived per-competition from bookings
+  // (`competitionScopedPonds`), not from the global seat document `status` — the
+  // same physical ponds are reused across competitions with independent bookings.
+  // A seat held/booked in one competition must not appear taken in another, so we
+  // intentionally do NOT watch the global seat-doc status here. Integrity at
+  // submission is enforced by the competition-scoped clash check in
+  // createBookingDocument (and the server booking endpoint).
 
   const totalRegistered = db.bookings.length;
   const totalPrizePool = selectedCompetition?.prizes?.reduce((sum: number, prize: any) => {

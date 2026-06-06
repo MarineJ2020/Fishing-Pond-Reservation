@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
@@ -24,6 +25,8 @@ import { getCompetitionPhase } from '../utils/competition';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 
 type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
+
+const CMS_PAGES: CMSPage[] = ['dashboard', 'competitions', 'ponds', 'prizes', 'approvals', 'manual-booking', 'all-bookings', 'checkin', 'results', 'contact-settings', 'landing-content', 'users'];
 
 interface CMSModalProps {
   isOpen: boolean;
@@ -128,7 +131,17 @@ function CMSPondSeatEditor({
 }
 
 const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB }) => {
-  const [page, setPage] = useState<CMSPage>('dashboard');
+  // Active CMS tab is mirrored in the URL (?tab=) so a page refresh stays on the
+  // same tab instead of resetting to the dashboard.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab') as CMSPage | null;
+  const page: CMSPage = tabParam && CMS_PAGES.includes(tabParam) ? tabParam : 'dashboard';
+  const setPage = (next: CMSPage) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'dashboard') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params);
+  };
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingPond, setEditingPond] = useState<Pond | null>(null);
   const [compEdit, setCompEdit] = useState<Competition>(comp);
@@ -144,6 +157,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [pondSaveError, setPondSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'rejected'>('all');
+  const [bookingSearch, setBookingSearch] = useState('');
+  // Force-cancel-a-confirmed-booking flow: typed confirmation guard.
+  const [forceCancelTarget, setForceCancelTarget] = useState<Booking | null>(null);
+  const [forceCancelText, setForceCancelText] = useState('');
   const [checkinRef, setCheckinRef] = useState('');
   const [checkinResult, setCheckinResult] = useState<any>(null);
   const [checkinLoading, setCheckinLoading] = useState(false);
@@ -235,13 +252,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   }, [comp, competitions]);
   useEffect(() => { setSettingsEdit(settings); }, [settings]);
 
-  // Conflict detection: map "pondId-seatNum" → booking IDs that claim it (excluding rejected)
+  // Conflict detection: map "competitionId-pondId-seatNum" → booking IDs that claim it
+  // (excluding rejected). Keyed by competition so the same pond+seat reused in a
+  // different competition is never flagged as a conflict.
   const seatConflictMap = React.useMemo(() => {
     const map = new Map<string, string[]>();
     bookings.forEach((b) => {
       if (b.status === 'rejected') return;
+      const compId = b.competitionId || '';
       (b.seats ?? []).forEach((seatNum) => {
-        const key = `${b.pondId}-${seatNum}`;
+        const key = `${compId}-${b.pondId}-${seatNum}`;
         map.set(key, [...(map.get(key) ?? []), b.id]);
       });
     });
@@ -476,6 +496,23 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
+  // Force-cancel a CONFIRMED booking. Frees its seats (status → rejected). Guarded
+  // by a first confirm dialog AND a typed "DELETE BOOKING" confirmation.
+  const handleForceCancel = async () => {
+    if (!forceCancelTarget) return;
+    setSaving(true);
+    try {
+      await updateBookingStatusFirestore(forceCancelTarget.id, 'rejected');
+      await reloadDB();
+      setForceCancelTarget(null);
+      setForceCancelText('');
+    } catch (err) {
+      console.error('Failed to force-cancel booking:', err);
+      window.alert(`Gagal membatalkan tempahan / Failed to cancel booking: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
+    }
+    setSaving(false);
+  };
+
   // ── Confirmation-dialog wrappers ─────────────────────────────────────────
   // Each opens the shared confirm dialog; the real work runs only on confirm.
   const askAcceptReceipt = (bookingId: string, receiptIndex: number) => {
@@ -520,6 +557,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       confirmLabel: 'Hantar',
       tone: 'primary',
       onConfirm: () => handleSendBalanceReminder(bookingId),
+    });
+  };
+
+  // First gate for force-cancelling a confirmed booking; the typed-confirmation
+  // modal (DELETE BOOKING) is the second gate.
+  const askForceCancel = (booking: Booking) => {
+    setConfirmDialog({
+      title: 'Batal Paksa Tempahan / Force Cancel',
+      message: `Tindakan ini akan MEMBATALKAN tempahan yang telah DISAHKAN untuk ${booking.userName} (${booking.pondName}, peg ${booking.seats.join(', ')}) dan melepaskan tempatnya.\n\nThis will CANCEL a CONFIRMED booking and release its seats. Continue?`,
+      confirmLabel: 'Teruskan / Continue',
+      tone: 'danger',
+      onConfirm: () => { setForceCancelText(''); setForceCancelTarget(booking); },
     });
   };
 
@@ -920,8 +969,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const pendingCount = bookings.filter(b => b.status === 'pending').length;
   const confirmedCount = bookings.filter(b => b.status === 'confirmed').length;
 
-  const hasConflict = (b: { pondId: number; seats: number[] }) =>
-    (b.seats ?? []).some((n) => (seatConflictMap.get(`${b.pondId}-${n}`) ?? []).length > 1);
+  const hasConflict = (b: { pondId: number; seats: number[]; competitionId?: string }) =>
+    (b.seats ?? []).some((n) => (seatConflictMap.get(`${b.competitionId || ''}-${b.pondId}-${n}`) ?? []).length > 1);
   const totalRevenue = bookings.filter(b => b.status === 'confirmed').reduce((s, b) => s + b.amount, 0);
   const competitionsForCms = compList.length ? compList : (comp.name ? [comp] : []);
   const competitionForDashboard =
@@ -1394,19 +1443,44 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             </div>
           )}
-          {page === 'all-bookings' && (
+          {page === 'all-bookings' && (() => {
+            const q = bookingSearch.trim().toLowerCase();
+            const filteredBookings = bookings
+              .filter(b => bookingFilter === 'all' || b.status === bookingFilter)
+              .filter(b => {
+                if (!q) return true;
+                const haystack = [
+                  b.id, b.bookingRef, b.userName, b.userId, b.userEmail, b.userPhone,
+                  b.pondName, b.competitionName, b.seats.join(' '),
+                ].filter(Boolean).join(' ').toLowerCase();
+                return haystack.includes(q);
+              })
+              .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+            return (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Semua Tempahan</div><div className="page-sub">{bookings.length} tempahan ditemui</div></div></div>
+              <div className="page-header"><div><div className="page-title">Semua Tempahan</div><div className="page-sub">{filteredBookings.length} daripada {bookings.length} tempahan</div></div></div>
               <div className="card">
-                <div className="card-header" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
+                <div className="card-header" style={{ gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     {(['all', 'pending', 'confirmed', 'rejected'] as const).map(f => (<button key={f} className={`btn btn-sm ${bookingFilter === f ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setBookingFilter(f)}>{f === 'all' ? 'Semua' : f === 'pending' ? 'Menunggu' : f === 'confirmed' ? 'Disahkan' : 'Ditolak'}({f === 'all' ? bookings.length : bookings.filter(b => b.status === f).length})</button>))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', position: 'relative' }}>
+                    <input
+                      className="form-input"
+                      style={{ width: '260px', maxWidth: '60vw', padding: '6px 28px 6px 10px' }}
+                      placeholder="Cari nama, ref, email, kolam, peg…"
+                      value={bookingSearch}
+                      onChange={e => setBookingSearch(e.target.value)}
+                    />
+                    {bookingSearch && (
+                      <button onClick={() => setBookingSearch('')} title="Kosongkan" style={{ position: 'absolute', right: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem' }}>×</button>
+                    )}
                   </div>
                 </div>
                 <div className="card-body"><div className="table-wrap"><table>
                   <thead><tr><th>Ref</th><th>Pertandingan</th><th>Nama</th><th>Kolam</th><th>Pegs</th><th>Jumlah</th><th>Status</th><th>Tarikh</th><th>Tindakan</th></tr></thead>
                   <tbody>
-                    {bookings.filter(b => bookingFilter === 'all' || b.status === bookingFilter).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()).map(b => (
+                    {filteredBookings.map(b => (
                       <tr key={b.id}>
                         <td className="td-ref">{b.id.slice(0, 10)}</td>
                         <td>{b.competitionName || comp.name || '-'}</td>
@@ -1426,15 +1500,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {b.receiptData && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(b.receiptData)}>Resit</button>}
                           {pendingReceiptIndexes(b).length > 0 && (<button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit menunggu" onClick={() => askAcceptReceipt(b.id, pendingReceiptIndexes(b)[0])}>✓</button>)}
                           {b.status === 'pending' && (<button className="btn btn-sm btn-red" disabled={saving} onClick={() => askRejectBooking(b.id)}>✕</button>)}
+                          {b.status === 'confirmed' && (<button className="btn btn-sm btn-danger" disabled={saving} title="Batal paksa tempahan disahkan" onClick={() => askForceCancel(b)}>Batal Paksa</button>)}
                         </div></td>
                       </tr>
                     ))}
-                    {bookings.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan</td></tr>}
+                    {filteredBookings.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>{bookings.length === 0 ? 'Tiada tempahan' : 'Tiada tempahan sepadan dengan carian'}</td></tr>}
                   </tbody>
                 </table></div></div>
               </div>
             </div>
-          )}
+            );
+          })()}
           {page === 'checkin' && (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Check-In Peserta</div><div className="page-sub">Cari dan sahkan kehadiran</div></div></div>
@@ -1894,9 +1970,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         // Effective active state per seat = unsaved edit if present, else saved flag.
                         const isSeatActive = (s: { num: number; active?: boolean }) =>
                           edits[s.num] !== undefined ? edits[s.num] : s.active !== false;
-                        // Seats held by a non-rejected booking can't be deactivated.
+                        // Seats held by a non-rejected booking *in this competition* can't be
+                        // deactivated. Scoped to compEdit so the same physical pond reused in a
+                        // different competition starts with no held pegs.
                         const heldSeats = pond.seats
-                          .filter(s => (seatConflictMap.get(`${pond.id}-${s.num}`)?.length ?? 0) > 0)
+                          .filter(s => bookings.some(b =>
+                            b.status !== 'rejected' &&
+                            b.pondId === pond.id &&
+                            b.seats.includes(s.num) &&
+                            (b.competitionId || '') === (compEdit.id || '')
+                          ))
                           .map(s => s.num);
                         const heldSet = new Set(heldSeats);
                         const activeCount = pond.seats.filter(isSeatActive).length;
@@ -2149,7 +2232,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       />
 
       {/* In-page receipt lightbox (replaces opening a new browser tab) */}
-      {receiptViewerUrl && (
+      {receiptViewerUrl && (() => {
+        const isPdf = /\.pdf($|\?)/i.test(receiptViewerUrl) || receiptViewerUrl.startsWith('data:application/pdf');
+        return (
         <div className="modal-overlay open" style={{ zIndex: 600 }} onClick={() => setReceiptViewerUrl(null)}>
           <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
             <button
@@ -2158,23 +2243,34 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               style={{ position: 'absolute', top: -36, right: 0, color: '#fff', fontSize: '1.8rem' }}
               aria-label="Tutup"
             >×</button>
-            <img
-              src={receiptViewerUrl}
-              alt="Resit"
-              onLoad={(e) => setReceiptViewerMeta(m => ({ ...m, width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight }))}
-              style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, display: 'block', background: '#000' }}
-            />
+            {isPdf ? (
+              <iframe
+                title="Resit PDF"
+                src={receiptViewerUrl}
+                style={{ width: '90vw', height: '85vh', border: 'none', borderRadius: 8, background: '#fff', display: 'block' }}
+              />
+            ) : (
+              <img
+                src={receiptViewerUrl}
+                alt="Resit"
+                onLoad={(e) => { const w = e.currentTarget.naturalWidth; const h = e.currentTarget.naturalHeight; setReceiptViewerMeta(m => ({ ...m, width: w, height: h })); }}
+                style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, display: 'block', background: '#000' }}
+              />
+            )}
             <div style={{ marginTop: 8, textAlign: 'center', color: '#fff', fontSize: '0.78rem', display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-              {receiptViewerMeta.width > 0 && (
+              {isPdf && <span>📄 PDF</span>}
+              {!isPdf && receiptViewerMeta.width > 0 && (
                 <span>📐 {receiptViewerMeta.width} × {receiptViewerMeta.height} px</span>
               )}
               {receiptViewerMeta.bytes != null && (
                 <span>💾 {formatBytes(receiptViewerMeta.bytes)}</span>
               )}
+              <a href={receiptViewerUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--gold, #f5c542)' }}>Buka dalam tab baharu / Open in new tab ↗</a>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Reusable confirmation dialog for decision actions */}
       {confirmDialog && (
@@ -2200,6 +2296,44 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   }}
                 >
                   {confirmDialog.confirmLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Force-cancel typed confirmation (second gate) */}
+      {forceCancelTarget && (
+        <div className="modal-overlay open" style={{ zIndex: 660 }} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); }}>
+          <div className="modal" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Pengesahan Akhir / Final Confirmation</div>
+              <button className="modal-close" onClick={() => { setForceCancelTarget(null); setForceCancelText(''); }}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--text-muted)', marginBottom: '12px', fontSize: '0.85rem' }}>
+                Untuk membatalkan tempahan <strong>{forceCancelTarget.id.slice(0, 10)}</strong> ({forceCancelTarget.userName}),
+                taip <strong style={{ color: 'var(--red)' }}>DELETE BOOKING</strong> di bawah.
+                <br /><br />
+                <em>To cancel this confirmed booking, type <strong style={{ color: 'var(--red)' }}>DELETE BOOKING</strong> below. This cannot be undone easily.</em>
+              </p>
+              <input
+                className="form-input"
+                style={{ width: '100%', marginBottom: '14px' }}
+                placeholder="DELETE BOOKING"
+                value={forceCancelText}
+                onChange={(e) => setForceCancelText(e.target.value)}
+                autoFocus
+              />
+              <div className="form-actions">
+                <button className="btn btn-ghost" disabled={saving} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); }}>Batal / Cancel</button>
+                <button
+                  className="btn btn-danger"
+                  disabled={saving || forceCancelText !== 'DELETE BOOKING'}
+                  onClick={handleForceCancel}
+                >
+                  {saving ? 'Membatalkan… / Cancelling…' : 'Batalkan Tempahan / Cancel Booking'}
                 </button>
               </div>
             </div>
