@@ -230,7 +230,8 @@
 .kl-weight { text-align: right; }
 .kl-weight small { display: block; color: var(--red); font-size: 10px; font-weight: 900; text-transform: uppercase; margin-bottom: 4px; }
 .kl-weight strong { display: block; font-family: var(--font-heading); font-size: 28px; line-height: .95; }
-.kl-prize-cell { text-align: right; min-width: 64px; }
+.kl-updated { text-align: right; min-width: 70px; color: var(--muted); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.kl-updated i { color: var(--red); margin-right: 4px; }
 .kl-prizebadge { display: inline-block; background: var(--red-pale); color: var(--red); border: 1px solid rgba(231,25,45,.25); border-radius: 8px; padding: 4px 10px; font-size: 11px; font-weight: 800; }
 .kl-muted { color: var(--muted); font-size: 13px; }
 
@@ -242,6 +243,8 @@
 .kl-mini small { display: block; margin-bottom: 3px; color: rgba(255,255,255,.62); font-size: 9px; font-weight: 900; text-transform: uppercase; }
 .kl-mini strong { display: block; font-family: var(--font-heading); font-size: 22px; line-height: .9; }
 .kl-mini.rank { background: var(--red); }
+.kl-myresult.empty { grid-template-columns: auto 1fr; }
+.kl-myresult-empty { text-align: right; color: rgba(255,255,255,.72); font-size: 12px; font-weight: 700; line-height: 1.4; }
 
 /* Prize list */
 .kl-side { display: grid; gap: 22px; }
@@ -301,8 +304,8 @@
   .kl-cd-item strong { font-size: 28px; }
   .kl-panel-head { padding: 18px; }
   .kl-panel-head h2, .kl-panel-head h3 { font-size: 27px; }
-  .kl-rank-row { grid-template-columns: 46px 1fr auto; gap: 10px; padding: 13px; }
-  .kl-prize-cell { display: none; }
+  .kl-rank-row { grid-template-columns: 46px 1fr auto; gap: 10px 12px; padding: 13px; }
+  .kl-updated { grid-column: 2 / -1; text-align: left; margin-top: 2px; }
   .kl-rank-no { width: 42px; height: 42px; font-size: 22px; }
   .kl-weight strong { font-size: 24px; }
   .kl-past-head { display: block; }

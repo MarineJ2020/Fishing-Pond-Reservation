@@ -86,6 +86,13 @@ const AppContent: React.FC = () => {
     return db.comp?.name ? [db.comp] : [];
   }, [db.comp, db.competitions]);
 
+  // Competitions that still accept bookings — ended ("tamat") events are hidden
+  // from the booking page entirely.
+  const bookableCompetitions = useMemo(
+    () => competitions.filter((c) => !isCompetitionEnded(c)),
+    [competitions],
+  );
+
   const selectedCompetition = useMemo(() => {
     const selected = competitions.find((competition) => competition.id === selectedCompetitionId);
     return selected || competitions[0] || db.comp;
@@ -309,6 +316,17 @@ const AppContent: React.FC = () => {
   };
 
   const handleReceiptChange = (file: File) => {
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const MAX_PDF = 10 * 1024 * 1024; // 10 MB
+    const MAX_IMG = 15 * 1024 * 1024; // 15 MB (raw; images are compressed after)
+    if (isPdf && file.size > MAX_PDF) {
+      addToast('Fail PDF terlalu besar. Maksimum 10MB. / PDF too large (max 10MB).', 'error');
+      return;
+    }
+    if (!isPdf && file.size > MAX_IMG) {
+      addToast('Fail imej terlalu besar. Maksimum 15MB. / Image too large (max 15MB).', 'error');
+      return;
+    }
     const MAX_DIM = 1600;
     const QUALITY = 0.82;
     const objectUrl = URL.createObjectURL(file);
@@ -417,6 +435,18 @@ const AppContent: React.FC = () => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
   }, [seatModalOpen]);
+
+  // On the booking page, never leave an ended competition selected — pick the
+  // first bookable one so the pond/seat steps render by default.
+  useEffect(() => {
+    if (currentSection !== 'book' || !bookableCompetitions.length) return;
+    const selectedIsBookable = bookableCompetitions.some(
+      (c) => (c.id || '') === (selectedCompetition?.id || ''),
+    );
+    if (!selectedIsBookable) {
+      setSelectedCompetitionId(bookableCompetitions[0].id || null);
+    }
+  }, [currentSection, bookableCompetitions, selectedCompetition?.id, setSelectedCompetitionId]);
 
   // Note: seat availability is derived per-competition from bookings
   // (`competitionScopedPonds`), not from the global seat document `status` — the
@@ -1074,8 +1104,12 @@ const AppContent: React.FC = () => {
                         </div>
                         <div className="bk-panel-body">
                           <div className="bk-choice-grid">
-                            {competitions.map((competition) => {
-                              const ended = isCompetitionEnded(competition);
+                            {bookableCompetitions.length === 0 && (
+                              <div style={{ color: 'var(--muted)', fontSize: '14px', padding: '8px 2px' }}>
+                                Tiada pertandingan dibuka untuk tempahan buat masa ini.
+                              </div>
+                            )}
+                            {bookableCompetitions.map((competition) => {
                               const active = (selectedCompetition?.id || '') === (competition.id || '');
                               const pondsCount = competition.activePondIds?.length || totalPonds;
                               return (
@@ -1085,7 +1119,7 @@ const AppContent: React.FC = () => {
                                   className={`bk-choice ${active ? 'active' : ''}`}
                                   onClick={() => handleSelectCompetitionForBooking(competition.id)}
                                 >
-                                  <small>{ended ? 'Tamat' : 'Pendaftaran Dibuka'}</small>
+                                  <small>Pendaftaran Dibuka</small>
                                   <strong>{competition.name}</strong>
                                   <div className="bk-choice-meta">
                                     {samplePrice > 0 && <span>RM{samplePrice}</span>}

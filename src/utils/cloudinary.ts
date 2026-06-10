@@ -53,9 +53,14 @@ export function compressImageToDataUrl(file: File): Promise<string> {
 export async function uploadDataUrlToCloudinary(dataUrl: string, folder: string): Promise<string> {
   const commaIdx = dataUrl.indexOf(',');
   const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+  // Preserve the original MIME type from the data-URL header so PDFs are not
+  // corrupted by being relabelled as JPEG. Cloudinary's image/upload endpoint
+  // accepts PDFs and returns a .pdf URL.
+  const mimeMatch = /^data:([^;,]+)[;,]/.exec(dataUrl);
+  const mime = mimeMatch?.[1] || 'image/jpeg';
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const blob = new Blob([bytes], { type: 'image/jpeg' });
+  const blob = new Blob([bytes], { type: mime });
   return uploadImageToCloudinary(blob, folder);
 }

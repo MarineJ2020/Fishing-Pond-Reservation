@@ -144,7 +144,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
         </div>
         <div style={{ fontSize: '17px', fontWeight: 800, marginBottom: '6px', fontFamily: 'var(--font-heading)' }}>{booking.userName}</div>
         <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-          <span>📧 {booking.userId}</span>
+          <span>📧 {booking.userEmail || booking.userId}</span>
           <span>📱 {booking.userPhone || 'Tidak disediakan'}</span>
         </div>
       </div>
@@ -199,18 +199,29 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
                     </span>
                     <span style={{ fontSize: '.72rem', fontWeight: 700, color: meta.color }}>{meta.label}</span>
                   </div>
-                  {r.url && (
-                    <>
-                      <img src={r.url} alt={`Receipt ${i + 1}`} style={{ width: '100%', maxHeight: '300px', borderRadius: '12px', objectFit: 'cover', border: '1px solid var(--line)' }} />
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => window.open(r.url, '_blank')}
-                        style={{ marginTop: '10px', width: '100%', justifyContent: 'center' }}
-                      >
-                        Lihat Resit Penuh
-                      </button>
-                    </>
-                  )}
+                  {r.url && (() => {
+                    const isPdf = /\.pdf($|\?)/i.test(r.url) || r.url.startsWith('data:application/pdf');
+                    return (
+                      <>
+                        {isPdf ? (
+                          <iframe
+                            title={`Receipt ${i + 1}`}
+                            src={r.url}
+                            style={{ width: '100%', height: '360px', borderRadius: '12px', border: '1px solid var(--line)', background: '#fff' }}
+                          />
+                        ) : (
+                          <img src={r.url} alt={`Receipt ${i + 1}`} style={{ width: '100%', maxHeight: '300px', borderRadius: '12px', objectFit: 'cover', border: '1px solid var(--line)' }} />
+                        )}
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => window.open(r.url, '_blank')}
+                          style={{ marginTop: '10px', width: '100%', justifyContent: 'center' }}
+                        >
+                          {isPdf ? 'Buka PDF Penuh (semua halaman)' : 'Lihat Resit Penuh'}
+                        </button>
+                      </>
+                    );
+                  })()}
                 </div>
               );
             })}

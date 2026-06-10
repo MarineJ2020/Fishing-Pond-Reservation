@@ -2,6 +2,10 @@ import { initializeApp } from 'firebase/app';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import {
   getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
   connectAuthEmulator,
   GoogleAuthProvider,
   EmailAuthProvider,
@@ -45,7 +49,24 @@ if (appCheckSiteKey && !skipAppCheck && typeof window !== 'undefined') {
   }
 }
 
-export const auth = getAuth(app);
+// Use explicit persistence with a fallback chain. iOS Safari (and private/
+// in-app browsers) can fail IndexedDB-based persistence, which silently logs
+// the user out on reload. Falling back to localStorage, then in-memory, keeps
+// the session alive on mobile. `initializeAuth` runs once per app instance; on
+// HMR re-execution it throws "already-initialized", so we fall back to getAuth.
+export const auth = (() => {
+  try {
+    return initializeAuth(app, {
+      persistence: [
+        indexedDBLocalPersistence,
+        browserLocalPersistence,
+        browserSessionPersistence,
+      ],
+    });
+  } catch {
+    return getAuth(app);
+  }
+})();
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 

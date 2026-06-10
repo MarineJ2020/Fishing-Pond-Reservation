@@ -317,8 +317,19 @@ export const getPondsWithSeats = async (): Promise<Pond[]> => {
       maxSeats: data.totalSeats || undefined,
       seats: normalizeSeats(pondSnap.id, totalSeats, seatDocs, data.seatLayout),
       shape: Array.isArray(data.shape) && data.shape.length > 0 ? data.shape : undefined,
-    };
-  });
+      order: typeof data.order === 'number' ? data.order : undefined,
+      _idx: index,
+    } as Pond & { _idx: number };
+  })
+  // Honour the CMS-adjustable arrangement: ponds with an explicit `order` come
+  // first (ascending), the rest keep their original fetch order.
+  .sort((a, b) => {
+    const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+    const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return (a as any)._idx - (b as any)._idx;
+  })
+  .map(({ _idx, ...pond }: any) => pond as Pond);
 };
 
 export const getBookings = async (competitionId?: string, competitions: Competition[] = []): Promise<Booking[]> => {
@@ -413,11 +424,16 @@ export const createBookingDocument = async (data: any) => {
     if (clash) throw new Error(`Tempat #${clash} telah ditempah. Sila pilih tempat lain. / Seat #${clash} is already booked. Please choose another seat.`);
   });
 
+  // Bookings made by staff/admin on behalf of a customer are trusted and
+  // confirmed immediately — no separate approval step. Self-service bookings
+  // still go through PENDING_APPROVAL for staff to verify the receipt.
+  const isStaffBooking = data.createdByStaff === true;
+
   const bookingsRef = collection(db, 'bookings');
   return await addDoc(bookingsRef, {
     ...data,
-    status: 'PENDING_APPROVAL',
-    paymentStatus: 'PENDING',
+    status: isStaffBooking ? 'CONFIRMED' : 'PENDING_APPROVAL',
+    paymentStatus: isStaffBooking ? 'PAID' : 'PENDING',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -633,6 +649,7 @@ export const getScoresForCompetition = async (competitionId: string): Promise<Sc
       ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
       ocrRawText: data.ocrRawText || undefined,
       capturedBy: data.capturedBy || undefined,
+      capturedAt: normalizeTimestamp(data.updatedAt) || normalizeTimestamp(data.createdAt) || undefined,
     });
   });
   return entries;

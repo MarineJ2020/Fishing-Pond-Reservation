@@ -179,11 +179,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [scanOpen, setScanOpen] = useState(false);
   const [pendingScan, setPendingScan] = useState<ScaleScanApproved | null>(null);
   const [anglerSuggestOpen, setAnglerSuggestOpen] = useState(false);
-  // Tracks the last angler name we auto-filled from pond+seat, so we re-autofill
-  // when the seat changes but never overwrite a name the admin typed themselves.
-  const autofilledAnglerRef = useRef<string>('');
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
   const [pondMapUploading, setPondMapUploading] = useState(false);
+  // Users page search query.
+  const [userSearch, setUserSearch] = useState('');
+  // Reorder/collapse state for the ponds CMS.
+  const [pondReordering, setPondReordering] = useState(false);
+  const [expandedPondSeats, setExpandedPondSeats] = useState<Record<string, boolean>>({});
+  // After creating a competition we open its Manage editor once it appears in the
+  // refreshed list.
+  const [pendingEditCompId, setPendingEditCompId] = useState<string | null>(null);
 
   // In-page receipt lightbox (replaces opening a new browser tab).
   const [receiptViewerUrl, setReceiptViewerUrl] = useState<string | null>(null);
@@ -222,29 +227,37 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     getScoresForCompetition(resultsCompId).then(setScoreEntries);
   }, [page, resultsCompId]);
 
-  // Auto-fill the participant name when the admin enters pond + seat first.
-  // Never overwrites a name the admin typed (only an empty or previously
-  // auto-filled value), and re-runs when the pond/seat changes.
+  // Weight submission is keyed to the participant, not a peg. When the admin
+  // picks/types a participant name that matches a booking in this competition,
+  // auto-derive their pond + seat from the booking so no peg selection is needed.
   useEffect(() => {
     if (page !== 'results') return;
-    const current = manualEntry.anglerName;
-    if (current && current !== autofilledAnglerRef.current) return; // admin typed a name — leave it
-    const seatNum = parseInt(manualEntry.seatNum, 10);
-    if (!manualEntry.pondId || !seatNum) return;
-    const pond = ponds.find(p => (p._docId || p.id.toString()) === manualEntry.pondId);
-    if (!pond) return;
-    const match = bookings.find(b =>
+    const name = manualEntry.anglerName.trim();
+    if (!name) return;
+    const bk = bookings.find(b =>
       b.status !== 'rejected' &&
-      b.pondId === pond.id &&
-      b.seats.includes(seatNum) &&
-      (!resultsCompId || !b.competitionId || b.competitionId === resultsCompId)
+      b.userName === name &&
+      ((b.competitionId || comp.id || '') === (resultsCompId || comp.id || ''))
     );
-    const name = match?.userName || '';
-    if (name && name !== current) {
-      autofilledAnglerRef.current = name;
-      setManualEntry(m => ({ ...m, anglerName: name }));
+    if (!bk) return;
+    const pondDocId = ponds.find(p => p.id === bk.pondId)?._docId || bk.pondId.toString();
+    const seat = String(bk.seats[0] || '');
+    setManualEntry(m => (m.pondId === pondDocId && m.seatNum === seat) ? m : ({ ...m, pondId: pondDocId, seatNum: seat }));
+  }, [manualEntry.anglerName, resultsCompId, page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Open the Manage editor for a freshly-created competition once the reloaded
+  // list contains it. Declared after the comp/competitions reset effect so it
+  // wins and isn't clobbered by the reset.
+  useEffect(() => {
+    if (!pendingEditCompId) return;
+    const list = competitions.length ? competitions : compList;
+    const target = list.find(c => c.id === pendingEditCompId);
+    if (target) {
+      setCompEdit({ ...target });
+      setCompetitionEditorOpen(true);
+      setPendingEditCompId(null);
     }
-  }, [manualEntry.pondId, manualEntry.seatNum, page]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pendingEditCompId, competitions, compList]);
 
   useEffect(() => {
     setCompEdit(comp);
@@ -394,7 +407,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const handleCreateCompetition = async () => {
     setSaving(true);
     try {
-      await createCompetitionFirestore({
+      const newId = await createCompetitionFirestore({
         name: `Pertandingan ${new Date().getFullYear()}`,
         startDate: new Date().toISOString(),
         endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -403,6 +416,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         activePondIds: []
       });
       await reloadDB();
+      // Open the new competition's Manage editor straight away (see the
+      // pendingEditCompId effect, which fires once the reloaded list has it).
+      if (newId) setPendingEditCompId(newId);
     } catch (err) {
       console.error('Failed to create competition:', err);
     }
@@ -904,6 +920,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setEditingPond({} as any);
   };
 
+  // Adjust pond arrangement: swap a pond with its neighbour and persist the new
+  // order to every pond so the order is stable across booking + CMS views.
+  const handleMovePond = async (pond: Pond, dir: 'up' | 'down') => {
+    const ordered = [...ponds];
+    const idx = ordered.findIndex(p => (p._docId || p.id) === (pond._docId || pond.id));
+    const swap = dir === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || swap < 0 || swap >= ordered.length) return;
+    [ordered[idx], ordered[swap]] = [ordered[swap], ordered[idx]];
+    setPondReordering(true);
+    try {
+      await Promise.all(ordered.map((p, i) => updatePondFirestore(p._docId || p.id.toString(), { order: i } as any)));
+      await reloadDB();
+    } catch (err) { console.error('Failed to reorder ponds:', err); }
+    setPondReordering(false);
+  };
+
   const closePondModal = () => {
     setEditingPond(null);
     setPondSaveError(null);
@@ -980,6 +1012,61 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     null;
   const dashboardStatus = competitionForDashboard ? getCompetitionStatusMeta(competitionForDashboard) : null;
 
+  // Competitions ordered with ended ("tamat") events pushed to the bottom — used
+  // by the keputusan/live & prize selectors.
+  const compsEndedLast = [...competitionsForCms].sort((a, b) =>
+    (getCompetitionPhase(a) === 'ended' ? 1 : 0) - (getCompetitionPhase(b) === 'ended' ? 1 : 0),
+  );
+  const compOptionLabel = (c: Competition) =>
+    `${c.name}${getCompetitionPhase(c) === 'ended' ? ' (tamat)' : ''}`;
+
+  // ── Unsaved-changes guard ────────────────────────────────────────────────
+  const compSig = (c?: Partial<Competition>) => c ? JSON.stringify({
+    name: c.name || '', startDate: c.startDate || '', endDate: c.endDate || '', topN: c.topN || 0,
+    prizes: c.prizes || [], activePondIds: [...(c.activePondIds || [])].sort(), pondSeats: c.pondSeats || {},
+  }) : '';
+  const settingsDirty = JSON.stringify(settingsEdit) !== JSON.stringify(settings);
+  const prizeSource = competitionsForCms.find(c => c.id === prizesCompId);
+  const prizesDirty = page === 'prizes' && !!prizeSource
+    && JSON.stringify(prizeSource.prizes || []) !== JSON.stringify(compEdit.prizes || []);
+  const pageDirty =
+    ((page === 'contact-settings' || page === 'landing-content') && settingsDirty)
+    || prizesDirty;
+  const guardLeave = (proceed: () => void) => {
+    if (!pageDirty) { proceed(); return; }
+    setConfirmDialog({
+      title: 'Perubahan belum disimpan',
+      message: 'Anda ada perubahan yang belum disimpan di halaman ini. Tinggalkan tanpa simpan?\n\nYou have unsaved changes here. Leave without saving?',
+      confirmLabel: 'Tinggalkan / Leave',
+      tone: 'danger',
+      onConfirm: () => {
+        setSettingsEdit(settings);
+        if (prizeSource) setCompEdit({ ...prizeSource });
+        proceed();
+      },
+    });
+  };
+  const guardedSetPage = (next: CMSPage) => { if (next !== page) guardLeave(() => setPage(next)); };
+  const guardedClose = () => guardLeave(() => onClose());
+
+  // Competition Manage editor unsaved guard.
+  const competitionEditorSource = competitionsForCms.find(c => c.id === compEdit.id);
+  const competitionEditorDirty = competitionEditorOpen && (
+    Object.values(pondSeatEdits).some(seatMap => Object.keys(seatMap).length > 0)
+    || (!!competitionEditorSource && compSig(competitionEditorSource) !== compSig(compEdit))
+  );
+  const closeCompetitionEditor = () => {
+    const doClose = () => { setCompetitionEditorOpen(false); setPondSeatEdits({}); };
+    if (!competitionEditorDirty) { doClose(); return; }
+    setConfirmDialog({
+      title: 'Perubahan belum disimpan',
+      message: 'Tetapan pertandingan belum disimpan. Tutup tanpa simpan?\n\nCompetition settings are unsaved. Close without saving?',
+      confirmLabel: 'Tutup / Close',
+      tone: 'danger',
+      onConfirm: doClose,
+    });
+  };
+
   const navSections = [
     { label: 'Utama', items: [{ id: 'dashboard' as CMSPage, icon: '📊', text: 'Dashboard' }] },
     { label: 'Pengurusan', items: [
@@ -1021,7 +1108,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="nav-section-label">{sec.label}</div>
               {sec.items.map(item => (
                 <div key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`}
-                  onClick={() => { setPage(item.id); setSidebarOpen(false); }}>
+                  onClick={() => { guardedSetPage(item.id); setSidebarOpen(false); }}>
                   <span className="nav-icon">{item.icon}</span>
                   {item.text}
                   {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
@@ -1049,7 +1136,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             </div>
           </div>
           <div className="topbar-right">
-            <a onClick={onClose} style={{ fontSize: '0.85rem', color: 'var(--gold)', cursor: 'pointer', fontWeight: 600 }}>🌐 Laman Web</a>
+            <a onClick={guardedClose} style={{ fontSize: '0.85rem', color: 'var(--gold)', cursor: 'pointer', fontWeight: 600 }}>🌐 Laman Web</a>
           </div>
         </div>
 
@@ -1162,16 +1249,37 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <button className="btn btn-primary" onClick={openCreatePondModal}>+ Tambah Kolam</button>
                 </div>
               </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                Guna anak panah ▲▼ untuk laraskan susunan kolam (tertib dipaparkan di halaman tempahan).
+              </div>
               <div className="three-col">
-                {ponds.map((pond) => {
+                {ponds.map((pond, pondIdx) => {
                   const avail = pond.seats.filter(s => s.status === 'available').length;
                   const booked = pond.seats.filter(s => s.status === 'booked').length;
+                  const pondKey = pond._docId || pond.id.toString();
+                  const seatsExpanded = !!expandedPondSeats[pondKey];
                   return (
-                    <div key={pond._docId || pond.id} className="card">
-                      <div className="card-header"><div className="card-title">{pond.name}</div><span className={`badge ${pond.open ? 'badge-open' : 'badge-draft'}`}>{pond.open ? 'Buka' : 'Tutup'}</span></div>
+                    <div key={pondKey} className="card">
+                      <div className="card-header">
+                        <div className="card-title">{pond.name}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <button className="btn btn-sm btn-ghost" title="Naik" disabled={pondIdx === 0 || pondReordering} onClick={() => handleMovePond(pond, 'up')} style={{ padding: '2px 8px' }}>▲</button>
+                          <button className="btn btn-sm btn-ghost" title="Turun" disabled={pondIdx === ponds.length - 1 || pondReordering} onClick={() => handleMovePond(pond, 'down')} style={{ padding: '2px 8px' }}>▼</button>
+                          <span className={`badge ${pond.open ? 'badge-open' : 'badge-draft'}`}>{pond.open ? 'Buka' : 'Tutup'}</span>
+                        </div>
+                      </div>
                       <div className="card-body">
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>{pond.seats.length} tempat · RM{pond.seats[0]?.price || 0}/peg</div>
-                        <div className="mini-seat-grid">{pond.seats.map(s => (<div key={s.num} className={`mini-seat ${s.status === 'available' ? 'avail' : 'taken'}`}>{s.num}</div>))}</div>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          style={{ width: '100%', marginBottom: '0.6rem' }}
+                          onClick={() => setExpandedPondSeats(prev => ({ ...prev, [pondKey]: !prev[pondKey] }))}
+                        >
+                          {seatsExpanded ? '▾ Sembunyi tempat duduk' : `▸ Tunjuk tempat duduk (${pond.seats.length})`}
+                        </button>
+                        {seatsExpanded && (
+                          <div className="mini-seat-grid">{pond.seats.map(s => (<div key={s.num} className={`mini-seat ${s.status === 'available' ? 'avail' : 'taken'}`}>{s.num}</div>))}</div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '0.82rem' }}><span style={{ color: 'var(--green)' }}>✓ {avail} kosong</span><span style={{ color: 'var(--red)' }}>✕ {booked} penuh</span></div>
                         <button className="btn btn-sm btn-ghost" style={{ width: '100%', marginTop: '0.75rem' }} onClick={() => setEditingPond(pond)}>Edit</button>
                       </div>
@@ -1255,8 +1363,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       value={prizesCompId}
                       onChange={e => setPrizesCompId(e.target.value)}
                     >
-                      {compList.map(c => (
-                        <option key={c.id || c.name} value={c.id || ''}>{c.name}</option>
+                      {compsEndedLast.map(c => (
+                        <option key={c.id || c.name} value={c.id || ''} style={{ color: getCompetitionPhase(c) === 'ended' ? '#9aa3ad' : undefined }}>
+                          {compOptionLabel(c)}
+                        </option>
                       ))}
                     </select>
                     {compEdit.startDate && (
@@ -1496,8 +1606,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </td>
                         <td><span className={`badge badge-${b.status === 'confirmed' ? 'approved' : b.status}`}>{b.status}</span></td>
                         <td style={{ fontSize: '0.82rem' }}>{b.createdAt ? new Date(b.createdAt).toLocaleDateString('ms-MY') : '-'}</td>
-                        <td><div style={{ display: 'flex', gap: '6px' }}>
-                          {b.receiptData && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(b.receiptData)}>Resit</button>}
+                        <td><div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {(() => {
+                            const allReceipts = b.receipts && b.receipts.length
+                              ? b.receipts
+                              : (b.receiptData ? [{ url: b.receiptData, amount: b.amount, status: 'pending' as const, submittedAt: b.createdAt || '' }] : []);
+                            return allReceipts
+                              .filter(r => r.url)
+                              .map((r, i) => (
+                                <button key={i} className="btn btn-sm btn-ghost" title={`Resit #${i + 1} · RM ${r.amount} · ${r.status}`} onClick={() => handleViewReceipt(r.url)}>
+                                  Resit{allReceipts.length > 1 ? ` #${i + 1}` : ''}
+                                </button>
+                              ));
+                          })()}
                           {pendingReceiptIndexes(b).length > 0 && (<button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit menunggu" onClick={() => askAcceptReceipt(b.id, pendingReceiptIndexes(b)[0])}>✓</button>)}
                           {b.status === 'pending' && (<button className="btn btn-sm btn-red" disabled={saving} onClick={() => askRejectBooking(b.id)}>✕</button>)}
                           {b.status === 'confirmed' && (<button className="btn btn-sm btn-danger" disabled={saving} title="Batal paksa tempahan disahkan" onClick={() => askForceCancel(b)}>Batal Paksa</button>)}
@@ -1553,10 +1674,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             </div>
           )}
           {page === 'results' && (() => {
-            const resultsComp = compList.find(c => c.id === resultsCompId) || comp;
-            const activePonds = resultsComp.activePondIds?.length
-              ? ponds.filter(p => resultsComp.activePondIds!.includes(p._docId || p.id.toString()))
-              : ponds;
             const sortedEntries = [...scoreEntries].sort((a, b) => b.weight - a.weight);
             return (
               <div className="page active">
@@ -1579,7 +1696,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       value={resultsCompId}
                       onChange={(e) => { setResultsCompId(e.target.value); setScoreEntries([]); setPendingWeights({}); }}
                     >
-                      {compList.map(c => <option key={c.id} value={c.id || ''}>{c.name}</option>)}
+                      {compsEndedLast.map(c => (
+                        <option key={c.id || c.name} value={c.id || ''} style={{ color: getCompetitionPhase(c) === 'ended' ? '#9aa3ad' : undefined }}>
+                          {compOptionLabel(c)}
+                        </option>
+                      ))}
                     </select>
                     <button className="btn btn-sm" onClick={() => getScoresForCompetition(resultsCompId).then(setScoreEntries)}>🔄 Muat Semula</button>
                   </div>
@@ -1608,6 +1729,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             a.email.toLowerCase().includes(query)
                           ).slice(0, 8)
                         : [];
+                      // Weight is recorded per participant; pond + peg are derived from
+                      // their booking rather than picked manually.
+                      const derivedBooking = bookings.find(b =>
+                        b.status !== 'rejected' &&
+                        b.userName === manualEntry.anglerName.trim() &&
+                        ((b.competitionId || comp.id || '') === (resultsCompId || comp.id || ''))
+                      );
+                      const derivedPond = derivedBooking ? ponds.find(p => p.id === derivedBooking.pondId) : null;
                       return (
                         <div className="form-grid">
                           <div className="form-group" style={{ position: 'relative' }}>
@@ -1632,7 +1761,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   <div
                                     key={a.userId}
                                     onMouseDown={() => {
-                                      setManualEntry(m => ({ ...m, anglerName: a.name }));
+                                      const bk = bookings.find(b =>
+                                        b.status !== 'rejected' &&
+                                        b.userId === a.userId &&
+                                        ((b.competitionId || comp.id || '') === (resultsCompId || comp.id || ''))
+                                      );
+                                      const pondDocId = bk ? (ponds.find(p => p.id === bk.pondId)?._docId || bk.pondId.toString()) : '';
+                                      setManualEntry(m => ({ ...m, anglerName: a.name, pondId: pondDocId, seatNum: String(bk?.seats[0] || '') }));
                                       setAnglerSuggestOpen(false);
                                     }}
                                     style={{
@@ -1652,27 +1787,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             )}
                           </div>
                       <div className="form-group">
-                        <label className="form-label">Kolam</label>
-                        <select
-                          className="form-input"
-                          value={manualEntry.pondId}
-                          onChange={(e) => setManualEntry(m => ({ ...m, pondId: e.target.value }))}
-                        >
-                          <option value="">-- Pilih Kolam --</option>
-                          {activePonds.map(p => (
-                            <option key={p._docId || p.id} value={p._docId || p.id.toString()}>{p.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="form-group">
-                        <label className="form-label">No. Peg / Tempat</label>
-                        <input
-                          className="form-input"
-                          type="number" min="1"
-                          value={manualEntry.seatNum}
-                          onChange={(e) => setManualEntry(m => ({ ...m, seatNum: e.target.value }))}
-                          placeholder="1"
-                        />
+                        <label className="form-label">Kolam &amp; Peg (auto)</label>
+                        {derivedBooking ? (
+                          <div className="form-input" style={{ display: 'flex', alignItems: 'center', background: 'var(--cream)', cursor: 'default' }}>
+                            {derivedPond?.name || `Kolam #${derivedBooking.pondId}`} · Peg {derivedBooking.seats.map(s => `#${s}`).join(', ')}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '12px 0', lineHeight: 1.4 }}>
+                            {manualEntry.anglerName
+                              ? 'Peserta ini tiada tempahan disahkan dalam pertandingan ini.'
+                              : 'Pilih peserta — kolam & peg akan diisi automatik daripada tempahannya.'}
+                          </div>
+                        )}
                       </div>
                       <div className="form-group">
                         <label className="form-label">Berat (kg)</label>
@@ -1915,34 +2041,69 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             </div>
           )}
-          {page === 'users' && (
+          {page === 'users' && (() => {
+            // Derive the real email: self-service bookings store the Firebase UID in
+            // userId (not human-readable), so prefer userEmail and fall back to a
+            // userId only when it looks like an email.
+            const emailOf = (b: Booking) =>
+              b.userEmail || (b.userId && b.userId.includes('@') ? b.userId : '');
+            const byUser = new Map<string, { name: string; email: string; count: number }>();
+            bookings.forEach(b => {
+              const email = emailOf(b);
+              const key = email || b.userId || b.userName;
+              const existing = byUser.get(key);
+              if (existing) existing.count += 1;
+              else byUser.set(key, { name: b.userName || '—', email: email || '—', count: 1 });
+            });
+            const q = userSearch.trim().toLowerCase();
+            const users = Array.from(byUser.values())
+              .filter(u => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+              .sort((a, b) => a.name.localeCompare(b.name));
+            return (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Pengguna</div><div className="page-sub">Urus pengguna sistem</div></div></div>
-              <div className="card"><div className="card-body"><div className="table-wrap"><table>
+              <div className="page-header"><div><div className="page-title">Pengguna</div><div className="page-sub">{users.length} pengguna</div></div></div>
+              <div className="card">
+                <div className="card-header" style={{ justifyContent: 'flex-end' }}>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      className="form-input"
+                      style={{ width: '280px', maxWidth: '60vw', padding: '6px 28px 6px 10px' }}
+                      placeholder="Cari nama atau email…"
+                      value={userSearch}
+                      onChange={e => setUserSearch(e.target.value)}
+                    />
+                    {userSearch && (
+                      <button onClick={() => setUserSearch('')} title="Kosongkan" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem' }}>×</button>
+                    )}
+                  </div>
+                </div>
+                <div className="card-body"><div className="table-wrap"><table>
                 <thead><tr><th></th><th>Nama</th><th>Email</th><th>Peranan</th><th>Tempahan</th></tr></thead>
                 <tbody>
-                  {Array.from(new Map(bookings.map(b => [b.userId, b])).values()).map(b => (
-                    <tr key={b.userId}>
-                      <td><span className="user-avatar-sm">{(b.userName || 'U')[0].toUpperCase()}</span></td>
-                      <td className="td-name">{b.userName}</td>
-                      <td>{b.userId}</td>
+                  {users.map(u => (
+                    <tr key={u.email + u.name}>
+                      <td><span className="user-avatar-sm">{(u.name || 'U')[0].toUpperCase()}</span></td>
+                      <td className="td-name">{u.name}</td>
+                      <td>{u.email}</td>
                       <td><span className="badge badge-open">Pengguna</span></td>
-                      <td>{bookings.filter(bk => bk.userId === b.userId).length}</td>
+                      <td>{u.count}</td>
                     </tr>
                   ))}
-                  {bookings.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada pengguna</td></tr>}
+                  {users.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>{bookings.length === 0 ? 'Tiada pengguna' : 'Tiada pengguna sepadan dengan carian'}</td></tr>}
                 </tbody>
-              </table></div></div></div>
+              </table></div></div>
+              </div>
             </div>
-          )}
+            );
+          })()}
         </div>
 
         {competitionEditorOpen && (
-          <div className="modal-overlay open" onClick={() => { setCompetitionEditorOpen(false); setPondSeatEdits({}); }}>
+          <div className="modal-overlay open" onClick={closeCompetitionEditor}>
             <div className="modal" style={{ maxWidth: '760px', width: '95%', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
               <div className="modal-header" style={{ flexShrink: 0 }}>
                 <div className="modal-title">Manage Competition</div>
-                <button className="modal-close" onClick={() => { setCompetitionEditorOpen(false); setPondSeatEdits({}); }}>×</button>
+                <button className="modal-close" onClick={closeCompetitionEditor}>×</button>
               </div>
               <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
                 <div className="form-grid">
@@ -2072,7 +2233,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
 
                 <div className="form-actions" style={{ marginTop: '12px' }}>
-                  <button className="btn btn-ghost" onClick={() => { setCompetitionEditorOpen(false); setPondSeatEdits({}); }}>Batal</button>
+                  <button className="btn btn-ghost" onClick={closeCompetitionEditor}>Batal</button>
                   <button className="btn btn-primary" onClick={handleCompetitionUpdate} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
                 </div>
               </div>

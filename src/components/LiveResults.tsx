@@ -21,6 +21,22 @@ const fmtLongDate = (iso?: string): string => {
   return d.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 };
 
+// Format a Firestore Timestamp / ISO string into a short Malay time, e.g. "9:45 malam".
+const fmtTime = (value: any): string => {
+  if (!value) return '';
+  let d: Date;
+  if (typeof value === 'string') d = new Date(value);
+  else if (typeof value?.toDate === 'function') d = value.toDate();
+  else if (typeof value?.seconds === 'number') d = new Date(value.seconds * 1000);
+  else return '';
+  if (Number.isNaN(d.getTime())) return '';
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const period = h < 12 ? 'pagi' : h < 15 ? 'tengahari' : h < 19 ? 'petang' : 'malam';
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${m.toString().padStart(2, '0')} ${period}`;
+};
+
 const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bookings, user }) => {
   const [selectedCompId, setSelectedCompId] = useState(comp.id || '');
   const [liveScores, setLiveScores] = useState<ScoreEntry[]>([]);
@@ -106,8 +122,10 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
 
   // Build scores record from live entries
   const scoresRecord: Record<number, Score> = {};
+  const timeByPeg: Record<number, string> = {};
   liveScores.forEach(e => {
     scoresRecord[e.seatNum] = { weight: e.weight, anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName };
+    timeByPeg[e.seatNum] = fmtTime((e as any).updatedAt || (e as any).createdAt);
   });
 
   const fullLb = getLB(scoresRecord);
@@ -262,10 +280,10 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               <div className="kl-rank-list">
                 {lb.length ? lb.map((e, i) => {
                   const rank = i + 1;
-                  const prize = getPrize(rank, displayComp.prizes);
                   const isMe = userPegs.includes(e.peg);
                   const pond = ponds.find(p => p.id === e.pondId);
                   const pondName = pond ? pond.name.split('—')[0].trim() : '';
+                  const time = timeByPeg[e.peg];
                   return (
                     <article key={e.peg} className={`kl-rank-row ${rank === 1 ? 'champ' : ''} ${isMe ? 'me' : ''}`}>
                       <div className="kl-rank-no">{p2(rank)}</div>
@@ -277,8 +295,8 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                         <small>Berat</small>
                         <strong>{e.weight.toFixed(2)}kg</strong>
                       </div>
-                      <div className="kl-prize-cell">
-                        {prize ? <span className="kl-prizebadge">{prize}</span> : <span className="kl-muted">—</span>}
+                      <div className="kl-updated">
+                        <i className="fa-solid fa-clock"></i> {time || '—'}
                       </div>
                     </article>
                   );
@@ -291,21 +309,30 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               </div>
             </div>
 
-            {/* Pinned my-result bar for participants outside the Top-N */}
-            {user && myEntry && !isMeInTopN && (
-              <div className="kl-myresult">
+            {/* Pinned my-result bar — always shown for logged-in users. Shows a
+                placeholder until their weight has been recorded. */}
+            {user && (
+              <div className={`kl-myresult ${myEntry ? '' : 'empty'}`}>
                 <div className="kl-myresult-user">
                   <small>Keputusan Saya</small>
                   <strong>{user.name}</strong>
                 </div>
-                <div className="kl-mini">
-                  <small>Berat</small>
-                  <strong>{(myEntry as any).weight.toFixed(2)}kg</strong>
-                </div>
-                <div className="kl-mini rank">
-                  <small>Rank</small>
-                  <strong>#{myRank}</strong>
-                </div>
+                {myEntry ? (
+                  <>
+                    <div className="kl-mini">
+                      <small>Berat</small>
+                      <strong>{(myEntry as any).weight.toFixed(2)}kg</strong>
+                    </div>
+                    <div className="kl-mini rank">
+                      <small>Rank</small>
+                      <strong>#{myRank}</strong>
+                    </div>
+                  </>
+                ) : (
+                  <div className="kl-myresult-empty">
+                    Berat &amp; kedudukan anda akan dipaparkan di sini sebaik sahaja timbangan direkodkan.
+                  </div>
+                )}
               </div>
             )}
           </section>

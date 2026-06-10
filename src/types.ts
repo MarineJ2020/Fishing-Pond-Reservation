@@ -24,6 +24,7 @@ export interface Pond {
   open: boolean;
   maxSeats?: number; // target seat count — drives legacy capsule count and polygon editor enforcement
   shape?: PondVertex[]; // polygon vertices for the custom visual editor
+  order?: number; // display order (CMS-adjustable arrangement); lower shows first
 }
 
 export interface BookingReceipt {
@@ -90,6 +91,8 @@ export interface ScoreEntry {
   /** True when the saved weight matched the OCR output (no staff edit). */
   ocrUserVerified?: boolean;
   capturedBy?: string;
+  /** ISO time the weight was recorded (staff "imbas timbangan"). Derived from the doc's updatedAt/createdAt. */
+  capturedAt?: string;
 }
 
 export interface Prize {
