@@ -13,7 +13,7 @@ A React + TypeScript + Vite web app for managing catfish pond fishing competitio
 | Styling | CSS3 + CSS Variables (Tailwind configured but unused) |
 | Database | Cloud Firestore |
 | Auth | Firebase Authentication (email/password) |
-| File storage | Cloudinary (receipt images, 25 GB free tier) |
+| File storage | Cloudinary (images) + Firebase Storage (PDF uploads) |
 | Email | Resend API (via Cloud Functions) |
 | Deployment | Firebase Hosting |
 | Backend | Cloud Functions (Node.js + Express) — requires Blaze plan |
@@ -98,7 +98,12 @@ All routes require a Firebase ID token (`Authorization: Bearer <token>`).
 ### Frontend + Firestore rules (current — no Blaze plan needed)
 ```bash
 npm run build
-firebase deploy --only "hosting,firestore"
+firebase deploy --only "hosting,firestore,storage"
+```
+
+### Firebase Storage CORS (required for browser PDF upload)
+```bash
+gsutil cors set storage.cors.json gs://kolamkelisayang.firebasestorage.app
 ```
 
 ### Cloud Functions (requires Blaze plan)
@@ -147,7 +152,8 @@ service cloud.firestore {
 
 - **No Google OAuth** — would require Blaze plan
 - **Cloud Functions are optional** — app falls back to direct Firestore writes if functions aren't deployed; email delivery won't work without functions + Resend key
-- **No Firebase Storage** — receipts go to Cloudinary
+- **PDF uploads use Firebase Storage** — rules PDF and any uploaded receipt PDFs
+- **Image uploads use Cloudinary** — receipts/photos/maps remain on existing image flow
 
 ## Troubleshooting
 

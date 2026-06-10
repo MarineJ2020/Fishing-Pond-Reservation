@@ -12,6 +12,27 @@ app.use(express.json());
 const randomTempPassword = () => Math.random().toString(36).slice(2, 10) + '!1A';
 const getRole = (user) => user?.role || user?.claims?.role || user?.custom_claims?.role || 'CLIENT';
 const isStaffUser = (user) => ['STAFF', 'ADMIN'].includes(getRole(user));
+const ALLOWED_ROLES = new Set(['CLIENT', 'STAFF', 'ADMIN']);
+
+const normalizeRole = (value) => {
+    const normalized = String(value || 'CLIENT').trim().toUpperCase();
+    return ALLOWED_ROLES.has(normalized) ? normalized : 'CLIENT';
+};
+
+const syncAuthRoleClaim = async (uid, rawRole) => {
+    const nextRole = normalizeRole(rawRole);
+    const userRecord = await adminAuth.getUser(uid);
+    const existingClaims = userRecord.customClaims || {};
+    if (existingClaims.role === nextRole) {
+        return { updated: false, role: nextRole };
+    }
+
+    await adminAuth.setCustomUserClaims(uid, {
+        ...existingClaims,
+        role: nextRole,
+    });
+    return { updated: true, role: nextRole };
+};
 
 const MAX_RECEIPTS = 3;
 
@@ -544,6 +565,75 @@ app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
 });
 
 export const api = functions.https.onRequest(app);
+
+// Keep Firebase Auth custom claims in sync with users/{uid}.role so Storage
+// rules that depend on request.auth.token.role stay accurate.
+export const syncUserRoleClaims = functions.firestore
+    .document('users/{uid}')
+    .onWrite(async (change, context) => {
+        const { uid } = context.params;
+        if (!change.after.exists) return null;
+
+        const afterData = change.after.data() || {};
+        const beforeData = change.before.exists ? (change.before.data() || {}) : null;
+        const afterRole = normalizeRole(afterData.role);
+        const beforeRole = beforeData ? normalizeRole(beforeData.role) : null;
+
+        // Skip when role didn't change on updates; still run for creates.
+        if (beforeData && beforeRole === afterRole) return null;
+
+        try {
+            const result = await syncAuthRoleClaim(uid, afterRole);
+            if (afterData.role !== afterRole) {
+                await change.after.ref.set({ role: afterRole, updatedAt: new Date() }, { merge: true });
+            }
+            console.log(`syncUserRoleClaims: uid=${uid} role=${afterRole} updated=${result.updated}`);
+            return null;
+        } catch (error) {
+            console.error(`syncUserRoleClaims failed for uid=${uid}:`, error);
+            return null;
+        }
+    });
+
+// One-time/manual fixer for existing users. Admin-only callable.
+export const backfillUserRoleClaims = functions.https.onCall(async (_data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+    }
+
+    const callerRole = normalizeRole(context.auth.token?.role);
+    if (callerRole !== 'ADMIN') {
+        throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
+    }
+
+    const snapshot = await adminDb.collection('users').get();
+    let updated = 0;
+    let unchanged = 0;
+    let failed = 0;
+
+    for (const docSnap of snapshot.docs) {
+        try {
+            const role = normalizeRole(docSnap.data()?.role);
+            const result = await syncAuthRoleClaim(docSnap.id, role);
+            if (result.updated) updated += 1;
+            else unchanged += 1;
+
+            if (docSnap.data()?.role !== role) {
+                await docSnap.ref.set({ role, updatedAt: new Date() }, { merge: true });
+            }
+        } catch (error) {
+            failed += 1;
+            console.error(`backfillUserRoleClaims failed for uid=${docSnap.id}:`, error);
+        }
+    }
+
+    return {
+        total: snapshot.size,
+        updated,
+        unchanged,
+        failed,
+    };
+});
 
 // Sends the email-verification link via the Zoho-backed Trigger Email extension
 // (instead of Firebase's default noreply@...firebaseapp.com sender) by queueing

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { useUI } from '../context/UIContext';
 import { compressImageToDataUrl, uploadDataUrlToCloudinary } from '../utils/cloudinary';
+import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { replaceBookingReceiptDirect } from '../lib/firestore';
 
 interface Props {
@@ -26,8 +27,12 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, onSubmitted
     if (!file) return;
     setBusy(true);
     try {
-      const dataUrl = await compressImageToDataUrl(file);
-      const receiptUrl = await uploadDataUrlToCloudinary(dataUrl, 'fishing-pond-receipts');
+      const receiptUrl = isPdfFile(file)
+        ? await uploadPdfToFirebaseStorage(file, 'fishing-pond-receipts', file.name)
+        : await (async () => {
+            const dataUrl = await compressImageToDataUrl(file);
+            return uploadDataUrlToCloudinary(dataUrl, 'fishing-pond-receipts');
+          })();
       await replaceBookingReceiptDirect(bookingId, receiptIndex, receiptUrl);
       addToast('Resit telah dikemaskini. / Receipt updated.', 'success');
       await onSubmitted();

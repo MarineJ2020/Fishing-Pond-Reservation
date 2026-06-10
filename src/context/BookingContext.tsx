@@ -5,6 +5,7 @@ import { loadAppDB } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
 import { queueBookingReceivedEmail } from '../lib/email';
 import { uploadDataUrlToCloudinary } from '../utils/cloudinary';
+import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { isCompetitionEnded } from '../utils/competition';
 import { auth } from '../../lib/firebase';
 
@@ -40,8 +41,12 @@ interface BookingContextType {
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
-const uploadToCloudinary = (receiptData: string, _fileName: string): Promise<string> =>
-  uploadDataUrlToCloudinary(receiptData, 'fishing-pond-receipts');
+const uploadReceipt = async (receiptData: string, receiptFile: File): Promise<string> => {
+  if (isPdfFile(receiptFile)) {
+    return uploadPdfToFirebaseStorage(receiptFile, 'fishing-pond-receipts', receiptFile.name);
+  }
+  return uploadDataUrlToCloudinary(receiptData, 'fishing-pond-receipts');
+};
 
 export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [db, setDbState] = useState<DB>(emptyDB);
@@ -187,8 +192,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const bookingRef = `BKG-${Date.now().toString().slice(-5)}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
 
-    // Upload receipt to Cloudinary instead of Firebase Storage
-    const receiptUrl = await uploadToCloudinary(receiptData, receiptFile.name);
+    const receiptUrl = await uploadReceipt(receiptData, receiptFile);
 
     const payload = {
       competitionId: selectedCompetitionId || db.comp.id || '',

@@ -22,6 +22,7 @@ import {
   approveDepositWithProofDirect,
 } from '../lib/firestore';
 import { normalizeCloudinaryFileUrl, uploadImageToCloudinary } from '../utils/cloudinary';
+import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
 import { getCompetitionPhase } from '../utils/competition';
@@ -924,7 +925,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const handleRulesPdfUpload = async (file: File) => {
     setRulesPdfUploading(true);
     try {
-      const url = await uploadImageToCloudinary(file, 'fishing-pond-rules');
+      const url = await uploadPdfToFirebaseStorage(file, 'fishing-pond-rules', file.name);
       setSettingsEdit(s => ({ ...s, rulesPdfUrl: url }));
       await updateSettingsFirestore({ rulesPdfUrl: url });
       await reloadDB();
@@ -2310,7 +2311,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </label>
                       {settingsEdit.rulesPdfUrl && (
                         <>
-                          <a className="btn btn-sm btn-ghost" href={normalizeCloudinaryFileUrl(settingsEdit.rulesPdfUrl)} target="_blank" rel="noopener noreferrer">Buka PDF</a>
+                          <a className="btn btn-sm btn-ghost" href={normalizePdfUrl(settingsEdit.rulesPdfUrl)} target="_blank" rel="noopener noreferrer">Buka PDF</a>
                           <button
                             className="btn btn-sm btn-ghost"
                             onClick={async () => {

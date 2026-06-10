@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { useUI } from '../context/UIContext';
 import { compressImageToDataUrl, uploadDataUrlToCloudinary } from '../utils/cloudinary';
+import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { submitBookingReceipt } from '../lib/api';
 
 interface Props {
@@ -38,8 +39,12 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
     if (!file) return;
     setBusy(true);
     try {
-      const dataUrl = await compressImageToDataUrl(file);
-      const receiptUrl = await uploadDataUrlToCloudinary(dataUrl, 'fishing-pond-receipts');
+      const receiptUrl = isPdfFile(file)
+        ? await uploadPdfToFirebaseStorage(file, 'fishing-pond-receipts', file.name)
+        : await (async () => {
+            const dataUrl = await compressImageToDataUrl(file);
+            return uploadDataUrlToCloudinary(dataUrl, 'fishing-pond-receipts');
+          })();
       await submitBookingReceipt({ bookingId, receiptUrl, amount: balanceDue });
       addToast('Resit baki dihantar. Petugas akan mengesahkan pembayaran anda.', 'success');
       await onSubmitted();

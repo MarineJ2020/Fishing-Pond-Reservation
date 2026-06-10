@@ -1,6 +1,3 @@
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { storage } from '../../lib/firebase';
-
 const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
@@ -12,10 +9,7 @@ const isPdfFile = (file: Blob | File) => {
 
 export async function uploadImageToCloudinary(file: Blob | File, folder: string): Promise<string> {
   if (isPdfFile(file)) {
-    const baseName = file instanceof File && file.name ? file.name.replace(/[^a-zA-Z0-9._-]/g, '_') : `upload-${Date.now()}.pdf`;
-    const objectRef = ref(storage, `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${baseName}`);
-    await uploadBytes(objectRef, file, { contentType: 'application/pdf' });
-    return getDownloadURL(objectRef);
+    throw new Error('Fail PDF mesti dimuat naik ke Firebase Storage.');
   }
 
   const formData = new FormData();
@@ -31,7 +25,10 @@ export async function uploadImageToCloudinary(file: Blob | File, folder: string)
     { method: 'POST', body: formData },
   );
 
-  if (!response.ok) throw new Error('Gagal muat naik gambar');
+  if (!response.ok) {
+    const details = await response.text().catch(() => '');
+    throw new Error(`Gagal muat naik fail${details ? `: ${details}` : ''}`);
+  }
   const result = await response.json();
   return result.secure_url as string;
 }
@@ -82,15 +79,14 @@ export function compressImageToDataUrl(file: File): Promise<string> {
 export async function uploadDataUrlToCloudinary(dataUrl: string, folder: string): Promise<string> {
   const commaIdx = dataUrl.indexOf(',');
   const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
-  // Preserve the original MIME type from the data-URL header so PDFs are not
-  // corrupted by being relabelled as JPEG. Cloudinary's image/upload endpoint
-  // accepts PDFs and returns a .pdf URL.
   const mimeMatch = /^data:([^;,]+)[;,]/.exec(dataUrl);
   const mime = mimeMatch?.[1] || 'image/jpeg';
+  if (mime === 'application/pdf') {
+    throw new Error('Data URL PDF mesti dimuat naik ke Firebase Storage.');
+  }
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const extension = mime === 'application/pdf' ? 'pdf' : 'jpg';
-  const file = new File([bytes], `upload.${extension}`, { type: mime });
+  const file = new File([bytes], 'upload.jpg', { type: mime });
   return uploadImageToCloudinary(file, folder);
 }

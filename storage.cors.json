@@ -1,0 +1,24 @@
+[
+  {
+    "origin": [
+      "https://kolamkelisayang.com.my",
+      "https://www.kolamkelisayang.com.my",
+      "https://kolamkelisayang.web.app",
+      "https://kolamkelisayang.firebaseapp.com",
+      "http://localhost:5173"
+    ],
+    "method": ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+    "responseHeader": [
+      "Authorization",
+      "Content-Type",
+      "x-firebase-storage-version",
+      "x-goog-resumable",
+      "x-goog-upload-command",
+      "x-goog-upload-header-content-length",
+      "x-goog-upload-header-content-type",
+      "x-goog-upload-offset",
+      "x-goog-upload-protocol"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

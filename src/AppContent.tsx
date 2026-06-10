@@ -21,7 +21,7 @@ import { useCountdown } from './hooks/useCountdown';
 import { fmt } from './utils';
 import { countOutstanding, hasOutstandingBalance } from './utils/booking';
 import { isCompetitionEnded } from './utils/competition';
-import { normalizeCloudinaryFileUrl } from './utils/cloudinary';
+import { normalizePdfUrl } from './utils/pdfStorage';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
 
@@ -394,7 +394,7 @@ const AppContent: React.FC = () => {
   const outstandingCount = countOutstanding(userBookings);
 
   const openRulesPdf = () => {
-    const pdfUrl = normalizeCloudinaryFileUrl(db.settings.rulesPdfUrl || '');
+    const pdfUrl = normalizePdfUrl(db.settings.rulesPdfUrl || '');
     if (!pdfUrl) {
       addToast('Syarat & peraturan belum dimuat naik oleh admin.', 'info');
       return;
