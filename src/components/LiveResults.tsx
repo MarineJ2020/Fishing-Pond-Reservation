@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Competition, Score, ScoreEntry, Pond, Booking, User } from '../types';
-import { getLB, p2, getPrize, rbc, rbc2, rbg } from '../utils';
-import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
+import { getLB, getPrize, p2 } from '../utils';
+import { isCompetitionEnded } from '../utils/competition';
+import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { db as firestoreDb } from '../../lib/firebase';
 
 interface LiveResultsProps {
@@ -13,6 +14,13 @@ interface LiveResultsProps {
   user: User | null;
 }
 
+const fmtLongDate = (iso?: string): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+};
+
 const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bookings, user }) => {
   const [selectedCompId, setSelectedCompId] = useState(comp.id || '');
   const [liveScores, setLiveScores] = useState<ScoreEntry[]>([]);
@@ -21,8 +29,11 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const [cdBlocks, setCdBlocks] = useState({ d: '--', h: '--', m: '--', s: '--' });
   const [cdStatus, setCdStatus] = useState<'upcoming' | 'live' | 'ended'>('upcoming');
   const [topN, setTopN] = useState(comp.topN || 20);
-  const [slideDir, setSlideDir] = useState<'left' | 'right'>('right');
-  const [compAnimKey, setCompAnimKey] = useState(0);
+
+  // Past-event results
+  const [selectedPastId, setSelectedPastId] = useState('');
+  const [pastScores, setPastScores] = useState<ScoreEntry[]>([]);
+  const [pastLoading, setPastLoading] = useState(false);
 
   // Sync selected ID when the default comp changes
   useEffect(() => {
@@ -67,19 +78,6 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
 
   const displayComp = competitions.find(c => c.id === selectedCompId) || comp;
 
-  const switchComp = (dir: 'prev' | 'next') => {
-    const idx = competitions.findIndex(c => c.id === selectedCompId);
-    const nextIdx = dir === 'prev' ? idx - 1 : idx + 1;
-    if (nextIdx < 0 || nextIdx >= competitions.length) return;
-    const nextComp = competitions[nextIdx];
-    setSlideDir(dir === 'next' ? 'left' : 'right');
-    setCompAnimKey(k => k + 1);
-    setSelectedCompId(nextComp.id || '');
-    setTopN(nextComp.topN || 20);
-  };
-
-  const currentIdx = competitions.findIndex(c => c.id === selectedCompId);
-
   // Countdown for displayComp
   useEffect(() => {
     const tick = () => {
@@ -112,169 +110,319 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     scoresRecord[e.seatNum] = { weight: e.weight, anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName };
   });
 
-  const lb = getLB(scoresRecord).slice(0, topN);
+  const fullLb = getLB(scoresRecord);
+  const lb = fullLb.slice(0, topN);
 
   const displayBookings = bookings.filter(b => (b.competitionId || comp.id) === selectedCompId);
   const userPegs = user ? displayBookings.filter(b => b.userId === user.email && b.status === 'confirmed').flatMap(b => b.seats) : [];
+
+  // User's rank across the FULL leaderboard (not just Top-N), so participants who
+  // placed outside the Top-N can still be pinned at the bottom.
   let myEntry: { peg: number; name: string; weight: number; pondId: number } | null = null;
-  let myRank = -1;
+  let myRank = -1; // 1-based
   userPegs.forEach(peg => {
-    const idx = lb.findIndex(e => e.peg === peg);
-    if (idx !== -1 && (myRank === -1 || idx < myRank)) { myRank = idx; myEntry = lb[idx]; }
+    const idx = fullLb.findIndex(e => e.peg === peg);
+    if (idx !== -1 && (myRank === -1 || idx + 1 < myRank)) { myRank = idx + 1; myEntry = fullLb[idx]; }
   });
+  const isMeInTopN = myRank > 0 && myRank <= topN;
+
+  // ── Past results (ended competitions) ───────────────────────────────────
+  const endedComps = useMemo(
+    () => competitions.filter(c => c.id && isCompetitionEnded(c)),
+    [competitions],
+  );
+  const endedKey = endedComps.map(c => c.id).join(',');
+
+  useEffect(() => {
+    if (!selectedPastId && endedComps.length) setSelectedPastId(endedComps[0].id || '');
+  }, [endedKey, selectedPastId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedPastId) { setPastScores([]); return; }
+    let cancelled = false;
+    setPastLoading(true);
+    const resultsRef = collection(firestoreDb, 'eventResults');
+    (async () => {
+      const map = new Map<string, ScoreEntry>();
+      try {
+        const [s1, s2] = await Promise.all([
+          getDocs(query(resultsRef, where('competitionId', '==', selectedPastId))),
+          getDocs(query(resultsRef, where('competitionId', '==', doc(firestoreDb, 'competitions', selectedPastId)))),
+        ]);
+        s1.docs.forEach(d => map.set(d.id, { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) }));
+        s2.docs.forEach(d => map.set(d.id, { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) }));
+      } catch { /* ignore fetch errors — show empty state */ }
+      if (!cancelled) { setPastScores(Array.from(map.values())); setPastLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedPastId]);
+
+  const selectedPastComp = competitions.find(c => c.id === selectedPastId) || null;
+  const pastScoresRecord: Record<number, Score> = {};
+  pastScores.forEach(e => {
+    pastScoresRecord[e.seatNum] = { weight: e.weight, anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName };
+  });
+  const pastLb = getLB(pastScoresRecord);
+  const pastWinners = pastLb.slice(0, selectedPastComp?.topN || 10);
+  const pastParticipants = bookings
+    .filter(b => (b.competitionId || comp.id) === selectedPastId && b.status === 'confirmed')
+    .reduce((n, b) => n + b.seats.length, 0);
+  const pastPonds = selectedPastComp?.activePondIds?.length || 0;
+  const pastChampWeight = pastLb[0]?.weight;
+  const pastChampPrize = selectedPastComp ? getPrize(1, selectedPastComp.prizes) : '';
+
+  const statusLabel = cdStatus === 'upcoming' ? 'Akan Datang' : cdStatus === 'live' ? 'Live' : 'Tamat';
+  const cdLabel = cdStatus === 'upcoming' ? 'Bermula dalam' : cdStatus === 'live' ? 'Tamat dalam' : 'Status Event';
 
   return (
-    <div className="live-page">
-      {/* Competition Selector tabs */}
+    <div className="kl-page">
+      {/* HERO */}
+      <section className="kl-hero">
+        <div className="kl-hero-inner">
+          <div className="kl-hero-copy">
+            <div className="kl-eyebrow">Keputusan Langsung</div>
+            <h1>Live <span>Ranking</span></h1>
+            <p>Lihat kedudukan peserta secara langsung. Nama event dan masa berbaki dipaparkan di sini.</p>
+          </div>
+          <aside className={`kl-live-box ${cdStatus}`}>
+            <div className="kl-live-head">
+              <div>
+                <small>Live Event</small>
+                <strong>{displayComp.name}</strong>
+              </div>
+              <div className={`kl-live-pill ${cdStatus}`}><span></span> {statusLabel}</div>
+            </div>
+            <div className="kl-cd">
+              <div className="kl-cd-label">{cdLabel}</div>
+              {cdStatus === 'ended' ? (
+                <div className="kl-cd-ended">Pertandingan telah tamat</div>
+              ) : (
+                <div className="kl-cd-grid">
+                  <div className="kl-cd-item"><strong>{cdBlocks.d}</strong><small>Hari</small></div>
+                  <div className="kl-cd-item"><strong>{cdBlocks.h}</strong><small>Jam</small></div>
+                  <div className="kl-cd-item"><strong>{cdBlocks.m}</strong><small>Minit</small></div>
+                  <div className="kl-cd-item"><strong>{cdBlocks.s}</strong><small>Saat</small></div>
+                </div>
+              )}
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      {/* Competition selector */}
       {competitions.length > 1 && (
-        <div className="pond-filter" style={{ marginBottom: '20px' }}>
+        <div className="kl-comp-tabs">
           {competitions.map(c => (
-            <div
-              key={c.id}
-              className={`pf-btn ${selectedCompId === c.id ? 'active' : ''}`}
-              onClick={() => {
-                const dir = (competitions.findIndex(x => x.id === c.id) > currentIdx) ? 'left' : 'right';
-                setSlideDir(dir);
-                setCompAnimKey(k => k + 1);
-                setSelectedCompId(c.id || '');
-                setTopN(c.topN || 20);
-              }}
+            <button
+              key={c.id || c.name}
+              type="button"
+              className={`kl-comp-tab ${selectedCompId === c.id ? 'active' : ''}`}
+              onClick={() => { setSelectedCompId(c.id || ''); setTopN(c.topN || 20); }}
             >
               {c.name}
-            </div>
+            </button>
           ))}
         </div>
       )}
 
-      {/* Countdown with prev/next arrows */}
-      <div className="comp-nav-wrap">
-        {competitions.length > 1 && (
-          <button
-            className="comp-nav-btn"
-            onClick={() => switchComp('prev')}
-            disabled={currentIdx <= 0}
-            aria-label="Pertandingan sebelum"
-          >‹</button>
-        )}
-        <div key={compAnimKey} className={`countdown-wrap comp-slide-${slideDir}`} style={{ flex: 1 }}>
-        <div>
-          <div className="countdown-label">Competition Status</div>
-          <div className="countdown-title">{displayComp.name}</div>
-          <div className="countdown-sub">
-            {new Date(displayComp.startDate).toLocaleDateString('en-MY', {
-              weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-            })}
-          </div>
-        </div>
-        <div className="countdown-blocks">
-          <div className="cd-block"><div className="cd-num">{cdBlocks.d}</div><div className="cd-unit">Days</div></div>
-          <div className="cd-sep">:</div>
-          <div className="cd-block"><div className="cd-num">{cdBlocks.h}</div><div className="cd-unit">Hours</div></div>
-          <div className="cd-sep">:</div>
-          <div className="cd-block"><div className="cd-num">{cdBlocks.m}</div><div className="cd-unit">Min</div></div>
-          <div className="cd-sep">:</div>
-          <div className="cd-block"><div className="cd-num">{cdBlocks.s}</div><div className="cd-unit">Sec</div></div>
-        </div>
-        <div className={`cd-status cd-${cdStatus}`}>
-          <i className={`fa-regular fa-${cdStatus === 'upcoming' ? 'clock' : cdStatus === 'live' ? 'circle-play' : 'flag-checkered'}`}></i>{' '}
-          {cdStatus === 'upcoming' ? 'Upcoming' : cdStatus === 'live' ? 'LIVE NOW' : 'Competition Ended'}
-        </div>
-        </div>
-        {competitions.length > 1 && (
-          <button
-            className="comp-nav-btn"
-            onClick={() => switchComp('next')}
-            disabled={currentIdx >= competitions.length - 1}
-            aria-label="Pertandingan seterusnya"
-          >›</button>
-        )}
-      </div>
-
-      {/* My score card */}
-      {user && myEntry && (
-        <div className="my-score-card">
-          <div className="my-score-inner">
-            <div className="my-rank-badge" style={{ background: rbg(myRank + 1), color: rbc2(myRank + 1) }}>
-              {myRank + 1 <= 3 ? ['🥇', '🥈', '🥉'][myRank] : myRank + 1}
+      {/* DASHBOARD */}
+      <section className="kl-dash">
+        <div className="kl-dash-grid">
+          {/* Ranking panel */}
+          <section className="kl-panel">
+            <div className="kl-panel-head">
+              <div>
+                <div className="kl-eyebrow">{displayComp.name}</div>
+                <h2>Kedudukan Terkini</h2>
+              </div>
+              <span className={`kl-status-pill ${cdStatus}`}>
+                <span className="dot"></span> {cdStatus === 'live' ? 'Live Update' : statusLabel}
+              </span>
             </div>
-            <div>
-              <div className="my-score-name">{user.name}</div>
-              <div className="my-score-peg">Peg #{(myEntry as any).peg} · {(myEntry as any).pondName}</div>
+
+            <div className="kl-rank-tools">
+              <span className="kl-topn-badge">Top {topN}</span>
+              <div className="kl-topn-ctl">
+                Tunjuk
+                <input
+                  type="number"
+                  value={topN}
+                  min={1}
+                  max={500}
+                  onChange={(e) => setTopN(parseInt(e.target.value) || 20)}
+                />
+                Teratas
+              </div>
+              <span className="kl-last-upd">
+                {loadingScores ? 'Memuatkan…' : lastUpdated ? `Dikemaskini ${lastUpdated}` : ''}
+              </span>
             </div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div className="my-score-weight">{(myEntry as any).weight.toFixed(2)}</div>
-            <div className="my-score-unit">kg total</div>
-            <div className="my-score-prize">{getPrize(myRank + 1, displayComp.prizes) ? `🏆 ${getPrize(myRank + 1, displayComp.prizes)}` : ''}</div>
-          </div>
-        </div>
-      )}
 
-      {/* Ranking Header */}
-      <div className="live-header">
-        <div className="live-title">🏆 LIVE RANKING</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-          {loadingScores
-            ? <span className="last-upd">Memuatkan...</span>
-            : <span className="last-upd">Dikemaskini {lastUpdated}</span>
-          }
-          <div className="top-n-ctl">
-            Tunjuk <input type="number" value={topN} min={1} max={500} onChange={(e) => setTopN(parseInt(e.target.value) || 20)} />
-            Kedudukan Teratas
-          </div>
-        </div>
-      </div>
+            <div className="kl-rank-scroll">
+              <div className="kl-rank-list">
+                {lb.length ? lb.map((e, i) => {
+                  const rank = i + 1;
+                  const prize = getPrize(rank, displayComp.prizes);
+                  const isMe = userPegs.includes(e.peg);
+                  const pond = ponds.find(p => p.id === e.pondId);
+                  const pondName = pond ? pond.name.split('—')[0].trim() : '';
+                  return (
+                    <article key={e.peg} className={`kl-rank-row ${rank === 1 ? 'champ' : ''} ${isMe ? 'me' : ''}`}>
+                      <div className="kl-rank-no">{p2(rank)}</div>
+                      <div className="kl-angler">
+                        <strong>{e.name}{isMe ? ' · Anda' : ''}</strong>
+                        <span>Peg #{e.peg}{pondName ? ` · ${pondName}` : ''}</span>
+                      </div>
+                      <div className="kl-weight">
+                        <small>Berat</small>
+                        <strong>{e.weight.toFixed(2)}kg</strong>
+                      </div>
+                      <div className="kl-prize-cell">
+                        {prize ? <span className="kl-prizebadge">{prize}</span> : <span className="kl-muted">—</span>}
+                      </div>
+                    </article>
+                  );
+                }) : (
+                  <div className="kl-no-data">
+                    <i className="fa-solid fa-fish-fins"></i>{' '}
+                    {loadingScores ? 'Memuatkan data…' : 'Tiada rekod berat lagi — sila semak semula semasa pertandingan!'}
+                  </div>
+                )}
+              </div>
+            </div>
 
-      <div className="rank-wrap">
-        <table className="rank-table">
-          <thead>
-            <tr>
-              <th style={{ width: '50px' }}>Rank</th>
-              <th>Pemancing</th>
-              <th>Peg</th>
-              <th>Kolam</th>
-              <th style={{ textAlign: 'right' }}>Berat (kg)</th>
-              <th>Hadiah</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lb.length ? lb.map((e, i) => {
-              const rank = i + 1;
-              const prize = getPrize(rank, displayComp.prizes);
-              const isMe = userPegs.includes(e.peg);
-              const pond = ponds.find(p => p.id === e.pondId);
-              return (
-                <tr key={e.peg} className={isMe ? 'my-row' : ''}>
-                  <td>
-                    <span className={`rbadge ${rbc(rank)}`}>
-                      {rank <= 3 ? ['🥇', '🥈', '🥉'][rank - 1] : rank}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: 600 }}>{e.name}</span>
-                    {isMe && <span style={{ fontSize: '10px', color: 'var(--accent)', marginLeft: '6px', fontFamily: 'var(--fm)' }}>← ANDA</span>}
-                  </td>
-                  <td><span style={{ fontFamily: 'var(--fm)', color: 'var(--muted)' }}>#{e.peg}</span></td>
-                  <td><span style={{ fontSize: '11px', color: 'var(--muted)' }}>{pond ? pond.name.split('—')[0].trim() : ''}</span></td>
-                  <td style={{ textAlign: 'right' }}>
-                    <span className="w-cell">{e.weight.toFixed(2)}</span>{' '}
-                    <span style={{ fontSize: '10px', color: 'var(--muted)' }}>kg</span>
-                  </td>
-                  <td>
-                    {prize ? <span className="prize-badge">{prize}</span> : <span style={{ color: 'var(--muted)', fontSize: '11px' }}>—</span>}
-                  </td>
-                </tr>
-              );
-            }) : (
-              <tr>
-                <td colSpan={6} className="no-data">
-                  <i className="fa-solid fa-fish-fins"></i>{loadingScores ? 'Memuatkan data...' : 'Tiada rekod berat lagi — sila semak semula semasa pertandingan!'}
-                </td>
-              </tr>
+            {/* Pinned my-result bar for participants outside the Top-N */}
+            {user && myEntry && !isMeInTopN && (
+              <div className="kl-myresult">
+                <div className="kl-myresult-user">
+                  <small>Keputusan Saya</small>
+                  <strong>{user.name}</strong>
+                </div>
+                <div className="kl-mini">
+                  <small>Berat</small>
+                  <strong>{(myEntry as any).weight.toFixed(2)}kg</strong>
+                </div>
+                <div className="kl-mini rank">
+                  <small>Rank</small>
+                  <strong>#{myRank}</strong>
+                </div>
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
+          </section>
+
+          {/* Prize list */}
+          <aside className="kl-side">
+            <section className="kl-panel">
+              <div className="kl-panel-head">
+                <div>
+                  <div className="kl-eyebrow">Prize List</div>
+                  <h3>Hadiah Event</h3>
+                </div>
+              </div>
+              <div className="kl-prize-list">
+                {displayComp.prizes?.length ? displayComp.prizes.map((prize, i) => (
+                  <div key={i} className="kl-prize-item">
+                    <div className="kl-prize-place">
+                      <i className={`fa-solid fa-${i === 0 ? 'trophy' : i === 1 ? 'medal' : i === 2 ? 'award' : 'gift'}`}></i>
+                      {prize.label || `Tempat ${prize.rank}`}
+                    </div>
+                    <div className="kl-prize-amount">{prize.prize}</div>
+                  </div>
+                )) : (
+                  <div className="kl-no-data" style={{ padding: '24px' }}>Hadiah belum ditetapkan.</div>
+                )}
+              </div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      {/* PAST RESULTS */}
+      <section className="kl-past">
+        <div className="kl-past-head">
+          <div>
+            <div className="kl-eyebrow">Keputusan Event Lepas</div>
+            <h2 className="kl-h2">Senarai <span>Pemenang</span></h2>
+          </div>
+          <p>Pilih event di sebelah kiri untuk lihat keputusan penuh. Keputusan dikira automatik daripada berat akhir yang direkodkan.</p>
+        </div>
+
+        {endedComps.length ? (
+          <div className="kl-past-layout">
+            <div className="kl-past-left">
+              <section className="kl-card">
+                <div className="kl-card-head">
+                  <div className="kl-eyebrow">Past Event</div>
+                  <h3>Pilih Event Lepas</h3>
+                </div>
+                <div className="kl-event-select">
+                  {endedComps.map(c => (
+                    <button
+                      key={c.id || c.name}
+                      type="button"
+                      className={`kl-past-event ${selectedPastId === c.id ? 'active' : ''}`}
+                      onClick={() => setSelectedPastId(c.id || '')}
+                    >
+                      <span>
+                        <strong>{c.name}</strong>
+                        <small>{fmtLongDate(c.startDate)}</small>
+                      </span>
+                      <i className="fa-solid fa-chevron-right"></i>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            <section className="kl-winner-table">
+              <div className="kl-selected-head">
+                <div>
+                  <div className="kl-eyebrow">Selected Event</div>
+                  <h3>{selectedPastComp?.name || '—'}</h3>
+                  <p>
+                    {fmtLongDate(selectedPastComp?.startDate)}
+                    {pastParticipants ? ` · ${pastParticipants} Peserta` : ''}
+                    {pastPonds ? ` · ${pastPonds} Kolam` : ''}
+                  </p>
+                </div>
+                <span className="kl-selected-badge"><i className="fa-solid fa-circle-check"></i> Result Published</span>
+              </div>
+
+              <div className="kl-winner-summary">
+                <div className="kl-winner-summary-item"><small>Juara</small><strong>{pastWinners[0]?.name || '—'}</strong></div>
+                <div className="kl-winner-summary-item"><small>Berat Terberat</small><strong>{pastChampWeight != null ? `${pastChampWeight.toFixed(2)}KG` : '—'}</strong></div>
+                <div className="kl-winner-summary-item"><small>Hadiah Utama</small><strong>{pastChampPrize || '—'}</strong></div>
+              </div>
+
+              <div className="kl-table-head">
+                <div>Rank</div><div>Peserta</div><div>Berat</div><div>Hadiah</div>
+              </div>
+              {pastLoading ? (
+                <div className="kl-no-data">Memuatkan keputusan…</div>
+              ) : pastWinners.length ? pastWinners.map((e, i) => {
+                const rank = i + 1;
+                const prize = selectedPastComp ? getPrize(rank, selectedPastComp.prizes) : '';
+                const pond = ponds.find(p => p.id === e.pondId);
+                const pondName = pond ? pond.name.split('—')[0].trim() : '';
+                return (
+                  <div key={e.peg} className="kl-winner-row">
+                    <div><span className="kl-winner-rank">{p2(rank)}</span></div>
+                    <div><strong>{e.name}</strong><br /><span>Peg #{e.peg}{pondName ? ` · ${pondName}` : ''}</span></div>
+                    <div>{e.weight.toFixed(2)}kg</div>
+                    <div>{prize || '—'}</div>
+                  </div>
+                );
+              }) : (
+                <div className="kl-no-data">Tiada rekod berat untuk event ini.</div>
+              )}
+            </section>
+          </div>
+        ) : (
+          <div className="kl-no-data" style={{ borderRadius: 'var(--radius)', background: 'var(--white)', border: '1px solid var(--line)' }}>
+            Tiada event lepas buat masa ini.
+          </div>
+        )}
+      </section>
     </div>
   );
 };

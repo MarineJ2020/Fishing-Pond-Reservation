@@ -1,9 +1,9 @@
 ﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import './styles.css';
+import './styles.v4.css';
 import Navbar from './components/Navbar';
 import SecondaryMobileNav from './components/SecondaryMobileNav';
-import BookingSidebar from './components/BookingSidebar';
 import SeatMap from './components/SeatMap';
 import BookingForm from './components/BookingForm';
 import LiveResults from './components/LiveResults';
@@ -78,6 +78,8 @@ const AppContent: React.FC = () => {
   const prizeWrapRef = useRef<HTMLDivElement | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [pondMapOpen, setPondMapOpen] = useState(false);
+  const [seatModalOpen, setSeatModalOpen] = useState(false);
+  const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
 
   const competitions = useMemo(() => {
     if (db.competitions?.length) return db.competitions;
@@ -407,6 +409,14 @@ const AppContent: React.FC = () => {
     const stillAvailable = bookablePonds.some((pond) => pond.id === selectedPond);
     if (!stillAvailable) setPond(null);
   }, [bookablePonds, selectedPond, setPond]);
+
+  // Lock body scroll while the seat-map popup is open.
+  useEffect(() => {
+    if (!seatModalOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [seatModalOpen]);
 
   // Note: seat availability is derived per-competition from bookings
   // (`competitionScopedPonds`), not from the global seat document `status` — the
@@ -1012,148 +1022,288 @@ const AppContent: React.FC = () => {
         const hasCompetition = Boolean(selectedCompetition?.id) && !competitionEnded;
         const hasPond = Boolean(bookedPond);
         const hasSeats = selectedSeats.length > 0;
+        const subtotal = bookedPond
+          ? selectedSeats.reduce((sum, n) => sum + (bookedPond.seats.find(s => s.num === n)?.price || 0), 0)
+          : 0;
+        const payableNow = payType === 'deposit' ? Math.ceil(subtotal * 0.5) : subtotal;
+        const balanceDue = subtotal - payableNow;
+        const samplePrice = db.ponds[0]?.seats[0]?.price || 0;
+        // The details phase is only meaningful once seats are picked; if seats get
+        // reset (e.g. pond/competition change) we fall back to the seat phase.
+        const detailsPhase = bookingPhase === 'details' && hasSeats && hasCompetition;
+        const goToDetails = () => {
+          if (!selectedSeats.length) return;
+          setBookingPhase('details');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+        const goToSeats = () => setBookingPhase('seats');
+        const stepClass = (state: 'done' | 'active' | '') => `progress-step${state === 'active' ? ' active' : state === 'done' ? ' done' : ''}`;
+        const step1 = hasCompetition ? 'done' : 'active';
+        const step2 = !hasCompetition ? '' : hasPond ? 'done' : 'active';
+        const step3 = !hasPond ? '' : hasSeats ? 'done' : 'active';
+        const step4 = detailsPhase ? 'active' : '';
+
         return (
-          <div className="booking-layout">
-            <div className="booking-main">
-              <div className="progress-bar">
-                <div className={`progress-step ${!hasCompetition ? 'active' : 'completed'}`}>
-                  <div className="step-circle-sm">1</div>
-                  <div className="step-info"><div className="step-label">Langkah 1</div><div className="step-name">Pilih Pertandingan</div></div>
-                </div>
-                <div className={`progress-step ${hasCompetition && !hasPond ? 'active' : hasPond ? 'completed' : ''}`}>
-                  <div className="step-circle-sm">2</div>
-                  <div className="step-info"><div className="step-label">Langkah 2</div><div className="step-name">Pilih Kolam</div></div>
-                </div>
-                <div className={`progress-step ${hasPond && !hasSeats ? 'active' : hasSeats ? 'completed' : ''}`}>
-                  <div className="step-circle-sm">3</div>
-                  <div className="step-info"><div className="step-label">Langkah 3</div><div className="step-name">Pilih Tempat</div></div>
-                </div>
-                <div className={`progress-step ${hasSeats && !receiptData ? 'active' : receiptData ? 'completed' : ''}`}>
-                  <div className="step-circle-sm">4</div>
-                  <div className="step-info"><div className="step-label">Langkah 4</div><div className="step-name">Maklumat</div></div>
-                </div>
-                <div className={`progress-step ${receiptData ? 'active' : ''}`}>
-                  <div className="step-circle-sm">5</div>
-                  <div className="step-info"><div className="step-label">Langkah 5</div><div className="step-name">Bayaran</div></div>
-                </div>
+          <div className="bk-page">
+            <section className="bk-hero">
+              <div className="bk-hero-inner">
+                <div className="bk-eyebrow">Tempahan Pertandingan</div>
+                <h1 className="bk-hero-title">Pilih Spot <span>Macam Pro</span></h1>
+                <p>Pilih pertandingan, kolam dan tempat duduk dengan yakin. Seat map dibuka dalam popup supaya mudah dikawal di telefon.</p>
+              </div>
+            </section>
+
+            <section className="bk-shell">
+              <div className="bk-progress" aria-label="Kemajuan tempahan">
+                <div className={stepClass(step1 as any)}><span>1</span>Pilih Pertandingan</div>
+                <div className={stepClass(step2 as any)}><span>2</span>Pilih Kolam</div>
+                <div className={stepClass(step3 as any)}><span>3</span>Pilih Tempat</div>
+                <div className={stepClass(step4 as any)}><span>4</span>Maklumat &amp; Bayaran</div>
               </div>
 
-              <div className="panel">
-                <div className="panel-title">Pilih Pertandingan</div>
-                <div className="panel-subtitle">Pilih pertandingan untuk tempahan ini. Menukar pertandingan akan reset pilihan kolam, peg, dan resit bayaran.</div>
-                <div className="pond-tabs">
-                  {competitions.map((competition) => {
-                    const ended = isCompetitionEnded(competition);
-                    return (
-                      <div
-                        key={competition.id || competition.name}
-                        className={`pond-tab ${(selectedCompetition?.id || '') === (competition.id || '') ? 'active' : ''}`}
-                        onClick={() => handleSelectCompetitionForBooking(competition.id)}
-                      >
-                        {competition.name}
-                        {ended && (
-                          <span style={{ marginLeft: '6px', fontSize: '0.68rem', fontWeight: 700, color: 'var(--red)', border: '1px solid var(--red)', borderRadius: '4px', padding: '0 5px' }}>Tamat</span>
-                        )}
+              <div className="bk-grid">
+                <div className="bk-stack">
+                  {!detailsPhase ? (
+                    <>
+                      {/* Step 1 — Pilih Pertandingan */}
+                      <section className="bk-panel">
+                        <div className="bk-panel-head">
+                          <div className="bk-eyebrow">Langkah 01</div>
+                          <h2>Pilih Pertandingan</h2>
+                          <p>Menukar pertandingan akan reset pilihan kolam, peg, dan resit bayaran.</p>
+                        </div>
+                        <div className="bk-panel-body">
+                          <div className="bk-choice-grid">
+                            {competitions.map((competition) => {
+                              const ended = isCompetitionEnded(competition);
+                              const active = (selectedCompetition?.id || '') === (competition.id || '');
+                              const pondsCount = competition.activePondIds?.length || totalPonds;
+                              return (
+                                <button
+                                  key={competition.id || competition.name}
+                                  type="button"
+                                  className={`bk-choice ${active ? 'active' : ''}`}
+                                  onClick={() => handleSelectCompetitionForBooking(competition.id)}
+                                >
+                                  <small>{ended ? 'Tamat' : 'Pendaftaran Dibuka'}</small>
+                                  <strong>{competition.name}</strong>
+                                  <div className="bk-choice-meta">
+                                    {samplePrice > 0 && <span>RM{samplePrice}</span>}
+                                    <span>{pondsCount} Kolam</span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </section>
+
+                      {selectedCompetition?.id && competitionEnded && (
+                        <section className="bk-panel booking-stage-enter" style={{ textAlign: 'center' }}>
+                          <div className="bk-panel-body">
+                            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🏁</div>
+                            <h2 style={{ fontFamily: 'var(--font-heading)', fontStyle: 'italic', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Pertandingan Telah Tamat</h2>
+                            <p style={{ color: 'var(--muted)', maxWidth: '460px', margin: '0 auto', fontSize: '.9rem', lineHeight: 1.6 }}>
+                              Pertandingan ini telah tamat dan tidak lagi menerima tempahan baharu. Sila pilih pertandingan lain yang masih aktif.
+                              <br /><br />
+                              <em>This competition has ended and is no longer accepting new bookings. Please choose another active competition.</em>
+                            </p>
+                          </div>
+                        </section>
+                      )}
+
+                      {hasCompetition && (
+                        <>
+                          {/* Step 2 — Pilih Kolam */}
+                          <section className="bk-panel booking-stage-enter">
+                            <div className="bk-panel-head bk-panel-head-row">
+                              <div>
+                                <div className="bk-eyebrow">Langkah 02</div>
+                                <h2>Pilih Kolam</h2>
+                                <p>Setiap kolam ada susunan tempat duduk tersendiri.</p>
+                              </div>
+                              {db.settings.pondMapImg && (
+                                <button className="btn btn-light btn-sm" type="button" onClick={() => setPondMapOpen(true)}>
+                                  <i className="fa-solid fa-map"></i> Semak Layout Kolam
+                                </button>
+                              )}
+                            </div>
+                            <div className="bk-panel-body">
+                              <div className="bk-pond-grid">
+                                {competitionScopedPonds.map((pond) => {
+                                  const avail = pond.seats.filter((s) => s.status === 'available').length;
+                                  const closed = !pond.open;
+                                  const full = avail === 0;
+                                  const disabled = closed || full;
+                                  const active = selectedPond === pond.id;
+                                  return (
+                                    <button
+                                      key={pond._docId || pond.id}
+                                      type="button"
+                                      className={`bk-pond ${active ? 'active' : ''}`}
+                                      disabled={disabled}
+                                      onClick={() => { if (!disabled) setPond(pond.id); }}
+                                    >
+                                      <strong>{pond.name}</strong>
+                                      <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} slot tersedia`}</small>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </section>
+
+                          {/* Step 3 — Pilih Tempat */}
+                          <section className="bk-panel booking-stage-enter">
+                            <div className="bk-panel-head bk-panel-head-row">
+                              <div>
+                                <div className="bk-eyebrow">Langkah 03</div>
+                                <h2>Pilih Tempat</h2>
+                                <p>Seat map dibuka dalam popup supaya page kekal ringkas.</p>
+                              </div>
+                              <button className="btn btn-navy btn-sm" type="button" disabled={!hasPond} onClick={() => setSeatModalOpen(true)}>
+                                <i className="fa-solid fa-chair"></i> Buka Seat Map
+                              </button>
+                            </div>
+                            <div className="bk-panel-body">
+                              <div className="bk-seatprev">
+                                <div className="bk-seatprev-main">
+                                  <div className="bk-seat-icon"><i className="fa-solid fa-chair"></i></div>
+                                  <div>
+                                    <h3>{hasSeats ? `${bookedPond?.name} — ${selectedSeats.length} tempat dipilih` : 'Belum pilih tempat'}</h3>
+                                    <p>{hasSeats
+                                      ? `Pegs: ${selectedSeats.join(', ')}. Jumlah yuran RM${subtotal}.`
+                                      : hasPond ? 'Klik "Buka Seat Map" untuk pilih satu atau lebih tempat.' : 'Pilih kolam dahulu untuk membuka seat map.'}</p>
+                                    <div className="bk-tags">
+                                      <span className="bk-tag"><i className="fa-solid fa-water"></i> {bookedPond?.name || 'Belum pilih kolam'}</span>
+                                      <span className="bk-tag sel"><i className="fa-solid fa-ticket"></i> {hasSeats ? `${selectedSeats.length} seat` : 'Tiada seat'}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <button className="btn btn-red" type="button" disabled={!hasSeats} onClick={goToDetails}>
+                                  <i className="fa-solid fa-arrow-right"></i> Teruskan
+                                </button>
+                              </div>
+                            </div>
+                          </section>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="bk-back-row">
+                        <button className="btn btn-light btn-sm" type="button" onClick={goToSeats}>
+                          <i className="fa-solid fa-arrow-left"></i> Kembali Pilih Tempat
+                        </button>
                       </div>
-                    );
-                  })}
+                      <div className="booking-stage-enter">
+                        <BookingForm
+                          user={user}
+                          pond={bookedPond}
+                          selectedSeats={selectedSeats}
+                          payType={payType}
+                          receiptData={receiptData}
+                          adminProxyName={adminProxyName}
+                          adminProxyEmail={adminProxyEmail}
+                          onSetPayType={setPayType}
+                          onHandleReceiptChange={handleReceiptChange}
+                          onClearReceipt={() => setReceiptData(null, null)}
+                          onSubmitBooking={handleSubmitBooking}
+                          onOpenAuth={() => setAuthModalOpen(true)}
+                          onAdminProxyNameChange={setAdminProxyName}
+                          onAdminProxyEmailChange={setAdminProxyEmail}
+                          onResendVerification={resendVerification}
+                          onRefreshVerification={refreshUser}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
 
-              {selectedCompetition?.id && competitionEnded && (
-                <div className="panel booking-stage-enter" style={{ textAlign: 'center', padding: '2.5rem 1.5rem' }}>
-                  <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🏁</div>
-                  <div className="panel-title" style={{ marginBottom: '0.4rem' }}>Pertandingan Telah Tamat</div>
-                  <div className="panel-subtitle" style={{ maxWidth: '460px', margin: '0 auto' }}>
-                    Pertandingan ini telah tamat dan tidak lagi menerima tempahan baharu. Sila pilih pertandingan lain yang masih aktif.
-                    <br /><br />
-                    <em>This competition has ended and is no longer accepting new bookings. Please choose another active competition.</em>
+                {/* Summary cart */}
+                <aside className="bk-summary" aria-label="Ringkasan tempahan">
+                  <div className="bk-summary-head">
+                    <small>Ringkasan Tempahan</small>
+                    <h2>Booking Cart</h2>
                   </div>
-                </div>
-              )}
-
-              {hasCompetition && (
-                <div className="panel booking-stage-enter">
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '4px' }}>
-                    <div>
-                      <div className="panel-title">Pilih Kolam</div>
-                      <div className="panel-subtitle">Pilih kolam yang anda inginkan untuk pertandingan ini.</div>
+                  <div className="bk-summary-body">
+                    <div className="bk-summary-line"><span>Event</span><strong>{selectedCompetition?.name || 'Belum dipilih'}</strong></div>
+                    <div className="bk-summary-line"><span>Kolam</span><strong>{bookedPond?.name || 'Belum dipilih'}</strong></div>
+                    <div className="bk-summary-line"><span>Seat</span><strong>{selectedSeats.length ? selectedSeats.join(', ') : 'Belum dipilih'}</strong></div>
+                    <div className="bk-summary-line"><span>Bilangan</span><strong>{selectedSeats.length} seat</strong></div>
+                    <div className="bk-summary-line"><span>Bayaran</span><strong>{payType === 'deposit' ? 'Deposit 50%' : 'Penuh'}</strong></div>
+                    {payType === 'deposit' && hasSeats && (
+                      <div className="bk-summary-line"><span>Baki Event Day</span><strong>RM{balanceDue}</strong></div>
+                    )}
+                    <div className="bk-summary-total">
+                      <span>{payType === 'deposit' ? 'Bayar Sekarang' : 'Jumlah'}</span>
+                      <strong>RM{payableNow}</strong>
                     </div>
-                    {db.settings.pondMapImg && (
-                      <button
-                        className="btn btn-sm btn-ghost"
-                        style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-                        onClick={() => setPondMapOpen(true)}
-                      >
-                        Semak Susunan Kolam
+                    {payType === 'deposit' && hasSeats && (
+                      <div className="bk-summary-note">Baki perlu dibayar pada hari event di kaunter pendaftaran.</div>
+                    )}
+                  </div>
+                  <div className="bk-summary-actions">
+                    {!detailsPhase ? (
+                      <button className="btn btn-red w-full" type="button" disabled={!hasSeats} onClick={goToDetails}>
+                        <i className="fa-solid fa-arrow-right"></i> Teruskan
+                      </button>
+                    ) : (
+                      <button className="btn btn-light w-full" type="button" onClick={goToSeats}>
+                        <i className="fa-solid fa-chair"></i> Tukar Tempat
+                      </button>
+                    )}
+                    {hasPond && !detailsPhase && (
+                      <button className="btn btn-light w-full" type="button" onClick={() => setSeatModalOpen(true)}>
+                        <i className="fa-solid fa-chair"></i> {hasSeats ? 'Tukar Seat' : 'Buka Seat Map'}
                       </button>
                     )}
                   </div>
-                  <BookingSidebar ponds={bookablePonds} selectedPond={selectedPond} onSelectPond={handleSelectPond} />
-                </div>
-              )}
+                </aside>
+              </div>
+            </section>
 
-              {hasPond && bookedPond && (
-                <div className="booking-stage-enter">
-                  <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} useLegacyView={!!db.settings.useLegacyPondView} />
+            {/* Mobile sticky continue bar */}
+            {!detailsPhase && hasSeats && (
+              <div className="bk-mobile-continue">
+                <div>
+                  <small>Seat Dipilih</small>
+                  <strong>{bookedPond?.name} · {selectedSeats.length} seat · RM{payableNow}</strong>
                 </div>
-              )}
+                <button className="btn btn-red" type="button" onClick={goToDetails}>
+                  <i className="fa-solid fa-arrow-right"></i> Teruskan
+                </button>
+              </div>
+            )}
 
-              {hasSeats && bookedPond && (
-                <div className="booking-stage-enter">
-                  <BookingForm
-                    user={user}
-                    pond={bookedPond}
-                    selectedSeats={selectedSeats}
-                    payType={payType}
-                    receiptData={receiptData}
-                    adminProxyName={adminProxyName}
-                    adminProxyEmail={adminProxyEmail}
-                    onSetPayType={setPayType}
-                    onHandleReceiptChange={handleReceiptChange}
-                    onClearReceipt={() => setReceiptData(null, null)}
-                    onSubmitBooking={handleSubmitBooking}
-                    onOpenAuth={() => setAuthModalOpen(true)}
-                    onAdminProxyNameChange={setAdminProxyName}
-                    onAdminProxyEmailChange={setAdminProxyEmail}
-                    onResendVerification={resendVerification}
-                    onRefreshVerification={refreshUser}
-                  />
+            {/* Seat-map popup (reuses the existing SeatMap component) */}
+            {seatModalOpen && bookedPond && (
+              <div className="bk-seat-modal" onClick={() => setSeatModalOpen(false)}>
+                <div className="bk-seat-dialog" onClick={(e) => e.stopPropagation()}>
+                  <div className="bk-seat-modal-head">
+                    <div>
+                      <div className="bk-eyebrow">Seat Selection</div>
+                      <h2>{bookedPond.name}</h2>
+                    </div>
+                    <button className="bk-icon-btn" type="button" onClick={() => setSeatModalOpen(false)} aria-label="Tutup popup">
+                      <i className="fa-solid fa-xmark"></i>
+                    </button>
+                  </div>
+                  <div className="bk-seat-modal-body">
+                    <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} useLegacyView={!!db.settings.useLegacyPondView} />
+                  </div>
+                  <div className="bk-seat-modal-foot">
+                    <div>
+                      <small>Pilihan Semasa</small>
+                      <strong>{selectedSeats.length ? `${selectedSeats.length} seat · RM${subtotal}` : 'Belum pilih seat'}</strong>
+                    </div>
+                    <button className="btn btn-red" type="button" disabled={!hasSeats} onClick={() => setSeatModalOpen(false)}>
+                      <i className="fa-solid fa-check"></i> Sahkan Seat
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
-
-            <div className="summary-card">
-              <div className="summary-title">Ringkasan Tempahan</div>
-              {selectedCompetition?.name && <div className="timer-chip">🏆 {selectedCompetition.name}</div>}
-              <div className="divider"></div>
-              <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text)' }}>Kolam:</strong> {bookedPond?.name || 'Belum dipilih'}
               </div>
-              <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text)' }}>Pegs:</strong>{' '}
-                {selectedSeats.length ? (
-                  <span className="selected-pills" style={{ display: 'inline-flex' }}>
-                    {selectedSeats.map(s => <span key={s} className="seat-pill">{s}</span>)}
-                  </span>
-                ) : 'Belum dipilih'}
-              </div>
-              <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text)' }}>Bayaran:</strong> {payType === 'deposit' ? '50% Deposit' : 'Penuh'}
-              </div>
-              <div className="divider"></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 700, fontSize: '.85rem' }}>Jumlah</span>
-                <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.5rem', color: 'var(--gold)' }}>
-                  RM {bookedPond && selectedSeats.length
-                    ? (selectedSeats.reduce((sum, seatNum) => {
-                        const seat = bookedPond.seats.find(s => s.num === seatNum);
-                        return sum + (seat?.price || 0);
-                      }, 0) * (payType === 'deposit' ? 0.5 : 1)).toFixed(0)
-                    : '0'}
-                </span>
-              </div>
-            </div>
+            )}
           </div>
         );
       }
