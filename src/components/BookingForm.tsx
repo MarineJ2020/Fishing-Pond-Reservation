@@ -165,7 +165,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
         <div className="price-bar-total">RM {amt}</div>
       </div>
       {payType === 'deposit' && (
-        <div style={{ marginBottom: '14px', padding: '10px 12px', borderRadius: '9px', border: '1px solid rgba(185,28,28,0.25)', background: 'rgba(185,28,28,0.06)', fontSize: '.78rem', lineHeight: 1.5, color: 'var(--text-muted)' }}>
+        <div style={{ marginBottom: '14px', padding: '10px 12px', borderRadius: '9px', border: '1px solid rgba(185,28,28,0.25)', background: 'rgba(185,28,28,0.06)', fontSize: '.78rem', lineHeight: 1.5, color: '#7a2230' }}>
           <strong style={{ color: 'var(--red)' }}>Nota:</strong> Deposit akan ditolak daripada jumlah penuh. Baki perlu dijelaskan sebelum/ketika hari pertandingan.
         </div>
       )}
@@ -231,7 +231,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
       {needsVerification && (
         <div style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '10px', padding: '14px 16px', marginTop: '16px' }}>
           <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--red)', marginBottom: '6px' }}>✉️ Sahkan email anda dahulu</div>
-          <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: 1.5 }}>
+          <div style={{ fontSize: '.78rem', color: '#6f1f2b', marginBottom: '10px', lineHeight: 1.5 }}>
             Kami telah menghantar pautan pengesahan ke <strong>{user?.email}</strong>. Klik pautan tersebut, kemudian tekan "Saya sudah sahkan".
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

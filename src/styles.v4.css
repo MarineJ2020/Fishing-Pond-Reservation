@@ -58,7 +58,7 @@
 }
 .bk-panel-head { padding: 22px 24px 16px; border-bottom: 1px solid var(--line); }
 .bk-panel-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.bk-panel-head h2 { margin: 5px 0 4px; font-family: var(--font-heading); font-size: 32px; font-style: italic; line-height: .95; text-transform: uppercase; }
+.bk-panel-head h2 { margin: 5px 0 4px; font-family: var(--font-heading); font-size: 32px; font-style: italic; line-height: .95; text-transform: uppercase; color: #0b1f33; }
 .bk-panel-head p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .bk-panel-body { padding: 20px 24px 24px; }
 
@@ -73,6 +73,8 @@
 .bk-choice.active::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--red); border-radius: 16px 16px 0 0; }
 .bk-choice small { display: block; color: var(--red); font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
 .bk-choice strong { display: block; margin-top: 10px; font-size: 17px; font-weight: 900; }
+.bk-choice:not(.active) strong { color: #0d2238; }
+.bk-choice.active strong { color: #081a2c; }
 .bk-choice-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .bk-choice-meta span { padding: 7px 9px; border-radius: 999px; background: #f1f4f7; color: #445466; font-size: 11px; font-weight: 800; }
 
@@ -82,6 +84,7 @@
 .bk-pond:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(17,42,65,.08); }
 .bk-pond.active { color: #fff; background: var(--navy); border-color: var(--navy); }
 .bk-pond strong { display: block; font-weight: 900; }
+.bk-pond:not(.active) strong { color: #0d2238; }
 .bk-pond small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
 .bk-pond.active small { color: rgba(255,255,255,.72); }
 .bk-pond:disabled { opacity: .5; cursor: not-allowed; }
@@ -128,6 +131,57 @@
 .bk-seat-modal-foot { padding: 16px 22px; display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; border-top: 1px solid var(--line); background: #fff; }
 .bk-seat-modal-foot small { display: block; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; }
 .bk-seat-modal-foot strong { display: block; margin-top: 4px; font-size: 15px; }
+
+/* Bridge legacy booking form classes so text colors match V4 booking HTML. */
+.bk-page .panel { color: var(--navy); }
+.bk-page .panel-title { color: var(--navy); }
+.bk-page .panel-subtitle { color: var(--muted); }
+.bk-page .form-label { color: #455667; }
+.bk-page .form-input,
+.bk-page .form-select,
+.bk-page .form-textarea { color: var(--navy); background: #fff; }
+.bk-page .form-input::placeholder,
+.bk-page .form-textarea::placeholder { color: #7e8a97; }
+.bk-page .payment-opt { color: var(--navy); }
+.bk-page .opt-sub { color: var(--muted); }
+.bk-page .price-bar-label,
+.bk-page .price-bar-detail,
+.bk-page .upload-text,
+.bk-page .divider span { color: var(--muted); }
+.bk-page .price-bar-total { color: var(--red); }
+.bk-page .seat-pill { color: var(--red); background: #fff0f2; }
+
+/* Contrast safety for helper text in tinted surfaces. */
+.bk-page .upload-preview { color: #175f42; }
+.bk-page .summary-note,
+.bk-page .bk-summary-note { color: #7a2230; }
+.bk-page .payment-notice,
+.bk-page #depositNotice { color: #7a2230; }
+.bk-page .bk-panel p,
+.bk-seat-modal p { color: var(--muted); }
+
+/* Match booking CTA text contrast from the provided HTML (white text on red). */
+.bk-page .btn-red,
+.bk-page .btn-primary,
+.bk-seat-modal .btn-red,
+.bk-mobile-continue .btn-red {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+  box-shadow: 0 12px 28px rgba(231, 25, 45, .25);
+}
+.bk-page .btn-red:hover,
+.bk-page .btn-primary:hover,
+.bk-seat-modal .btn-red:hover,
+.bk-mobile-continue .btn-red:hover {
+  background: var(--red-mid);
+  color: #fff;
+}
+
+/* Keep informational red buttons soft where intended. */
+.bk-page .btn-danger {
+  color: #fff;
+}
 
 @media (max-width: 1024px) {
   .bk-grid { grid-template-columns: 1fr; }
