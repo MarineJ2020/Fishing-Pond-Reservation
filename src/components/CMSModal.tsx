@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import jsQR from 'jsqr';
 import { useSearchParams } from 'react-router-dom';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking } from '../types';
 import { gs } from '../data';
@@ -17,8 +19,9 @@ import {
   saveScoreEntry,
   deleteScoreEntry,
   markBalanceReminderSent,
+  approveDepositWithProofDirect,
 } from '../lib/firestore';
-import { uploadImageToCloudinary } from '../utils/cloudinary';
+import { normalizeCloudinaryFileUrl, uploadImageToCloudinary } from '../utils/cloudinary';
 import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
 import { getCompetitionPhase } from '../utils/competition';
@@ -157,6 +160,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [pondSaveError, setPondSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'rejected'>('all');
+  const [approvalsSortOrder, setApprovalsSortOrder] = useState<'desc' | 'asc'>('desc');
   const [bookingSearch, setBookingSearch] = useState('');
   // Force-cancel-a-confirmed-booking flow: typed confirmation guard.
   const [forceCancelTarget, setForceCancelTarget] = useState<Booking | null>(null);
@@ -165,6 +169,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [checkinResult, setCheckinResult] = useState<any>(null);
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [checkinDone, setCheckinDone] = useState(false);
+  const [depositProofUploading, setDepositProofUploading] = useState(false);
+  const [depositProofTarget, setDepositProofTarget] = useState<Booking | null>(null);
+  const depositProofInputRef = useRef<HTMLInputElement | null>(null);
+  const [checkinLiveScanOn, setCheckinLiveScanOn] = useState(false);
+  const [checkinLiveScanBusy, setCheckinLiveScanBusy] = useState(false);
+  const checkinLiveVideoRef = useRef<HTMLVideoElement | null>(null);
+  const checkinLiveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const checkinLiveStreamRef = useRef<MediaStream | null>(null);
+  const checkinLiveRafRef = useRef<number | null>(null);
 
   // Competition: per-pond seat active/inactive edits (pondKey -> seatNum -> active)
   const [pondSeatEdits, setPondSeatEdits] = useState<Record<string, Record<number, boolean>>>({});
@@ -180,7 +193,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [pendingScan, setPendingScan] = useState<ScaleScanApproved | null>(null);
   const [anglerSuggestOpen, setAnglerSuggestOpen] = useState(false);
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
+  const [prizesEditMode, setPrizesEditMode] = useState(false);
   const [pondMapUploading, setPondMapUploading] = useState(false);
+  const [rulesPdfUploading, setRulesPdfUploading] = useState(false);
   // Users page search query.
   const [userSearch, setUserSearch] = useState('');
   // Reorder/collapse state for the ponds CMS.
@@ -211,6 +226,21 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   }, []);
 
   useEffect(() => {
+    if (isOpen && page === 'checkin') return;
+    if (checkinLiveRafRef.current) {
+      window.cancelAnimationFrame(checkinLiveRafRef.current);
+      checkinLiveRafRef.current = null;
+    }
+    if (checkinLiveStreamRef.current) {
+      checkinLiveStreamRef.current.getTracks().forEach((t) => t.stop());
+      checkinLiveStreamRef.current = null;
+    }
+    const video = checkinLiveVideoRef.current;
+    if (video) video.srcObject = null;
+    setCheckinLiveScanOn(false);
+  }, [isOpen, page]);
+
+  useEffect(() => {
     if (!resultsCompId && comp.id) setResultsCompId(comp.id);
     else if (!resultsCompId && competitions.length) setResultsCompId(competitions[0].id || '');
   }, [comp.id, competitions]);
@@ -219,7 +249,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   useEffect(() => {
     if (page !== 'prizes') return;
     const target = compList.find(c => c.id === prizesCompId) || compList[0];
-    if (target) setCompEdit({ ...target });
+    if (target) {
+      setCompEdit({ ...target });
+      setPrizesEditMode(false);
+    }
   }, [prizesCompId, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -605,20 +638,42 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const handleViewReceipt = (receiptData: string) => {
     if (!receiptData) return;
-    setReceiptViewerUrl(receiptData);
+    const normalizedUrl = normalizeCloudinaryFileUrl(receiptData);
+    setReceiptViewerUrl(normalizedUrl);
     setReceiptViewerMeta({ width: 0, height: 0, bytes: null });
     // Resolve the file size: derive it from a data-URL directly, otherwise ask
     // the host for Content-Length via a HEAD request (best-effort; ignored on CORS failure).
-    if (receiptData.startsWith('data:')) {
-      const base64 = receiptData.split(',')[1] || '';
+    if (normalizedUrl.startsWith('data:')) {
+      const base64 = normalizedUrl.split(',')[1] || '';
       const padding = (base64.match(/=+$/) || [''])[0].length;
       const bytes = Math.max(0, Math.floor(base64.length * 3 / 4) - padding);
       setReceiptViewerMeta(m => ({ ...m, bytes }));
     } else {
-      fetch(receiptData, { method: 'HEAD' })
+      fetch(normalizedUrl, { method: 'HEAD' })
         .then(r => { const len = r.headers.get('content-length'); if (len) setReceiptViewerMeta(m => ({ ...m, bytes: parseInt(len, 10) })); })
         .catch(() => {});
     }
+  };
+
+  const triggerManualDepositProofUpload = (booking: Booking) => {
+    setDepositProofTarget(booking);
+    depositProofInputRef.current?.click();
+  };
+
+  const handleManualDepositProofFile = async (file: File) => {
+    if (!depositProofTarget) return;
+    setDepositProofUploading(true);
+    try {
+      const proofUrl = await uploadImageToCloudinary(file, 'fishing-pond-receipts');
+      await approveDepositWithProofDirect(depositProofTarget.id, proofUrl, depositProofTarget.amount);
+      await reloadDB();
+      window.alert('Deposit disahkan secara manual dan bukti telah disimpan.');
+    } catch (err) {
+      console.error('Manual deposit approval failed:', err);
+      window.alert(`Gagal sahkan deposit: ${err instanceof Error ? err.message : 'Ralat tidak diketahui.'}`);
+    }
+    setDepositProofTarget(null);
+    setDepositProofUploading(false);
   };
 
   const formatBytes = (bytes: number): string => {
@@ -628,9 +683,134 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleCheckin = () => {
-    const found = bookings.find(b => b.id === checkinRef.trim());
+    const q = checkinRef.trim().toLowerCase();
+    const found = bookings.find(b => {
+      if (!q) return false;
+      const bookingId = b.id.toLowerCase();
+      const bookingRef = (b.bookingRef || '').toLowerCase();
+      const userName = (b.userName || '').toLowerCase();
+      return bookingId === q || bookingRef === q || bookingId.includes(q) || bookingRef.includes(q) || userName.includes(q);
+    });
     setCheckinResult(found || null);
     setCheckinDone(false);
+  };
+
+  const parseBookingIdFromQr = (raw: string): string | null => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    try {
+      const url = new URL(trimmed, 'http://placeholder');
+      const match = url.pathname.match(/^\/bookings\/([^/]+)/);
+      if (match) return decodeURIComponent(match[1]);
+    } catch {
+      // not a URL; continue with plain id fallback
+    }
+    if (/^[A-Za-z0-9_-]{6,}$/.test(trimmed)) return trimmed;
+    return null;
+  };
+
+  const stopCheckinLiveScan = () => {
+    if (checkinLiveRafRef.current) {
+      window.cancelAnimationFrame(checkinLiveRafRef.current);
+      checkinLiveRafRef.current = null;
+    }
+    if (checkinLiveStreamRef.current) {
+      checkinLiveStreamRef.current.getTracks().forEach((t) => t.stop());
+      checkinLiveStreamRef.current = null;
+    }
+    const video = checkinLiveVideoRef.current;
+    if (video) video.srcObject = null;
+    setCheckinLiveScanOn(false);
+  };
+
+  const runCheckinLiveFrame = () => {
+    const video = checkinLiveVideoRef.current;
+    const canvas = checkinLiveCanvasRef.current;
+    if (!video || !canvas || !checkinLiveScanOn) return;
+    if (video.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) {
+      checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
+      return;
+    }
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
+      return;
+    }
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) {
+      checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
+      return;
+    }
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(video, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+    const bookingId = code?.data ? parseBookingIdFromQr(code.data) : null;
+    if (bookingId) {
+      const found = bookings.find(b => b.id === bookingId);
+      if (found) {
+        stopCheckinLiveScan();
+        setCheckinRef(found.bookingRef || found.id);
+        setCheckinResult(found);
+        setCheckinDone(false);
+        return;
+      }
+    }
+    checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
+  };
+
+  const startCheckinLiveScan = async () => {
+    setCheckinLiveScanBusy(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      checkinLiveStreamRef.current = stream;
+      const video = checkinLiveVideoRef.current;
+      if (!video) throw new Error('Elemen video tidak tersedia.');
+      video.srcObject = stream;
+      await video.play();
+      setCheckinLiveScanOn(true);
+      checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
+    } catch (err) {
+      console.error('Failed to start live check-in scan:', err);
+      window.alert('Tidak dapat membuka kamera untuk imbas QR.');
+      stopCheckinLiveScan();
+    }
+    setCheckinLiveScanBusy(false);
+  };
+
+  const handleCheckinQrFile = async (file: File) => {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(bitmap, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+      const bookingId = code?.data ? parseBookingIdFromQr(code.data) : null;
+      if (!bookingId) {
+        window.alert('QR tidak dapat dibaca. Sila cuba semula.');
+        return;
+      }
+      const found = bookings.find(b => b.id === bookingId);
+      if (!found) {
+        window.alert('Tempahan untuk QR ini tidak dijumpai.');
+        return;
+      }
+      setCheckinRef(found.bookingRef || found.id);
+      setCheckinResult(found);
+      setCheckinDone(false);
+    } catch (err) {
+      console.error('Failed to scan check-in QR:', err);
+      window.alert('Imbas QR gagal. Sila cuba lagi.');
+    }
   };
 
   const handlePerformCheckin = async () => {
@@ -678,6 +858,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         heroStats: settingsEdit.heroStats || [],
         introCopy: settingsEdit.introCopy || '',
         rules: settingsEdit.rules || [],
+        rulesPdfUrl: settingsEdit.rulesPdfUrl || '',
         wazeUrl: settingsEdit.wazeUrl || '',
         googleMapsUrl: settingsEdit.googleMapsUrl || '',
         mapEmbedUrl: settingsEdit.mapEmbedUrl || '',
@@ -738,6 +919,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const rules = [...(settingsEdit.rules || [])];
     rules.splice(idx, 1);
     setSettingsEdit({ ...settingsEdit, rules });
+  };
+
+  const handleRulesPdfUpload = async (file: File) => {
+    setRulesPdfUploading(true);
+    try {
+      const url = await uploadImageToCloudinary(file, 'fishing-pond-rules');
+      setSettingsEdit(s => ({ ...s, rulesPdfUrl: url }));
+      await updateSettingsFirestore({ rulesPdfUrl: url });
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to upload rules PDF:', err);
+    }
+    setRulesPdfUploading(false);
   };
 
   const handlePondMapUpload = async (file: File) => {
@@ -857,12 +1051,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const handleScanApprove = async (scan: ScaleScanApproved) => {
     setScanOpen(false);
     setSaving(true);
+    let savedAnglerName = '';
     try {
       const photoUrl = await uploadImageToCloudinary(
         new File([scan.photoBlob], scan.photoFileName, { type: scan.photoBlob.type || 'image/jpeg' }),
         'fishing-pond-weights',
       );
       const sb = scan.scannedBooking;
+      savedAnglerName = sb.anglerName;
       await saveScoreEntry({
         competitionId: sb.competitionId || resultsCompId,
         bookingId: sb.bookingId,
@@ -882,17 +1078,27 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       console.error('Failed to save scanned weight:', err);
     }
     setSaving(false);
+    if (savedAnglerName) {
+      const continueForSameAngler = window.confirm(
+        `Berjaya simpan timbang untuk ${savedAnglerName}. Hantar satu lagi rekod untuk pemancing sama?`,
+      );
+      if (continueForSameAngler) {
+        setScanOpen(true);
+      }
+    }
   };
 
   const handleManualSave = async () => {
     if (!manualEntry.anglerName || !pendingScan) return;
     setSaving(true);
+    let savedAnglerName = '';
     try {
       const pond = ponds.find(p => (p._docId || p.id.toString()) === manualEntry.pondId);
       const photoUrl = await uploadImageToCloudinary(
         new File([pendingScan.photoBlob], pendingScan.photoFileName, { type: pendingScan.photoBlob.type || 'image/jpeg' }),
         'fishing-pond-weights',
       );
+      savedAnglerName = manualEntry.anglerName;
       await saveScoreEntry({
         competitionId: resultsCompId,
         anglerName: manualEntry.anglerName,
@@ -911,6 +1117,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       setPendingScan(null);
     } catch (err) { console.error(err); }
     setSaving(false);
+    if (savedAnglerName) {
+      const continueForSameAngler = window.confirm(
+        `Berjaya simpan timbang untuk ${savedAnglerName}. Hantar satu lagi rekod untuk pemancing sama?`,
+      );
+      if (continueForSameAngler) {
+        setScanOpen(true);
+      }
+    }
   };
 
   const openCreatePondModal = () => {
@@ -1023,6 +1237,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // ── Unsaved-changes guard ────────────────────────────────────────────────
   const compSig = (c?: Partial<Competition>) => c ? JSON.stringify({
     name: c.name || '', startDate: c.startDate || '', endDate: c.endDate || '', topN: c.topN || 0,
+    pricePerPeg: c.pricePerPeg ?? null,
     prizes: c.prizes || [], activePondIds: [...(c.activePondIds || [])].sort(), pondSeats: c.pondSeats || {},
   }) : '';
   const settingsDirty = JSON.stringify(settingsEdit) !== JSON.stringify(settings);
@@ -1269,7 +1484,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </div>
                       </div>
                       <div className="card-body">
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>{pond.seats.length} tempat · RM{pond.seats[0]?.price || 0}/peg</div>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>{pond.seats.length} tempat · harga ikut pertandingan</div>
                         <button
                           className="btn btn-sm btn-ghost"
                           style={{ width: '100%', marginBottom: '0.6rem' }}
@@ -1382,45 +1597,68 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="card">
                 <div className="card-header">
                   <div className="card-title">Senarai Hadiah — {compEdit.name || '—'}</div>
-                  <button
-                    className="btn btn-sm btn-primary"
-                    onClick={() => {
-                      const nextRank = compEdit.prizes?.length
-                        ? Math.max(...compEdit.prizes.map((p: Prize) => p.rank)) + 1
-                        : 1;
-                      setCompEdit({ ...compEdit, prizes: [...(compEdit.prizes || []), { rank: nextRank, label: 'Tempat #' + nextRank, prize: '' }] });
-                    }}
-                  >+ Tambah Tempat</button>
+                  {prizesEditMode ? (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => {
+                          const target = compList.find(c => c.id === prizesCompId) || compList[0];
+                          if (target) setCompEdit({ ...target });
+                          setPrizesEditMode(false);
+                        }}
+                      >Batal</button>
+                      <button
+                        className="btn btn-sm btn-primary"
+                        onClick={() => {
+                          const nextRank = compEdit.prizes?.length
+                            ? Math.max(...compEdit.prizes.map((p: Prize) => p.rank)) + 1
+                            : 1;
+                          setCompEdit({ ...compEdit, prizes: [...(compEdit.prizes || []), { rank: nextRank, label: 'Tempat #' + nextRank, prize: '' }] });
+                        }}
+                      >+ Tambah Tempat</button>
+                    </div>
+                  ) : (
+                    <button className="btn btn-sm btn-primary" onClick={() => setPrizesEditMode(true)}>Edit</button>
+                  )}
                 </div>
                 <div className="card-body">
                   <div className="prize-rows">
                     {(compEdit.prizes || []).map((p: Prize, i: number) => (
                       <div key={i} className="prize-row">
                         <div className="prize-rank-badge">{p.rank}</div>
-                        <input
-                          className="form-input"
-                          value={p.label || ''}
-                          onChange={e => {
-                            const prizes = [...(compEdit.prizes || [])];
-                            prizes[i] = { ...prizes[i], label: e.target.value };
-                            setCompEdit({ ...compEdit, prizes });
-                          }}
-                          placeholder="Label (cth: Juara, Naib Juara)"
-                        />
-                        <input
-                          className="form-input"
-                          value={p.prize}
-                          onChange={e => {
-                            const prizes = [...(compEdit.prizes || [])];
-                            prizes[i] = { ...prizes[i], prize: e.target.value };
-                            setCompEdit({ ...compEdit, prizes });
-                          }}
-                          placeholder="Hadiah (cth: RM 500)"
-                        />
-                        <button
-                          className="prize-del"
-                          onClick={() => setCompEdit({ ...compEdit, prizes: (compEdit.prizes || []).filter((_: Prize, idx: number) => idx !== i) })}
-                        >✕</button>
+                        {prizesEditMode ? (
+                          <>
+                            <input
+                              className="form-input"
+                              value={p.label || ''}
+                              onChange={e => {
+                                const prizes = [...(compEdit.prizes || [])];
+                                prizes[i] = { ...prizes[i], label: e.target.value };
+                                setCompEdit({ ...compEdit, prizes });
+                              }}
+                              placeholder="Label (cth: Juara, Naib Juara)"
+                            />
+                            <input
+                              className="form-input"
+                              value={p.prize}
+                              onChange={e => {
+                                const prizes = [...(compEdit.prizes || [])];
+                                prizes[i] = { ...prizes[i], prize: e.target.value };
+                                setCompEdit({ ...compEdit, prizes });
+                              }}
+                              placeholder="Hadiah (cth: RM 500)"
+                            />
+                            <button
+                              className="prize-del"
+                              onClick={() => setCompEdit({ ...compEdit, prizes: (compEdit.prizes || []).filter((_: Prize, idx: number) => idx !== i) })}
+                            >✕</button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="form-input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text)', background: 'rgba(255,255,255,0.03)' }}>{p.label || '-'}</div>
+                            <div className="form-input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text)', background: 'rgba(255,255,255,0.03)' }}>{p.prize || '-'}</div>
+                          </>
+                        )}
                       </div>
                     ))}
                     {(compEdit.prizes || []).length === 0 && (
@@ -1429,33 +1667,61 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </div>
                     )}
                   </div>
-                  <div className="form-actions" style={{ marginTop: '1rem' }}>
-                    <button className="btn btn-primary" disabled={saving} onClick={handlePrizeSave}>
-                      {saving ? 'Menyimpan...' : 'Simpan Hadiah'}
-                    </button>
-                  </div>
+                  {prizesEditMode && (
+                    <div className="form-actions" style={{ marginTop: '1rem' }}>
+                      <button className="btn btn-primary" disabled={saving} onClick={async () => { await handlePrizeSave(); setPrizesEditMode(false); }}>
+                        {saving ? 'Menyimpan...' : 'Simpan'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           )}
           {page === 'approvals' && (() => {
             const reviewBookings = bookings.filter(b => b.status !== 'rejected' && (b.status === 'pending' || pendingReceiptIndexes(b).length > 0));
+            const sortedReviewBookings = [...reviewBookings].sort((a, b) => {
+              const at = new Date(a.createdAt || 0).getTime();
+              const bt = new Date(b.createdAt || 0).getTime();
+              return approvalsSortOrder === 'desc' ? bt - at : at - bt;
+            });
+            const reviewRows = sortedReviewBookings.flatMap((b) => {
+              const receipts = b.receipts && b.receipts.length
+                ? b.receipts
+                : (b.receiptData ? [{ url: b.receiptData, amount: b.amount, status: 'pending' as const, submittedAt: b.createdAt || '' }] : []);
+              const total = b.totalAmount ?? b.amount;
+              const paid = b.paidAmount ?? 0;
+              const balance = b.balanceDue ?? Math.max(0, total - paid);
+              return receipts.map((r, i) => ({
+                booking: b,
+                receipt: r,
+                receiptIndex: i,
+                paid,
+                total,
+                balance,
+              }));
+            });
             return (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Kelulusan Tempahan</div><div className="page-sub">{reviewBookings.length} tempahan menunggu semakan resit</div></div></div>
+              <div className="page-header">
+                <div>
+                  <div className="page-title">Kelulusan Tempahan</div>
+                  <div className="page-sub">{reviewRows.length} muat naik resit untuk semakan</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Susun:</span>
+                  <button className={`btn btn-sm ${approvalsSortOrder === 'desc' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setApprovalsSortOrder('desc')}>Terkini</button>
+                  <button className={`btn btn-sm ${approvalsSortOrder === 'asc' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setApprovalsSortOrder('asc')}>Terlama</button>
+                </div>
+              </div>
               <div className="card"><div className="card-body"><div className="table-wrap"><table>
-                <thead><tr><th>Ref</th><th>Pertandingan</th><th>Nama</th><th>Kolam</th><th>Pegs</th><th>Dibayar / Jumlah</th><th>Bayaran</th><th>Resit &amp; Tindakan</th><th></th></tr></thead>
+                <thead><tr><th>Ref</th><th>Tarikh Tempahan</th><th>Pertandingan</th><th>Nama</th><th>Kolam</th><th>Pegs</th><th>Dibayar / Jumlah</th><th>Bayaran</th><th>Resit</th><th>Tindakan</th></tr></thead>
                 <tbody>
-                  {reviewBookings.map(b => {
-                    const receipts = b.receipts && b.receipts.length
-                      ? b.receipts
-                      : (b.receiptData ? [{ url: b.receiptData, amount: b.amount, status: 'pending' as const, submittedAt: b.createdAt || '' }] : []);
-                    const total = b.totalAmount ?? b.amount;
-                    const paid = b.paidAmount ?? 0;
-                    const balance = b.balanceDue ?? Math.max(0, total - paid);
+                  {reviewRows.map(({ booking: b, receipt: r, receiptIndex: i, paid, total, balance }) => {
                     return (
-                    <tr key={b.id}>
+                    <tr key={`${b.id}-${i}-${r.submittedAt || 'legacy'}`}>
                       <td className="td-ref">{b.id.slice(0, 10)}</td>
+                      <td style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{b.createdAt ? new Date(b.createdAt).toLocaleString('ms-MY') : '-'}</td>
                       <td>{b.competitionName || comp.name || '-'}</td>
                       <td className="td-name">
                         {b.userName}
@@ -1467,47 +1733,69 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         RM {paid} / {total}
                         {balance > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {balance}</div>}
                       </td>
-                      <td><span className={`badge ${b.paymentType === 'deposit' ? 'badge-deposit' : 'badge-paid'}`}>{b.paymentType === 'deposit' ? 'Deposit' : 'Penuh'}</span></td>
+                      <td><span className={`badge ${b.paymentType === 'deposit' ? 'badge-deposit' : 'badge-paid'}`}>{b.paymentType === 'deposit' ? 'Deposit' : b.paymentType === 'baki' ? 'Baki' : 'Penuh'}</span></td>
                       <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 220 }}>
-                          {receipts.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Tiada resit</span>}
-                          {receipts.map((r, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ fontSize: '0.78rem', minWidth: 78 }}>#{i + 1} RM {r.amount}</span>
-                              {r.url && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(r.url)}>Lihat</button>}
-                              {r.status === 'pending'
-                                ? (<>
-                                    <button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit" onClick={() => askAcceptReceipt(b.id, i)}>✓</button>
-                                    <button className="btn btn-sm btn-red" disabled={saving} title="Tolak resit" onClick={() => askRejectReceipt(b.id, i)}>✕</button>
-                                  </>)
-                                : (<span className={`badge badge-${r.status === 'accepted' ? 'approved' : 'rejected'}`} style={{ fontSize: '0.66rem' }}>{r.status === 'accepted' ? 'Disahkan' : 'Ditolak'}</span>)}
-                            </div>
-                          ))}
-                          {(() => {
-                            const info = balanceReminderInfo(b, nowTick);
-                            if (!info.awaitingBalance) return null;
-                            const overdue = info.msUntilRemind <= 0;
-                            return (
-                              <div style={{ marginTop: 4, padding: '6px 8px', background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.25)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                  ⏳ Deposit dihantar {info.daysSinceDeposit} hari lalu
-                                </span>
-                                <span style={{ fontSize: '0.7rem', color: overdue ? 'var(--red)' : 'var(--text-muted)', fontWeight: overdue ? 700 : 400 }}>
-                                  📧 Auto-peringat {overdue ? 'tertunggak' : `dalam ${reminderLabel(info)}`}
-                                </span>
-                                <button className="btn btn-sm btn-ghost" disabled={saving} title="Hantar peringatan baki sekarang" style={{ alignSelf: 'flex-start' }} onClick={() => askSendReminder(b.id)}>Hantar Peringatan</button>
-                              </div>
-                            );
-                          })()}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 220 }}>
+                          <span style={{ fontSize: '0.78rem', minWidth: 78 }}>#{i + 1} RM {r.amount}</span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.submittedAt ? new Date(r.submittedAt).toLocaleString('ms-MY') : '-'}</span>
+                          {r.url && <button className="btn btn-sm btn-ghost" onClick={() => handleViewReceipt(r.url)}>Lihat</button>}
+                          {r.status !== 'pending' && <span className={`badge badge-${r.status === 'accepted' ? 'approved' : 'rejected'}`} style={{ fontSize: '0.66rem' }}>{r.status === 'accepted' ? 'Disahkan' : 'Ditolak'}</span>}
                         </div>
                       </td>
-                      <td><button className="btn btn-sm btn-red" disabled={saving} title="Tolak keseluruhan tempahan" onClick={() => askRejectBooking(b.id)}>Tolak Tempahan</button></td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {b.status === 'pending' && b.paymentType === 'deposit' && (
+                            <button
+                              className="btn btn-sm btn-primary"
+                              disabled={saving || depositProofUploading}
+                              title="Sahkan deposit secara manual (bukti wajib)"
+                              onClick={() => triggerManualDepositProofUpload(b)}
+                            >
+                              {depositProofUploading && depositProofTarget?.id === b.id ? 'Memuat Naik...' : 'Sahkan Deposit + Bukti'}
+                            </button>
+                          )}
+                          {r.status === 'pending' && (
+                            <>
+                              <button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit" onClick={() => askAcceptReceipt(b.id, i)}>✓</button>
+                              <button className="btn btn-sm btn-red" disabled={saving} title="Tolak resit" onClick={() => askRejectReceipt(b.id, i)}>✕</button>
+                            </>
+                          )}
+                          <button className="btn btn-sm btn-red" disabled={saving} title="Tolak keseluruhan tempahan" onClick={() => askRejectBooking(b.id)}>Tolak Tempahan</button>
+                        </div>
+                        {(() => {
+                          const info = balanceReminderInfo(b, nowTick);
+                          if (!info.awaitingBalance) return null;
+                          const overdue = info.msUntilRemind <= 0;
+                          return (
+                            <div style={{ marginTop: 6, padding: '6px 8px', background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.25)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                ⏳ Deposit dihantar {info.daysSinceDeposit} hari lalu
+                              </span>
+                              <span style={{ fontSize: '0.7rem', color: overdue ? 'var(--red)' : 'var(--text-muted)', fontWeight: overdue ? 700 : 400 }}>
+                                📧 Auto-peringat {overdue ? 'tertunggak' : `dalam ${reminderLabel(info)}`}
+                              </span>
+                              <button className="btn btn-sm btn-ghost" disabled={saving} title="Hantar peringatan baki sekarang" style={{ alignSelf: 'flex-start' }} onClick={() => askSendReminder(b.id)}>Hantar Peringatan</button>
+                            </div>
+                          );
+                        })()}
+                      </td>
                     </tr>
                     );
                   })}
-                  {reviewBookings.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan menunggu</td></tr>}
+                  {reviewRows.length === 0 && <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada muat naik resit menunggu</td></tr>}
                 </tbody>
               </table></div></div></div>
+              <input
+                ref={depositProofInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleManualDepositProofFile(file);
+                  e.target.value = '';
+                }}
+              />
             </div>
             );
           })()}
@@ -1638,8 +1926,25 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="checkin-search">
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📲</div>
                 <h3 style={{ marginBottom: '0.25rem' }}>Carian Tempahan</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Masukkan nombor rujukan tempahan</p>
-                <div className="checkin-input-wrap"><input className="checkin-input" value={checkinRef} onChange={e => setCheckinRef(e.target.value)} placeholder="Cth: CB1234567" onKeyDown={e => e.key === 'Enter' && handleCheckin()} /><button className="btn btn-primary" onClick={handleCheckin}>Cari</button></div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Cari guna nama peserta / booking ID / booking ref atau imbas QR</p>
+                {checkinLiveScanOn && (
+                  <div style={{ margin: '0 auto 10px', maxWidth: 420, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', background: '#0f172a' }}>
+                    <video ref={checkinLiveVideoRef} playsInline muted style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block' }} />
+                    <canvas ref={checkinLiveCanvasRef} style={{ display: 'none' }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', color: '#fff', fontSize: 12 }}>
+                      <span>Arahkan kamera ke QR tempahan</span>
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }} onClick={stopCheckinLiveScan}>Tutup Kamera</button>
+                    </div>
+                  </div>
+                )}
+                <div className="checkin-input-wrap"><input className="checkin-input" value={checkinRef} onChange={e => setCheckinRef(e.target.value)} placeholder="Cth: BKG-12345 / nama peserta" onKeyDown={e => e.key === 'Enter' && handleCheckin()} /><button className="btn btn-primary" onClick={handleCheckin}>Cari</button></div>
+                <button className="btn btn-ghost" style={{ marginTop: '10px' }} disabled={checkinLiveScanBusy || checkinLiveScanOn} onClick={startCheckinLiveScan}>
+                  {checkinLiveScanBusy ? 'Membuka Kamera...' : (checkinLiveScanOn ? 'Kamera Aktif' : '🎥 Imbas QR Secara Live')}
+                </button>
+                <label className="btn btn-ghost" style={{ marginTop: '10px', display: 'inline-flex', cursor: 'pointer' }}>
+                  📷 Imbas QR Tempahan
+                  <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleCheckinQrFile(f); e.target.value = ''; }} />
+                </label>
               </div>
               {checkinResult && (
                 <div className="checkin-result">
@@ -1980,6 +2285,44 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {(!settingsEdit.rules || settingsEdit.rules.length === 0) && (
                     <div style={{ color: 'var(--text-muted)', padding: '1rem 0' }}>Tiada syarat. Klik "Tambah Syarat" untuk mula.</div>
                   )}
+
+                  <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--line)' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                      PDF Syarat &amp; Peraturan (digunakan di halaman utama dan borang tempahan)
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <label
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '8px',
+                          padding: '8px 16px', borderRadius: '8px', cursor: rulesPdfUploading ? 'not-allowed' : 'pointer',
+                          background: 'var(--green)', color: '#fff', fontSize: '0.85rem', fontWeight: 600,
+                          opacity: rulesPdfUploading ? 0.65 : 1,
+                        }}
+                      >
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          style={{ display: 'none' }}
+                          disabled={rulesPdfUploading}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) handleRulesPdfUpload(f); e.target.value = ''; }}
+                        />
+                        {rulesPdfUploading ? 'Memuat naik...' : (settingsEdit.rulesPdfUrl ? '🔄 Tukar PDF' : '⬆ Muat Naik PDF')}
+                      </label>
+                      {settingsEdit.rulesPdfUrl && (
+                        <>
+                          <a className="btn btn-sm btn-ghost" href={normalizeCloudinaryFileUrl(settingsEdit.rulesPdfUrl)} target="_blank" rel="noopener noreferrer">Buka PDF</a>
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            onClick={async () => {
+                              setSettingsEdit(s => ({ ...s, rulesPdfUrl: '' }));
+                              await updateSettingsFirestore({ rulesPdfUrl: '' });
+                              await reloadDB();
+                            }}
+                          >Padam PDF</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -2115,6 +2458,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <input className="form-input" type="number" value={compEdit.topN || 20} onChange={(e) => setCompEdit({ ...compEdit, topN: parseInt(e.target.value) || 20 })} />
                     <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
                       Berapa ramai peserta teratas yang dipaparkan di papan markah.
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Harga Per Peg (RM)</label>
+                    <input className="form-input" type="number" min="0" step="1" value={compEdit.pricePerPeg ?? 100} onChange={(e) => setCompEdit({ ...compEdit, pricePerPeg: Math.max(0, parseInt(e.target.value) || 0) })} />
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      Semua kolam dalam pertandingan ini berkongsi harga per peg yang sama.
                     </div>
                   </div>
                 </div>
@@ -2261,7 +2611,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="form-grid">
                   <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={isEdit ? editingPond.name : newPond.name} onChange={e => isEdit ? setEditingPond({ ...editingPond, name: e.target.value }) : setNewPond({ ...newPond, name: e.target.value })} /></div>
                   <div className="form-group"><label className="form-label">Keterangan</label><input className="form-input" value={isEdit ? editingPond.desc : newPond.desc} onChange={e => isEdit ? setEditingPond({ ...editingPond, desc: e.target.value }) : setNewPond({ ...newPond, desc: e.target.value })} /></div>
-                  <div className="form-group"><label className="form-label">Harga Per Tempat (RM)</label><input className="form-input" type="number" min="0" step="1" value={isEdit ? (editingPond.seats?.[0]?.price || 0) : newPondSeatPrice} onChange={e => applySeatPrice(e.target.value)} /></div>
+                  <div className="form-group form-span" style={{ fontSize: '0.78rem', color: 'var(--text-muted)', paddingTop: '6px' }}>
+                    Harga per peg diuruskan di menu <strong>Pertandingan</strong>, bukan di Kolam.
+                  </div>
                   <div className="form-group">
                     <label className="form-label">
                       Bilangan Tempat Duduk Maksimum
@@ -2337,7 +2689,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         setSaving(true);
                         try {
                           const effectiveMax = isLegacy ? newPondMaxSeats : ((newPond.seats ?? []).length || newPondMaxSeats);
-                          const newDocId = await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: effectiveMax, pricePerSeat: newPondSeatPrice || 100 } as any);
+                          const newDocId = await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: effectiveMax, pricePerSeat: 100 } as any);
                           // Save shape + seatLayout if present (polygon mode)
                           const shape = (newPond as any).shape ?? [];
                           const seats = newPond.seats ?? [];
@@ -2434,8 +2786,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       })()}
 
       {/* Reusable confirmation dialog for decision actions */}
-      {confirmDialog && (
-        <div className="modal-overlay open" style={{ zIndex: 650 }} onClick={() => setConfirmDialog(null)}>
+      {confirmDialog && createPortal(
+        <div className="modal-overlay open" style={{ zIndex: 1200 }} onClick={() => setConfirmDialog(null)}>
           <div className="modal" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">{confirmDialog.title}</div>
@@ -2461,12 +2813,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Force-cancel typed confirmation (second gate) */}
-      {forceCancelTarget && (
-        <div className="modal-overlay open" style={{ zIndex: 660 }} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); }}>
+      {forceCancelTarget && createPortal(
+        <div className="modal-overlay open" style={{ zIndex: 1210 }} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); }}>
           <div className="modal" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Pengesahan Akhir / Final Confirmation</div>
@@ -2499,7 +2852,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

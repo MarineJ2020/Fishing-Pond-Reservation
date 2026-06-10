@@ -129,16 +129,20 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     setReceiptFile(file);
   }, []);
 
+  const getCompetitionPricePerPeg = useCallback((pond?: Pond) => {
+    const competitionId = selectedCompetitionId || db.comp.id || '';
+    const competition = db.competitions.find((c) => c.id === competitionId) || db.comp;
+    if (typeof competition?.pricePerPeg === 'number') return Math.max(0, competition.pricePerPeg);
+    return pond?.seats?.[0]?.price || 0;
+  }, [db.comp, db.competitions, selectedCompetitionId]);
+
   const calculateTotal = useCallback(() => {
     if (!selectedPond) return 0;
     const pond = db.ponds.find(p => p.id === selectedPond);
     if (!pond) return 0;
-    const tot = selectedSeats.reduce((a, n) => {
-      const s = pond.seats.find(x => x.num === n);
-      return a + (s ? s.price : 0);
-    }, 0);
+    const tot = selectedSeats.length * getCompetitionPricePerPeg(pond);
     return payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
-  }, [db.ponds, selectedPond, selectedSeats, payType]);
+  }, [db.ponds, selectedPond, selectedSeats, payType, getCompetitionPricePerPeg]);
 
   const clearBooking = useCallback(() => {
     setSelectedSeats([]);
@@ -178,10 +182,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       .map((num) => pond.seats.find((s) => s.num === num)?.id)
       .filter(Boolean) as string[];
 
-    const tot = selectedSeats.reduce((a, n) => {
-      const s = pond.seats.find(x => x.num === n);
-      return a + (s ? s.price : 0);
-    }, 0);
+    const tot = selectedSeats.length * getCompetitionPricePerPeg(pond);
     const payAmt = payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
 
     const bookingRef = `BKG-${Date.now().toString().slice(-5)}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
@@ -251,7 +252,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     updateDB(newDb);
     clearBooking();
     return booking;
-  }, [user, selectedSeats, receiptData, receiptFile, payType, bookingNotes, adminProxyName, adminProxyEmail, db, updateDB, clearBooking, selectedCompetitionId]);
+  }, [user, selectedSeats, receiptData, receiptFile, payType, bookingNotes, adminProxyName, adminProxyEmail, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
 
   return (
     <BookingContext.Provider

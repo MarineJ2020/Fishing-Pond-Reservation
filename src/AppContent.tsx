@@ -21,6 +21,7 @@ import { useCountdown } from './hooks/useCountdown';
 import { fmt } from './utils';
 import { countOutstanding, hasOutstandingBalance } from './utils/booking';
 import { isCompetitionEnded } from './utils/competition';
+import { normalizeCloudinaryFileUrl } from './utils/cloudinary';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
 
@@ -77,6 +78,7 @@ const AppContent: React.FC = () => {
   const prizeMinHRef = useRef(0);
   const prizeWrapRef = useRef<HTMLDivElement | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [pondMapOpen, setPondMapOpen] = useState(false);
   const [seatModalOpen, setSeatModalOpen] = useState(false);
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
@@ -276,6 +278,7 @@ const AppContent: React.FC = () => {
   };
 
   const handleSubmitBooking = async () => {
+    if (bookingSubmitting) return;
     if (!user) {
       setAuthModalOpen(true);
       return;
@@ -303,12 +306,15 @@ const AppContent: React.FC = () => {
     if (!pond) return;
 
     let booking = null;
+    setBookingSubmitting(true);
     try {
       booking = await submitBooking(pond);
     } catch (err: any) {
       setBookingError(err?.message || 'Ralat semasa menghantar tempahan. Sila cuba lagi.');
+      setBookingSubmitting(false);
       return;
     }
+    setBookingSubmitting(false);
     if (booking) {
       addToast('Booking submitted! Staff will confirm via email.', 'success');
       goToConfirmed();
@@ -386,6 +392,15 @@ const AppContent: React.FC = () => {
 
   const userBookings = user ? db.bookings.filter(b => b.userId === user.uid || b.userId === user.email) : [];
   const outstandingCount = countOutstanding(userBookings);
+
+  const openRulesPdf = () => {
+    const pdfUrl = normalizeCloudinaryFileUrl(db.settings.rulesPdfUrl || '');
+    if (!pdfUrl) {
+      addToast('Syarat & peraturan belum dimuat naik oleh admin.', 'info');
+      return;
+    }
+    window.open(pdfUrl, '_blank', 'noopener,noreferrer');
+  };
 
   const handleNavigation = (section: string) => {
     const homeAnchors = ['about', 'competitions', 'how', 'rules', 'lokasi'];
@@ -749,7 +764,7 @@ const AppContent: React.FC = () => {
     const featuredSlots = featuredCompetition?.id
       ? competitionAvailableSeats.get(featuredCompetition.id) ?? availablePegs
       : availablePegs;
-    const samplePrice = db.ponds[0]?.seats[0]?.price;
+    const samplePrice = featuredCompetition?.pricePerPeg ?? db.ponds[0]?.seats[0]?.price;
     const featuredFee = samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami';
     const featuredPrize = (featuredCompetition?.prizes?.[0] as any);
     const featuredPrizeText = featuredPrize?.prize || (featuredPrize?.amount ? `RM${featuredPrize.amount}` : 'Cabutan bertuah & hadiah lumayan');
@@ -923,7 +938,7 @@ const AppContent: React.FC = () => {
                     >
                       <div className="pond-num">{letterIdx}</div>
                       <div className="pond-name">{pond.name}</div>
-                      <div className="pond-seats">{pond.seats.length} tempat duduk · RM{pond.seats[0]?.price || 0}/peg</div>
+                      <div className="pond-seats">{pond.seats.length} tempat duduk · RM{(selectedCompetition?.pricePerPeg ?? pond.seats[0]?.price ?? 0)}/peg</div>
                       <div className="pond-badge">{statusLabel}</div>
                     </div>
                   );
@@ -976,7 +991,7 @@ const AppContent: React.FC = () => {
           <div>
             <div className="kks-eyebrow">Format Bertanding</div>
             <h2 className="kks-headline">Macam Mana <span>Ia Berjalan?</span></h2>
-            <button className="btn btn-navy" onClick={() => goToBook()}>Tempah Sekarang</button>
+            <button className="btn btn-navy" onClick={openRulesPdf}>SEMAK SYARAT &amp; PERATURAN</button>
           </div>
           <div className="kks-rule-list">
             {rules.map((r, i) => (
@@ -1052,9 +1067,8 @@ const AppContent: React.FC = () => {
         const hasCompetition = Boolean(selectedCompetition?.id) && !competitionEnded;
         const hasPond = Boolean(bookedPond);
         const hasSeats = selectedSeats.length > 0;
-        const subtotal = bookedPond
-          ? selectedSeats.reduce((sum, n) => sum + (bookedPond.seats.find(s => s.num === n)?.price || 0), 0)
-          : 0;
+        const currentPricePerPeg = Math.max(0, selectedCompetition?.pricePerPeg ?? bookedPond?.seats?.[0]?.price ?? 0);
+        const subtotal = selectedSeats.length * currentPricePerPeg;
         const payableNow = payType === 'deposit' ? Math.ceil(subtotal * 0.5) : subtotal;
         const balanceDue = subtotal - payableNow;
         const samplePrice = db.ponds[0]?.seats[0]?.price || 0;
@@ -1112,6 +1126,7 @@ const AppContent: React.FC = () => {
                             {bookableCompetitions.map((competition) => {
                               const active = (selectedCompetition?.id || '') === (competition.id || '');
                               const pondsCount = competition.activePondIds?.length || totalPonds;
+                              const competitionPrice = competition.pricePerPeg ?? samplePrice;
                               return (
                                 <button
                                   key={competition.id || competition.name}
@@ -1122,7 +1137,7 @@ const AppContent: React.FC = () => {
                                   <small>Pendaftaran Dibuka</small>
                                   <strong>{competition.name}</strong>
                                   <div className="bk-choice-meta">
-                                    {samplePrice > 0 && <span>RM{samplePrice}</span>}
+                                    {(competitionPrice || 0) > 0 && <span>RM{competitionPrice}</span>}
                                     <span>{pondsCount} Kolam</span>
                                   </div>
                                 </button>
@@ -1235,6 +1250,8 @@ const AppContent: React.FC = () => {
                           user={user}
                           pond={bookedPond}
                           selectedSeats={selectedSeats}
+                          pricePerPeg={currentPricePerPeg}
+                          isSubmitting={bookingSubmitting}
                           payType={payType}
                           receiptData={receiptData}
                           adminProxyName={adminProxyName}
@@ -1248,6 +1265,7 @@ const AppContent: React.FC = () => {
                           onAdminProxyEmailChange={setAdminProxyEmail}
                           onResendVerification={resendVerification}
                           onRefreshVerification={refreshUser}
+                          onOpenRulesPdf={openRulesPdf}
                         />
                       </div>
                     </>
@@ -1340,6 +1358,21 @@ const AppContent: React.FC = () => {
             )}
           </div>
         );
+
+        {bookingSubmitting && (
+          <div className="modal-overlay open" style={{ zIndex: 950 }}>
+            <div className="modal" style={{ maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <div className="modal-title">Menghantar Tempahan</div>
+              </div>
+              <div className="modal-body" style={{ textAlign: 'center', paddingTop: 20, paddingBottom: 22 }}>
+                <div style={{ fontSize: '2rem', marginBottom: 10 }}>⏳</div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: 6 }}>Sila tunggu sebentar...</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Kami sedang menyimpan tempahan dan memuat naik resit anda.</div>
+              </div>
+            </div>
+          </div>
+        )}
       }
       case 'live':
         return <LiveResults comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} user={user} />;

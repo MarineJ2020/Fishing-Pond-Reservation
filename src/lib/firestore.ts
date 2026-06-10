@@ -75,6 +75,7 @@ const normalizeCompetition = (data: any): Competition => ({
   prizes: data.prizes || [],
   activePondIds: Array.isArray(data.activePondIds) ? data.activePondIds.map((id: any) => id?.toString?.() || '').filter(Boolean) : [],
   pondSeats: data.pondSeats && typeof data.pondSeats === 'object' ? data.pondSeats : undefined,
+  pricePerPeg: typeof data.pricePerPeg === 'number' ? data.pricePerPeg : undefined,
 });
 
 const normalizeSettings = (data: any): Settings => ({
@@ -111,6 +112,7 @@ const normalizeSettings = (data: any): Settings => ({
   heroStats: Array.isArray(data.heroStats) ? data.heroStats : [],
   introCopy: data.introCopy || '',
   rules: Array.isArray(data.rules) ? data.rules : [],
+  rulesPdfUrl: data.rulesPdfUrl || '',
   wazeUrl: data.wazeUrl || '',
   googleMapsUrl: data.googleMapsUrl || '',
   mapEmbedUrl: data.mapEmbedUrl || '',
@@ -249,6 +251,7 @@ export const createCompetition = async (data: Partial<Competition>) => {
     endDate: data.endDate || data.startDate || new Date().toISOString(),
     topN: data.topN || 20,
     prizes: data.prizes || [],
+    pricePerPeg: typeof data.pricePerPeg === 'number' ? data.pricePerPeg : 100,
     activePondIds: data.activePondIds || [],
     pondSeats: data.pondSeats || {},
     status: 'ACTIVE',
@@ -272,6 +275,7 @@ export const getOrCreateDefaultCompetition = async (): Promise<Competition> => {
     endDate: tomorrow.toISOString(),
     topN: 20,
     prizes: [{rank: 1, label: 'Champion', prize: 'RM 5,000'}],
+    pricePerPeg: 100,
     status: 'ACTIVE',
     createdAt: serverTimestamp(),
   });
@@ -283,6 +287,7 @@ export const getOrCreateDefaultCompetition = async (): Promise<Competition> => {
     endDate: tomorrow.toISOString(),
     topN: 20,
     prizes: [{rank: 1, label: 'Champion', prize: 'RM 5,000'}],
+    pricePerPeg: 100,
   };
   return newComp;
 };
@@ -506,6 +511,7 @@ export const updateCompetition = async (competitionId: string, updates: Partial<
   if (typeof updates.startDate !== 'undefined') payload.eventDate = updates.startDate;
   if (typeof updates.endDate !== 'undefined') payload.endDate = updates.endDate;
   if (typeof updates.topN !== 'undefined') payload.topN = updates.topN;
+  if (typeof updates.pricePerPeg !== 'undefined') payload.pricePerPeg = updates.pricePerPeg;
   if (typeof updates.prizes !== 'undefined') payload.prizes = updates.prizes;
   if (typeof updates.activePondIds !== 'undefined') payload.activePondIds = updates.activePondIds;
   if (typeof updates.pondSeats !== 'undefined') payload.pondSeats = updates.pondSeats;
@@ -877,6 +883,53 @@ export const acceptBookingReceiptDirect = async (bookingId: string, receiptIndex
   if (shouldConfirm) await setSeatStatusForBooking(booking, 'booked');
 
   return { success: true, paidAmount, fullyPaid, status: update.status || booking.status };
+};
+
+// Staff-assisted deposit approval path: attach uploaded proof, mark the
+// deposit as accepted, confirm the booking, and convert paymentType to `baki`
+// while a balance remains.
+export const approveDepositWithProofDirect = async (bookingId: string, proofUrl: string, depositAmount?: number) => {
+  const bookingRef = doc(db, 'bookings', bookingId);
+  const snap = await getDoc(bookingRef);
+  if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
+  const booking = snap.data() as any;
+
+  const receipts = deriveReceiptsFromBooking(booking);
+  const amount = Number(depositAmount ?? booking.amount) || 0;
+  const acceptedReceipt = {
+    url: proofUrl,
+    amount,
+    status: 'accepted' as const,
+    submittedAt: new Date().toISOString(),
+  };
+  const nextReceipts = [...receipts, acceptedReceipt];
+
+  const paidAmount = sumAcceptedReceipts(nextReceipts);
+  const totalAmount = Number(booking.totalAmount) || 0;
+  const balanceDue = Math.max(0, totalAmount - paidAmount);
+  const nextPaymentType = balanceDue > 0 ? 'baki' : 'full';
+
+  await setDoc(bookingRef, {
+    receipts: nextReceipts,
+    receiptUrl: proofUrl,
+    paidAmount,
+    paymentType: nextPaymentType,
+    paymentStatus: balanceDue > 0 ? 'PARTIAL' : 'APPROVED',
+    status: 'APPROVED',
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null,
+  }, { merge: true });
+
+  await addDoc(collection(db, 'bookings', bookingId, 'payments'), {
+    amount,
+    method: 'manual-proof',
+    type: 'baki',
+    recordedBy: auth.currentUser?.uid || null,
+    createdAt: serverTimestamp(),
+  });
+
+  await setSeatStatusForBooking(booking, 'booked');
+  return { success: true, paidAmount, balanceDue, paymentType: nextPaymentType };
 };
 
 // Stamp the time a balance reminder was sent so the 7-day auto-remind window

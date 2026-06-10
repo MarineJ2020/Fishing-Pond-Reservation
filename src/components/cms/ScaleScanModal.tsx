@@ -226,12 +226,26 @@ const ScaleScanModal: React.FC<Props> = ({
   const [pendingBookingFull, setPendingBookingFull] = useState<ScannedBookingFull | null>(null);
   const [confirmedBooking, setConfirmedBooking] = useState<ScannedBookingLite | null>(null);
   const [manualSearch, setManualSearch] = useState('');
+  const [liveQrActive, setLiveQrActive] = useState(false);
+  const [liveQrBusy, setLiveQrBusy] = useState(false);
   const qrFileInputRef = useRef<HTMLInputElement>(null);
   const weightFileInputRef = useRef<HTMLInputElement>(null);
   const previewBoxRef = useRef<HTMLDivElement>(null);
+  const liveQrVideoRef = useRef<HTMLVideoElement | null>(null);
+  const liveQrCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const liveQrStreamRef = useRef<MediaStream | null>(null);
+  const liveQrRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
+      if (liveQrRafRef.current) {
+        window.cancelAnimationFrame(liveQrRafRef.current);
+        liveQrRafRef.current = null;
+      }
+      if (liveQrStreamRef.current) {
+        liveQrStreamRef.current.getTracks().forEach((t) => t.stop());
+        liveQrStreamRef.current = null;
+      }
       if (photoUrl) URL.revokeObjectURL(photoUrl);
       setStep('identify');
       setPhotoUrl(null);
@@ -243,6 +257,8 @@ const ScaleScanModal: React.FC<Props> = ({
       setPendingBookingFull(null);
       setConfirmedBooking(null);
       setManualSearch('');
+      setLiveQrActive(false);
+      setLiveQrBusy(false);
     } else {
       prewarmOcr();
     }
@@ -267,6 +283,19 @@ const ScaleScanModal: React.FC<Props> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  useEffect(() => {
+    if (step === 'identify') return;
+    if (liveQrRafRef.current) {
+      window.cancelAnimationFrame(liveQrRafRef.current);
+      liveQrRafRef.current = null;
+    }
+    if (liveQrStreamRef.current) {
+      liveQrStreamRef.current.getTracks().forEach((t) => t.stop());
+      liveQrStreamRef.current = null;
+      setLiveQrActive(false);
+    }
+  }, [step]);
+
   const filteredBookings = useMemo(() => {
     const q = manualSearch.trim().toLowerCase();
     if (!q) return bookingsForPicker;
@@ -288,6 +317,84 @@ const ScaleScanModal: React.FC<Props> = ({
       setStep('capture');
     } else {
       setStep('seat-picker');
+    }
+  };
+
+  const stopLiveQrScan = () => {
+    if (liveQrRafRef.current) {
+      window.cancelAnimationFrame(liveQrRafRef.current);
+      liveQrRafRef.current = null;
+    }
+    if (liveQrStreamRef.current) {
+      liveQrStreamRef.current.getTracks().forEach((t) => t.stop());
+      liveQrStreamRef.current = null;
+    }
+    const video = liveQrVideoRef.current;
+    if (video) video.srcObject = null;
+    setLiveQrActive(false);
+  };
+
+  const runLiveQrFrame = () => {
+    const video = liveQrVideoRef.current;
+    const canvas = liveQrCanvasRef.current;
+    if (!video || !canvas || !liveQrActive) return;
+    if (video.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) {
+      liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
+      return;
+    }
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
+      return;
+    }
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) {
+      liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
+      return;
+    }
+
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(video, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+    if (code?.data) {
+      const bookingId = parseBookingQr(code.data);
+      if (bookingId) {
+        const booking = lookupBookingFull(bookingId);
+        if (booking) {
+          stopLiveQrScan();
+          onBookingResolved(booking);
+          return;
+        }
+      }
+    }
+    liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
+  };
+
+  const startLiveQrScan = async () => {
+    setError(null);
+    setLiveQrBusy(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      liveQrStreamRef.current = stream;
+      const video = liveQrVideoRef.current;
+      if (!video) throw new Error('Elemen video tidak tersedia.');
+      video.srcObject = stream;
+      await video.play();
+      setLiveQrActive(true);
+      liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
+    } catch (err: any) {
+      console.error('Live QR start failed:', err);
+      setError(err?.message || 'Tidak dapat mengakses kamera. Semak kebenaran browser/peranti.');
+      stopLiveQrScan();
+    } finally {
+      setLiveQrBusy(false);
     }
   };
 
@@ -480,18 +587,28 @@ const ScaleScanModal: React.FC<Props> = ({
               <p style={{ marginBottom: 18, color: 'var(--text-muted)', fontSize: 14 }}>
                 Pilih cara untuk mengenal pasti pemancing yang sedang ditimbang.
               </p>
+              {liveQrActive && (
+                <div style={{ marginBottom: 14, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: '#0f172a' }}>
+                  <video ref={liveQrVideoRef} playsInline muted style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block' }} />
+                  <canvas ref={liveQrCanvasRef} style={{ display: 'none' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', color: '#fff', fontSize: 12 }}>
+                    <span>Arahkan kamera ke QR tempahan</span>
+                    <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }} onClick={stopLiveQrScan}>Tutup Kamera</button>
+                  </div>
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div style={{
                   border: '1px solid var(--line)', borderRadius: 12, padding: 22,
                   textAlign: 'center', cursor: 'pointer', transition: 'border-color .15s',
                   background: '#fafbfc',
                 }}
-                  onClick={() => qrFileInputRef.current?.click()}
+                  onClick={() => { if (!liveQrActive) startLiveQrScan(); }}
                 >
                   <div style={{ fontSize: 48, marginBottom: 10 }}>📱</div>
-                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Imbas QR</div>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>{liveQrBusy ? 'Membuka Kamera...' : (liveQrActive ? 'Kamera Aktif' : 'Imbas QR Live')}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    Tangkap QR dari skrin pemancing
+                    Imbas terus dari kamera peranti
                   </div>
                 </div>
                 <div style={{
@@ -507,6 +624,11 @@ const ScaleScanModal: React.FC<Props> = ({
                     Cari & pilih dari senarai tempahan
                   </div>
                 </div>
+              </div>
+              <div style={{ marginTop: 10, textAlign: 'center' }}>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => qrFileInputRef.current?.click()}>
+                  Atau muat naik gambar QR
+                </button>
               </div>
               <input
                 ref={qrFileInputRef}

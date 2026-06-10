@@ -5,6 +5,8 @@ interface BookingFormProps {
   user: User | null;
   pond: Pond | null;
   selectedSeats: number[];
+  pricePerPeg: number;
+  isSubmitting?: boolean;
   payType: 'full' | 'deposit';
   receiptData: string | null;
   adminProxyName: string;
@@ -18,12 +20,15 @@ interface BookingFormProps {
   onAdminProxyEmailChange: (v: string) => void;
   onResendVerification: () => Promise<boolean>;
   onRefreshVerification: () => Promise<boolean>;
+  onOpenRulesPdf: () => void;
 }
 
 const BookingForm: React.FC<BookingFormProps> = ({
   user,
   pond,
   selectedSeats,
+  pricePerPeg,
+  isSubmitting = false,
   payType,
   receiptData,
   adminProxyName,
@@ -37,17 +42,15 @@ const BookingForm: React.FC<BookingFormProps> = ({
   onAdminProxyEmailChange,
   onResendVerification,
   onRefreshVerification,
+  onOpenRulesPdf,
 }) => {
   const [notes, setNotes] = useState('');
   const [verifyBusy, setVerifyBusy] = useState(false);
+  const [termsConfirmed, setTermsConfirmed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const calcAmt = () => {
-    if (!pond) return 0;
-    const tot = selectedSeats.reduce((a, n) => {
-      const s = pond.seats.find(x => x.num === n);
-      return a + (s ? s.price : 0);
-    }, 0);
+    const tot = selectedSeats.length * Math.max(0, pricePerPeg || 0);
     return payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
   };
 
@@ -161,6 +164,11 @@ const BookingForm: React.FC<BookingFormProps> = ({
         </div>
         <div className="price-bar-total">RM {amt}</div>
       </div>
+      {payType === 'deposit' && (
+        <div style={{ marginBottom: '14px', padding: '10px 12px', borderRadius: '9px', border: '1px solid rgba(185,28,28,0.25)', background: 'rgba(185,28,28,0.06)', fontSize: '.78rem', lineHeight: 1.5, color: 'var(--text-muted)' }}>
+          <strong style={{ color: 'var(--red)' }}>Nota:</strong> Deposit akan ditolak daripada jumlah penuh. Baki perlu dijelaskan sebelum/ketika hari pertandingan.
+        </div>
+      )}
 
       <label className="form-label">Muat Naik Resit <span style={{ color: 'var(--red)' }}>*</span></label>
       <div
@@ -197,6 +205,29 @@ const BookingForm: React.FC<BookingFormProps> = ({
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
       />
+      <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginTop: '14px', cursor: 'pointer', userSelect: 'none' }}>
+        <input
+          type="checkbox"
+          checked={termsConfirmed}
+          onChange={(e) => setTermsConfirmed(e.target.checked)}
+          style={{ marginTop: '3px', width: '16px', height: '16px', accentColor: 'var(--red)' }}
+        />
+        <span style={{ fontSize: '.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Saya mengesahkan maklumat yang diberi adalah benar dan saya bersetuju dengan{' '}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpenRulesPdf();
+            }}
+            style={{ background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer', color: 'var(--red)', fontWeight: 800, textDecoration: 'underline' }}
+          >
+            syarat & peraturan
+          </button>
+          .
+        </span>
+      </label>
       {needsVerification && (
         <div style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '10px', padding: '14px 16px', marginTop: '16px' }}>
           <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--red)', marginBottom: '6px' }}>✉️ Sahkan email anda dahulu</div>
@@ -213,9 +244,9 @@ const BookingForm: React.FC<BookingFormProps> = ({
         id="btn-submit"
         className="btn btn-primary w-full btn-lg mt-4"
         onClick={onSubmitBooking}
-        disabled={!selectedSeats.length || !receiptData || (isAdmin && !adminProxyName.trim()) || needsVerification}
+        disabled={isSubmitting || !selectedSeats.length || !receiptData || !termsConfirmed || (isAdmin && !adminProxyName.trim()) || needsVerification}
       >
-        {isAdminProxyMode ? `Tempah untuk ${adminProxyName.trim()}` : 'Hantar Tempahan'}
+        {isSubmitting ? 'Menghantar...' : (isAdminProxyMode ? `Tempah untuk ${adminProxyName.trim()}` : 'Hantar Tempahan')}
       </button>
       <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '7px' }}>
         {isAdminProxyMode ? 'Tempahan ini akan ditanda sebagai dibuat oleh Admin' : 'Staff akan sahkan dan maklumkan melalui email'}

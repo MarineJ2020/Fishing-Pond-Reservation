@@ -1,5 +1,4 @@
 import { addDoc, collection } from 'firebase/firestore';
-import QRCode from 'qrcode';
 import { db } from '../../lib/firebase';
 
 const STAFF_CC = 'hello@kolamkelisayang.com.my';
@@ -160,7 +159,9 @@ export const queueBookingApprovedEmail = async (args: ApprovedArgs): Promise<voi
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const bookingUrl = `${origin}/bookings/${encodeURIComponent(args.bookingId)}`;
     const bookingUrlEsc = esc(bookingUrl);
-    const qrDataUrl = await QRCode.toDataURL(bookingUrl, { width: 240, margin: 2, color: { dark: BRAND_NAVY, light: '#ffffff' } });
+    // Use a hosted HTTPS QR image instead of base64 data-URL so Gmail clients
+    // can render it consistently (some Gmail paths strip/ignore large data URIs).
+    const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(bookingUrl)}`;
 
     const html = layout(
       'Tempahan Disahkan',
@@ -173,7 +174,7 @@ export const queueBookingApprovedEmail = async (args: ApprovedArgs): Promise<voi
          <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats)}</td></tr>
        </table>
        <div style="text-align:center;margin:22px 0;">
-         <img src="${qrDataUrl}" alt="QR Tempahan" style="width:200px;height:200px;display:block;margin:0 auto;border:1px solid #eee;border-radius:8px;padding:8px;background:#fff;" />
+         <img src="${qrImgUrl}" alt="QR Tempahan" width="200" height="200" style="width:200px;height:200px;display:block;margin:0 auto;border:1px solid #eee;border-radius:8px;padding:8px;background:#fff;" />
          <div style="font-size:12px;color:#888;margin-top:6px;">Imbas QR untuk paparkan butiran tempahan</div>
        </div>
        <p style="text-align:center;">

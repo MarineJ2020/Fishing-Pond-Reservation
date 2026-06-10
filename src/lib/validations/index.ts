@@ -11,7 +11,7 @@ export const bookingSchema = z.object({
   competitionId: z.string().min(1),
   pondId: z.number().int().positive(),
   seatIds: z.array(z.string()).min(1),
-  paymentType: z.enum(['full', 'deposit']),
+  paymentType: z.enum(['full', 'deposit', 'baki']),
   amount: z.number().nonnegative(),
   receiptUrl: z.string().url().optional(),
   createdByStaff: z.boolean().optional(),

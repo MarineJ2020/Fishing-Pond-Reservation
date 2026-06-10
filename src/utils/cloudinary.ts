@@ -1,11 +1,30 @@
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { storage } from '../../lib/firebase';
+
 const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
+const isPdfFile = (file: Blob | File) => {
+  const mime = (file.type || '').toLowerCase();
+  if (mime === 'application/pdf') return true;
+  return file instanceof File ? /\.pdf$/i.test(file.name) : false;
+};
+
 export async function uploadImageToCloudinary(file: Blob | File, folder: string): Promise<string> {
+  if (isPdfFile(file)) {
+    const baseName = file instanceof File && file.name ? file.name.replace(/[^a-zA-Z0-9._-]/g, '_') : `upload-${Date.now()}.pdf`;
+    const objectRef = ref(storage, `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${baseName}`);
+    await uploadBytes(objectRef, file, { contentType: 'application/pdf' });
+    return getDownloadURL(objectRef);
+  }
+
   const formData = new FormData();
   formData.append('file', file);
   formData.append('upload_preset', UPLOAD_PRESET);
   formData.append('folder', folder);
+  if (file instanceof File && file.name) {
+    formData.append('filename_override', file.name);
+  }
 
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
@@ -15,6 +34,16 @@ export async function uploadImageToCloudinary(file: Blob | File, folder: string)
   if (!response.ok) throw new Error('Gagal muat naik gambar');
   const result = await response.json();
   return result.secure_url as string;
+}
+
+// Best-effort compatibility for older PDF URLs that were saved as image/upload.
+export function normalizeCloudinaryFileUrl(url: string): string {
+  if (!url) return url;
+  if (!/res\.cloudinary\.com/i.test(url)) return url;
+  if (/\.pdf($|\?)/i.test(url) && url.includes('/image/upload/')) {
+    return url.replace('/image/upload/', '/raw/upload/');
+  }
+  return url;
 }
 
 /**
@@ -61,6 +90,7 @@ export async function uploadDataUrlToCloudinary(dataUrl: string, folder: string)
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const blob = new Blob([bytes], { type: mime });
-  return uploadImageToCloudinary(blob, folder);
+  const extension = mime === 'application/pdf' ? 'pdf' : 'jpg';
+  const file = new File([bytes], `upload.${extension}`, { type: mime });
+  return uploadImageToCloudinary(file, folder);
 }

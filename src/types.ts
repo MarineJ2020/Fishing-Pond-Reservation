@@ -48,7 +48,7 @@ export interface Booking {
   pondDate: string;
   seats: number[];
   seatIds?: string[];
-  paymentType: 'full' | 'deposit';
+  paymentType: 'full' | 'deposit' | 'baki';
   amount: number;
   totalAmount: number;
   receiptData: string;
@@ -111,6 +111,7 @@ export interface Competition {
   prizes: Prize[];
   activePondIds?: string[];
   pondSeats?: Record<string, number>;
+  pricePerPeg?: number;
 }
 
 export interface Settings {
@@ -146,6 +147,8 @@ export interface Settings {
   ctaSubtitle?: string;
   /** Numbered rules shown in the homepage "Format Bertanding" section */
   rules?: { title: string; body: string }[];
+  /** Uploaded PDF URL for Syarat & Peraturan. */
+  rulesPdfUrl?: string;
   /** Google Maps embed URL used in the Lokasi section. If absent, derived from `location`. */
   mapEmbedUrl?: string;
   /** External map/directions deep links shown as quick-link buttons */

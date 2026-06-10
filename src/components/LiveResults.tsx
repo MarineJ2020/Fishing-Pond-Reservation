@@ -132,6 +132,17 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const lb = fullLb.slice(0, topN);
 
   const displayBookings = bookings.filter(b => (b.competitionId || comp.id) === selectedCompId);
+  const bookingRefByPeg = useMemo(() => {
+    const map: Record<number, string> = {};
+    displayBookings
+      .filter((b) => b.status === 'confirmed')
+      .forEach((b) => {
+        (b.seats || []).forEach((seat) => {
+          map[seat] = b.bookingRef || b.id.slice(0, 8).toUpperCase();
+        });
+      });
+    return map;
+  }, [displayBookings]);
   const userPegs = user ? displayBookings.filter(b => b.userId === user.email && b.status === 'confirmed').flatMap(b => b.seats) : [];
 
   // User's rank across the FULL leaderboard (not just Top-N), so participants who
@@ -290,6 +301,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                       <div className="kl-angler">
                         <strong>{e.name}{isMe ? ' · Anda' : ''}</strong>
                         <span>Peg #{e.peg}{pondName ? ` · ${pondName}` : ''}</span>
+                        <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>Ref: {bookingRefByPeg[e.peg] || '-'}</span>
                       </div>
                       <div className="kl-weight">
                         <small>Berat</small>
