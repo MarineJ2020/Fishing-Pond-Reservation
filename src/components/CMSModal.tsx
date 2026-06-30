@@ -20,6 +20,7 @@ import {
   deleteScoreEntry,
   markBalanceReminderSent,
   approveDepositWithProofDirect,
+  getUsers,
 } from '../lib/firestore';
 import { compressBlobToWebp, uploadImageToFirebaseStorage } from '../utils/imageStorage';
 import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
@@ -50,9 +51,9 @@ function pondCodeError(code: string | undefined, ponds: Pond[], excludeDocId?: s
   return null;
 }
 
-type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
+type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
 
-const CMS_PAGES: CMSPage[] = ['dashboard', 'competitions', 'ponds', 'prizes', 'approvals', 'manual-booking', 'all-bookings', 'checkin', 'results', 'contact-settings', 'landing-content', 'users'];
+const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'manual-booking', 'all-bookings', 'checkin', 'results', 'contact-settings', 'landing-content', 'users'];
 
 interface CMSModalProps {
   isOpen: boolean;
@@ -237,6 +238,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [rulesPdfUploading, setRulesPdfUploading] = useState(false);
   // Users page search query.
   const [userSearch, setUserSearch] = useState('');
+  // Real user profiles (with roles) loaded from the admin-only `users` collection.
+  // Fetched only while the CMS is open — staff/admin are the only ones who reach here.
+  const [userDocs, setUserDocs] = useState<User[]>([]);
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    getUsers().then(list => { if (active) setUserDocs(list); });
+    return () => { active = false; };
+  }, [isOpen]);
   // Reorder/collapse state for the ponds CMS.
   const [pondReordering, setPondReordering] = useState(false);
   const [expandedPondSeats, setExpandedPondSeats] = useState<Record<string, boolean>>({});
@@ -1342,7 +1352,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const navSections = [
-    { label: 'Utama', items: [{ id: 'dashboard' as CMSPage, icon: '📊', text: 'Dashboard' }] },
+    { label: 'Utama', items: [
+      { id: 'dashboard' as CMSPage, icon: '📊', text: 'Dashboard' },
+      { id: 'instructions' as CMSPage, icon: '📖', text: 'Arahan' },
+    ] },
     { label: 'Pengurusan', items: [
       { id: 'competitions' as CMSPage, icon: '🏆', text: 'Pertandingan' },
       { id: 'ponds' as CMSPage, icon: '🏊', text: 'Kolam' },
@@ -1418,6 +1431,65 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         </div>
 
         <div className="cms-content">
+          {page === 'instructions' && (
+            <div className="page active">
+              <div className="page-header"><div><div className="page-title">Arahan</div><div className="page-sub">Panduan penggunaan CMS untuk kakitangan</div></div></div>
+
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-header"><div className="card-title">📋 Aliran Kelulusan Tempahan (Kelulusan)</div></div>
+                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65, color: 'var(--cv-text, inherit)' }}>
+                  <ol style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li>Tempahan baharu masuk sebagai <strong>Menunggu</strong>. Buka tab <strong>Kelulusan</strong> untuk melihat senarai yang perlu tindakan.</li>
+                    <li>Semak resit yang dimuat naik pelanggan (klik <strong>Lihat</strong>). Kemudian:
+                      <ul style={{ paddingLeft: 18, marginTop: 4 }}>
+                        <li><strong>✓ Sahkan Resit</strong> — terima resit. Tempahan hanya <strong>disahkan automatik</strong> apabila jumlah penuh telah dibayar.</li>
+                        <li><strong>✕ Tolak Resit</strong> — tolak resit itu sahaja; tempahan kekal menunggu dan pelanggan boleh muat naik resit baharu.</li>
+                      </ul>
+                    </li>
+                    <li><strong>Bayaran deposit:</strong> selepas deposit diterima, tempahan <strong>kekal menunggu</strong> sehingga baki dibayar dan disahkan.</li>
+                    <li><strong>Sahkan Deposit + Bukti</strong> — jalan pintas manual: bila bayaran diterima di luar sistem (cash/pindahan), muat naik bukti dan tempahan terus disahkan.</li>
+                    <li><strong>Hantar Peringatan</strong> — hantar e-mel peringatan baki kepada pelanggan. Ini <strong>menetapkan semula</strong> kiraan auto-peringat (~7 hari).</li>
+                    <li><strong>Tolak Tempahan</strong> — batalkan keseluruhan tempahan dan lepaskan tempat. Tiada e-mel automatik dihantar.</li>
+                  </ol>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-header"><div className="card-title">🗂️ Semua Tempahan</div></div>
+                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
+                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li><strong>Resit / Resit #n</strong> — lihat resit yang dihantar untuk tempahan tersebut.</li>
+                    <li><strong>✓</strong> — sahkan resit tertunggak terus dari sini.</li>
+                    <li><strong>✕</strong> — tolak tempahan yang masih menunggu.</li>
+                    <li><strong>Batal Paksa</strong> — hanya untuk tempahan yang <strong>telah DISAHKAN</strong>. Perlu pengesahan dua peringkat (dialog + menaip <code>DELETE BOOKING</code>). Tempat akan dilepaskan.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-header"><div className="card-title">🏆 Pengurusan Pertandingan & Kolam</div></div>
+                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
+                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li><strong>Pertandingan</strong> — cipta atau edit pertandingan (nama, tarikh, harga peg, hadiah). Aktif/nyahaktif peg secara per-pertandingan dalam editor susun atur.</li>
+                    <li>Peg yang sudah ditempah (tempahan aktif) <strong>tidak boleh dinyahaktifkan</strong> — batalkan tempahan dahulu jika perlu.</li>
+                    <li><strong>Kolam</strong> — cipta atau edit kolam: kod kolam (huruf A–Z), bilangan tempat, dan susun atur (capsule atau polygon). Tempat dijana automatik mengikut bilangan.</li>
+                    <li><strong>Hadiah & Ranking</strong> — tetapkan julat kedudukan dan jumlah hadiah; perubahan direkod dalam jadual audit.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header"><div className="card-title">👥 Pengguna & Peranan</div></div>
+                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
+                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li><span className="badge badge-live">Admin</span> &amp; <span className="badge badge-deposit">Staf</span> — akses penuh ke CMS (kelulusan, pengurusan, tetapan).</li>
+                    <li><span className="badge badge-open">Pengguna</span> — pelanggan biasa; hanya boleh menempah, tiada akses CMS.</li>
+                    <li>Peranan ditetapkan di <strong>backend (Firebase custom claims / dokumen users)</strong>, bukan diedit melalui CMS ini. Tab Pengguna memaparkan peranan sebenar setiap akaun.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
           {page === 'dashboard' && (
             <div className="page active">
               <div className="stats-grid">
@@ -1902,7 +1974,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </div>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <div className="action-cell">
                           {b.status === 'pending' && b.paymentType === 'deposit' && (
                             <button
                               className="btn btn-sm btn-primary"
@@ -1914,10 +1986,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             </button>
                           )}
                           {r.status === 'pending' && (
-                            <>
-                              <button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit" onClick={() => askAcceptReceipt(b.id, i)}>✓</button>
-                              <button className="btn btn-sm btn-red" disabled={saving} title="Tolak resit" onClick={() => askRejectReceipt(b.id, i)}>✕</button>
-                            </>
+                            <span className="receipt-group">
+                              <button className="btn btn-sm btn-green btn-icon" disabled={saving} title="Sahkan resit" onClick={() => askAcceptReceipt(b.id, i)}>✓</button>
+                              <button className="btn btn-sm btn-red btn-icon" disabled={saving} title="Tolak resit" onClick={() => askRejectReceipt(b.id, i)}>✕</button>
+                            </span>
                           )}
                           <button className="btn btn-sm btn-red" disabled={saving} title="Tolak keseluruhan tempahan" onClick={() => askRejectBooking(b.id)}>Tolak Tempahan</button>
                         </div>
@@ -2090,21 +2162,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </td>
                         <td><span className={`badge badge-${b.status === 'confirmed' ? 'approved' : b.status}`}>{b.status}</span></td>
                         <td style={{ fontSize: '0.82rem' }}>{b.createdAt ? new Date(b.createdAt).toLocaleDateString('ms-MY') : '-'}</td>
-                        <td><div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <td><div className="action-cell">
                           {(() => {
                             const allReceipts = b.receipts && b.receipts.length
                               ? b.receipts
                               : (b.receiptData ? [{ url: b.receiptData, amount: b.amount, status: 'pending' as const, submittedAt: b.createdAt || '' }] : []);
-                            return allReceipts
+                            const receiptBtns = allReceipts
                               .filter(r => r.url)
                               .map((r, i) => (
                                 <button key={i} className="btn btn-sm btn-ghost" title={`Resit #${i + 1} · RM ${r.amount} · ${r.status}`} onClick={() => handleViewReceipt(r.url)}>
                                   Resit{allReceipts.length > 1 ? ` #${i + 1}` : ''}
                                 </button>
                               ));
+                            return receiptBtns.length ? <span className="receipt-group">{receiptBtns}</span> : null;
                           })()}
-                          {pendingReceiptIndexes(b).length > 0 && (<button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit menunggu" onClick={() => askAcceptReceipt(b.id, pendingReceiptIndexes(b)[0])}>✓</button>)}
-                          {b.status === 'pending' && (<button className="btn btn-sm btn-red" disabled={saving} onClick={() => askRejectBooking(b.id)}>✕</button>)}
+                          {pendingReceiptIndexes(b).length > 0 && (<button className="btn btn-sm btn-green btn-icon" disabled={saving} title="Sahkan resit menunggu" onClick={() => askAcceptReceipt(b.id, pendingReceiptIndexes(b)[0])}>✓</button>)}
+                          {b.status === 'pending' && (<button className="btn btn-sm btn-red btn-icon" disabled={saving} title="Tolak tempahan" onClick={() => askRejectBooking(b.id)}>✕</button>)}
                           {b.status === 'confirmed' && (<button className="btn btn-sm btn-danger" disabled={saving} title="Batal paksa tempahan disahkan" onClick={() => askForceCancel(b)}>Batal Paksa</button>)}
                         </div></td>
                       </tr>
@@ -2589,18 +2662,36 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             // userId only when it looks like an email.
             const emailOf = (b: Booking) =>
               b.userEmail || (b.userId && b.userId.includes('@') ? b.userId : '');
-            const byUser = new Map<string, { name: string; email: string; count: number }>();
+            type UserRow = { name: string; email: string; role: User['role']; count: number };
+            const byKey = new Map<string, UserRow>();
+            // 1. Authoritative accounts from the `users` collection carry the real
+            //    role and are listed even with zero bookings.
+            userDocs.forEach(u => {
+              const email = (u.email || '').trim();
+              const key = email.toLowerCase() || u.uid || u.name;
+              byKey.set(key, { name: u.name || '—', email: email || '—', role: u.role || 'CLIENT', count: 0 });
+            });
+            // 2. Fold in booking counts; booking-only guests with no account show as Pengguna.
             bookings.forEach(b => {
               const email = emailOf(b);
-              const key = email || b.userId || b.userName;
-              const existing = byUser.get(key);
-              if (existing) existing.count += 1;
-              else byUser.set(key, { name: b.userName || '—', email: email || '—', count: 1 });
+              const key = email.toLowerCase() || b.userId || b.userName;
+              const existing = byKey.get(key);
+              if (existing) {
+                existing.count += 1;
+                if (existing.name === '—' && b.userName) existing.name = b.userName;
+                if (existing.email === '—' && email) existing.email = email;
+              } else {
+                byKey.set(key, { name: b.userName || '—', email: email || '—', role: 'CLIENT', count: 1 });
+              }
             });
             const q = userSearch.trim().toLowerCase();
-            const users = Array.from(byUser.values())
+            const users = Array.from(byKey.values())
               .filter(u => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
               .sort((a, b) => a.name.localeCompare(b.name));
+            const roleBadge = (role: User['role']) =>
+              role === 'ADMIN' ? <span className="badge badge-live">Admin</span>
+              : role === 'STAFF' ? <span className="badge badge-deposit">Staf</span>
+              : <span className="badge badge-open">Pengguna</span>;
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Pengguna</div><div className="page-sub">{users.length} pengguna</div></div></div>
@@ -2627,11 +2718,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <td><span className="user-avatar-sm">{(u.name || 'U')[0].toUpperCase()}</span></td>
                       <td className="td-name">{u.name}</td>
                       <td>{u.email}</td>
-                      <td><span className="badge badge-open">Pengguna</span></td>
+                      <td>{roleBadge(u.role)}</td>
                       <td>{u.count}</td>
                     </tr>
                   ))}
-                  {users.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>{bookings.length === 0 ? 'Tiada pengguna' : 'Tiada pengguna sepadan dengan carian'}</td></tr>}
+                  {users.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>{(userDocs.length === 0 && bookings.length === 0) ? 'Tiada pengguna' : 'Tiada pengguna sepadan dengan carian'}</td></tr>}
                 </tbody>
               </table></div></div>
               </div>

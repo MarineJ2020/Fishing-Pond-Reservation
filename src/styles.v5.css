@@ -335,6 +335,15 @@
 .cms-v5 .btn-primary { background: var(--cv-accent); border-color: var(--cv-accent); color: #fff; }
 .cms-v5 .btn-primary:hover { background: #d8293b; border-color: #d8293b; }
 
+/* Table action cluster — neat, aligned row of action buttons */
+.cms-v5 .action-cell { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.cms-v5 .action-cell .receipt-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+/* Uniform square icon buttons (✓ / ✕) so approve/reject read as one tidy unit */
+.cms-v5 .btn-icon {
+  width: 30px; min-width: 30px; height: 30px; padding: 0;
+  justify-content: center; font-size: 0.9rem; line-height: 1;
+}
+
 /* -------------------------------------------------------------------------
    6. Shared document (PDF / image) preview popup — replaces new-tab opens
    ------------------------------------------------------------------------- */

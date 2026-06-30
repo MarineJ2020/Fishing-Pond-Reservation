@@ -15,7 +15,7 @@ import {
 } from 'firebase/firestore';
 import { auth } from '../../lib/firebase';
 import { db } from '../../lib/firebase';
-import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry } from '../types';
+import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry, User } from '../types';
 import { emptyDB } from '../data';
 
 const normalizeTimestamp = (value: any) => {
@@ -401,6 +401,28 @@ export const loadAppDB = async (): Promise<DB> => {
   } catch (error) {
     console.error('Failed to load Firestore DB:', error);
     return emptyDB;
+  }
+};
+
+// Fetch all user profile docs. Admin-only readable (firestore.rules); callers
+// must already be staff/admin (e.g. CMSModal). Degrades to [] on any error so a
+// permission hiccup never throws into the caller.
+export const getUsers = async (): Promise<User[]> => {
+  try {
+    const snap = await getDocs(collection(db, 'users'));
+    return snap.docs.map((d) => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        uid: d.id,
+        email: (data.email as string) || '',
+        name: (data.name as string) || '',
+        phone: (data.phone as string) || '',
+        role: (data.role as User['role']) || 'CLIENT',
+      };
+    });
+  } catch (error) {
+    console.error('Failed to load users:', error);
+    return [];
   }
 };
 
