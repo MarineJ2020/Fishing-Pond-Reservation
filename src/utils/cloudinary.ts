@@ -44,13 +44,13 @@ export function normalizeCloudinaryFileUrl(url: string): string {
 }
 
 /**
- * Compress an image File to a JPEG data URL (max 1600px, q0.82). Non-image
- * files (e.g. PDF) fall back to a raw data-URL read. Mirrors the receipt
- * compression used in the booking form.
+ * Compress an image File to a JPEG data URL (max 1280px, q0.6). Non-image
+ * files (e.g. PDF) fall back to a raw data-URL read. Used for all receipt
+ * uploads — tuned for small payloads while keeping receipts legible.
  */
 export function compressImageToDataUrl(file: File): Promise<string> {
-  const MAX_DIM = 1600;
-  const QUALITY = 0.82;
+  const MAX_DIM = 1280;
+  const QUALITY = 0.6;
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const img = new Image();

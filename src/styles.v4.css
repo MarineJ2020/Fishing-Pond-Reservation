@@ -53,6 +53,9 @@
 
 /* Panels */
 .bk-panel {
+  /* Override the global `section { padding: 6rem 2rem }` — the inner head/body
+     supply their own spacing, so the panel itself only needs a slim gutter. */
+  padding: 0 1rem;
   border-radius: 20px; background: #fff; overflow: hidden;
   border: 1px solid rgba(17,42,65,.08); box-shadow: 0 18px 55px rgba(17,42,65,.07);
 }
@@ -69,14 +72,18 @@
   border: 1px solid var(--line); border-radius: 16px; background: #fff; transition: .2s ease;
 }
 .bk-choice:hover { transform: translateY(-3px); box-shadow: 0 14px 32px rgba(17,42,65,.08); }
-.bk-choice.active { border-color: var(--red); box-shadow: 0 16px 36px rgba(231,25,45,.12); }
-.bk-choice.active::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--red); border-radius: 16px 16px 0 0; }
+/* Selected state reads as a filled "button" highlight (navy) rather than a thin
+   accent line, so the active competition is obvious at a glance. Text colours are
+   flipped to light variants for AA contrast on the dark fill. */
+.bk-choice.active { background: var(--navy); border-color: var(--navy); box-shadow: 0 16px 36px rgba(17,42,65,.28); }
 .bk-choice small { display: block; color: var(--red); font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.bk-choice.active small { color: #ff8a96; }
 .bk-choice strong { display: block; margin-top: 10px; font-size: 17px; font-weight: 900; }
 .bk-choice:not(.active) strong { color: #0d2238; }
-.bk-choice.active strong { color: #081a2c; }
+.bk-choice.active strong { color: #fff; }
 .bk-choice-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .bk-choice-meta span { padding: 7px 9px; border-radius: 999px; background: #f1f4f7; color: #445466; font-size: 11px; font-weight: 800; }
+.bk-choice.active .bk-choice-meta span { background: rgba(255,255,255,.16); color: #fff; }
 
 /* Pond cards */
 .bk-pond-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
@@ -176,6 +183,14 @@
 .bk-mobile-continue .btn-red:hover {
   background: var(--red-mid);
   color: #fff;
+}
+.bk-page .btn-red:disabled,
+.bk-page .btn-primary:disabled,
+.bk-seat-modal .btn-red:disabled,
+.bk-mobile-continue .btn-red:disabled {
+  opacity: .45;
+  box-shadow: none;
+  cursor: not-allowed;
 }
 
 /* Keep informational red buttons soft where intended. */
@@ -353,6 +368,8 @@
 }
 @media (max-width: 768px) {
   .kl-hero { padding: 40px 0; }
+  .kl-live-head { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .kl-live-head strong { font-size: 30px; }
   .kl-cd-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
   .kl-cd-item { padding: 12px 4px; }
   .kl-cd-item strong { font-size: 28px; }

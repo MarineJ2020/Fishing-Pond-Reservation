@@ -18,6 +18,8 @@ export interface Pond {
   id: number;
   _docId?: string;
   name: string;
+  /** Unique single-letter alphabet code (A–Z) used to prefix seat labels, e.g. "A-23". */
+  code?: string;
   date: string;
   desc: string;
   seats: Seat[];
@@ -45,6 +47,8 @@ export interface Booking {
   userPhone: string;
   pondId: number;
   pondName: string;
+  /** Pond alphabet code captured at booking time, used to prefix seat labels (e.g. "A-23"). */
+  pondCode?: string;
   pondDate: string;
   seats: number[];
   seatIds?: string[];
@@ -90,13 +94,20 @@ export interface ScoreEntry {
   ocrRawText?: string;
   /** True when the saved weight matched the OCR output (no staff edit). */
   ocrUserVerified?: boolean;
+  /** How the weight was obtained: ONNX model, no-ML fallback scan, or manual entry. */
+  scanMethod?: 'onnx' | 'sevenseg' | 'manual';
   capturedBy?: string;
   /** ISO time the weight was recorded (staff "imbas timbangan"). Derived from the doc's updatedAt/createdAt. */
   capturedAt?: string;
 }
 
 export interface Prize {
+  /** Legacy single rank — kept for back-compat; equals rankFrom for new data. */
   rank: number;
+  /** Range start (inclusive). Falls back to `rank` when absent. */
+  rankFrom?: number;
+  /** Range end (inclusive). Falls back to `rank` when absent. */
+  rankTo?: number;
   label: string;
   prize: string;
 }

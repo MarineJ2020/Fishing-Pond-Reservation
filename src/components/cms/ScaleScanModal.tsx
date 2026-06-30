@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import jsQR from 'jsqr';
 import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
+import { sevenSegmentScan } from '../../utils/sevenSegmentFallback';
+import { formatSeat, formatSeatList } from '../../utils/seatLabel';
 
 /**
  * A booking as the CMS sees it during the weigh-in scan flow. Carries the
@@ -15,6 +17,7 @@ export interface ScannedBookingFull {
   anglerName: string;
   pondId: number;
   pondName: string;
+  pondCode?: string;
   competitionId?: string;
   competitionName?: string;
   seats: number[];
@@ -28,17 +31,23 @@ export interface ScannedBookingLite {
   anglerName: string;
   pondId: number;
   pondName: string;
+  pondCode?: string;
   seatNum: number;
   competitionId?: string;
   competitionName?: string;
 }
 
+/** How the saved weight was obtained, in escalation order. */
+export type ReadingSource = 'onnx' | 'sevenseg' | 'manual';
+
 export interface ScaleScanApproved {
   weight: number;
   ocrConfidence: number;
   ocrRawText: string;
-  /** Always false now that manual editing is locked off. Kept for schema compat. */
+  /** True only when staff typed the weight by hand (the final failsafe). */
   userEdited: boolean;
+  /** Which scanner/entry produced the weight. */
+  method: ReadingSource;
   photoBlob: Blob;
   photoFileName: string;
   scannedBooking: ScannedBookingLite;
@@ -64,7 +73,6 @@ type Step =
   | 'identify'         // initial: choose between scan QR or manual pick
   | 'qr-processing'    // decoding scanned QR
   | 'manual-picker'    // searchable list of bookings
-  | 'seat-picker'      // booking found, pick which peg if multi-seat
   | 'capture'          // weight photo capture
   | 'crop'             // crop the weight photo
   | 'processing'       // running OCR
@@ -200,6 +208,7 @@ function toLite(full: ScannedBookingFull, seatNum: number): ScannedBookingLite {
     anglerName: full.anglerName,
     pondId: full.pondId,
     pondName: full.pondName,
+    pondCode: full.pondCode,
     seatNum,
     competitionId: full.competitionId,
     competitionName: full.competitionName,
@@ -223,7 +232,20 @@ const ScaleScanModal: React.FC<Props> = ({
   const [progress, setProgress] = useState<string>('');
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pendingBookingFull, setPendingBookingFull] = useState<ScannedBookingFull | null>(null);
+  // Unified reading consumed by handleApprove — set by ONNX, the no-AI fallback,
+  // or manual entry. weight=null means "no usable reading yet".
+  const [activeReading, setActiveReading] = useState<{ source: ReadingSource; weight: number | null; displayText: string; rawText: string } | null>(null);
+  const [fallbackBusy, setFallbackBusy] = useState(false);
+  // Final failsafe: staff types the weight and attaches a FRESH proof photo.
+  const [manualMode, setManualMode] = useState(false);
+  const [manualWeightInput, setManualWeightInput] = useState('');
+  const [manualPhotoBlob, setManualPhotoBlob] = useState<Blob | null>(null);
+  const [manualPhotoUrl, setManualPhotoUrl] = useState<string | null>(null);
+  const [manualPhotoFileName, setManualPhotoFileName] = useState<string>('manual-scale.jpg');
+  const manualPhotoInputRef = useRef<HTMLInputElement>(null);
+  // Throttles the "QR tidak sah" banner so a foreign QR held in front of the
+  // camera doesn't re-trigger setError on every animation frame.
+  const lastInvalidQrRef = useRef<string | null>(null);
   const [confirmedBooking, setConfirmedBooking] = useState<ScannedBookingLite | null>(null);
   const [manualSearch, setManualSearch] = useState('');
   const [liveQrActive, setLiveQrActive] = useState(false);
@@ -247,16 +269,23 @@ const ScaleScanModal: React.FC<Props> = ({
         liveQrStreamRef.current = null;
       }
       if (photoUrl) URL.revokeObjectURL(photoUrl);
+      if (manualPhotoUrl) URL.revokeObjectURL(manualPhotoUrl);
       setStep('identify');
       setPhotoUrl(null);
       setPhotoBlob(null);
       setCropRect(DEFAULT_CROP);
       setResult(null);
+      setActiveReading(null);
+      setFallbackBusy(false);
+      setManualMode(false);
+      setManualWeightInput('');
+      setManualPhotoBlob(null);
+      setManualPhotoUrl(null);
       setError(null);
       setProgress('');
-      setPendingBookingFull(null);
       setConfirmedBooking(null);
       setManualSearch('');
+      lastInvalidQrRef.current = null;
       setLiveQrActive(false);
       setLiveQrBusy(false);
     } else {
@@ -309,15 +338,13 @@ const ScaleScanModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  /** After we have a booking (from QR or manual pick), pick the seat or auto-advance. */
+  /** After we have a booking (from QR or manual pick), go straight to capture.
+   *  Peg selection was removed — the weight is recorded against the booking,
+   *  tagged with its first peg for traceability. */
   const onBookingResolved = (full: ScannedBookingFull) => {
-    setPendingBookingFull(full);
-    if (full.seats.length === 1) {
-      setConfirmedBooking(toLite(full, full.seats[0]));
-      setStep('capture');
-    } else {
-      setStep('seat-picker');
-    }
+    setError(null);
+    setConfirmedBooking(toLite(full, full.seats[0] ?? 0));
+    setStep('capture');
   };
 
   const stopLiveQrScan = () => {
@@ -362,13 +389,19 @@ const ScaleScanModal: React.FC<Props> = ({
     const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
     if (code?.data) {
       const bookingId = parseBookingQr(code.data);
-      if (bookingId) {
-        const booking = lookupBookingFull(bookingId);
-        if (booking) {
-          stopLiveQrScan();
-          onBookingResolved(booking);
-          return;
-        }
+      const booking = bookingId ? lookupBookingFull(bookingId) : null;
+      if (booking) {
+        // Valid booking QR → auto-close the camera and proceed.
+        lastInvalidQrRef.current = null;
+        stopLiveQrScan();
+        onBookingResolved(booking);
+        return;
+      }
+      // A QR was decoded but it isn't a booking for this competition. Surface a
+      // "tidak sah" hint once per distinct payload and keep scanning.
+      if (lastInvalidQrRef.current !== code.data) {
+        lastInvalidQrRef.current = code.data;
+        setError('QR tidak sah / tidak dijumpai untuk pertandingan ini. Cuba QR tempahan yang betul.');
       }
     }
     liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
@@ -429,12 +462,6 @@ const ScaleScanModal: React.FC<Props> = ({
     }
   };
 
-  const handlePickSeat = (seatNum: number) => {
-    if (!pendingBookingFull) return;
-    setConfirmedBooking(toLite(pendingBookingFull, seatNum));
-    setStep('capture');
-  };
-
   const handleManualPick = (booking: ScannedBookingFull) => {
     onBookingResolved(booking);
   };
@@ -485,6 +512,13 @@ const ScaleScanModal: React.FC<Props> = ({
       setProgress('Imbas paparan…');
       const r = await scanWeight(cloneCanvas(cropCanvas), undefined, { usePreprocess, decimalPlaces });
       setResult(r);
+      setActiveReading({
+        source: 'onnx',
+        weight: r.weight,
+        displayText: formatScannedWeight(r.rawText, decimalPlaces),
+        rawText: r.rawText,
+      });
+      setManualMode(false);
       setStep('verify');
     } catch (err: any) {
       console.error(err);
@@ -493,11 +527,62 @@ const ScaleScanModal: React.FC<Props> = ({
     }
   };
 
+  // Failsafe #1: deterministic no-ML 7-segment scan of the SAME crop, run when
+  // staff decide the ONNX read isn't worth retrying.
+  const handleFallbackScan = async () => {
+    if (!photoBlob) return;
+    setFallbackBusy(true);
+    setError(null);
+    try {
+      const cropCanvas = await buildCropCanvas();
+      const fb = sevenSegmentScan(cloneCanvas(cropCanvas));
+      const displayText = formatScannedWeight(fb.text, decimalPlaces);
+      const num = parseFloat(displayText);
+      setActiveReading({
+        source: 'sevenseg',
+        weight: displayText && Number.isFinite(num) && num > 0 ? num : null,
+        displayText,
+        rawText: fb.text,
+      });
+      setManualMode(false);
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || 'Imbasan sandaran gagal.');
+    } finally {
+      setFallbackBusy(false);
+    }
+  };
+
+  const handleManualPhotoChosen = (file: File) => {
+    setManualPhotoFileName(file.name || 'manual-scale.jpg');
+    setManualPhotoBlob(file);
+    if (manualPhotoUrl) URL.revokeObjectURL(manualPhotoUrl);
+    setManualPhotoUrl(URL.createObjectURL(file));
+  };
+
+  // Keep activeReading in sync while staff type a manual weight.
+  const handleManualWeightChange = (raw: string) => {
+    setManualWeightInput(raw);
+    const num = parseFloat(raw);
+    setActiveReading({
+      source: 'manual',
+      weight: Number.isFinite(num) && num > 0 ? num : null,
+      displayText: raw,
+      rawText: raw,
+    });
+  };
+
   const handleRetakeWeight = () => {
     if (photoUrl) URL.revokeObjectURL(photoUrl);
+    if (manualPhotoUrl) URL.revokeObjectURL(manualPhotoUrl);
     setPhotoUrl(null);
     setPhotoBlob(null);
     setResult(null);
+    setActiveReading(null);
+    setManualMode(false);
+    setManualWeightInput('');
+    setManualPhotoBlob(null);
+    setManualPhotoUrl(null);
     setError(null);
     setStep('capture');
     setTimeout(() => weightFileInputRef.current?.click(), 50);
@@ -505,33 +590,44 @@ const ScaleScanModal: React.FC<Props> = ({
 
   const handleResetIdentify = () => {
     setError(null);
-    setPendingBookingFull(null);
+    lastInvalidQrRef.current = null;
     setConfirmedBooking(null);
     setManualSearch('');
     setStep('identify');
   };
 
   const handleApprove = () => {
-    if (!result || result.weight === null || !photoBlob || !confirmedBooking) return;
+    if (!activeReading || activeReading.weight === null || !confirmedBooking) return;
+    const isManual = activeReading.source === 'manual';
+    // Manual entry requires a freshly-captured proof photo; the scanners reuse
+    // the captured weight photo.
+    const proofBlob = isManual ? manualPhotoBlob : photoBlob;
+    const proofName = isManual ? manualPhotoFileName : photoFileName;
+    if (!proofBlob) return;
     onApprove({
-      weight: result.weight,
-      ocrConfidence: result.confidence,
-      ocrRawText: result.rawText,
-      userEdited: false,
-      photoBlob,
-      photoFileName,
+      weight: activeReading.weight,
+      // ONNX reports its own confidence; the deterministic fallback and manual
+      // entry don't have a model confidence, so report 0 (the method tag carries
+      // the provenance instead).
+      ocrConfidence: activeReading.source === 'onnx' && result ? result.confidence : 0,
+      ocrRawText: activeReading.rawText,
+      userEdited: isManual,
+      method: activeReading.source,
+      photoBlob: proofBlob,
+      photoFileName: proofName,
       scannedBooking: confirmedBooking,
     });
   };
 
-  const prefillWeight = result ? formatScannedWeight(result.rawText, decimalPlaces) : '';
+  const approveDisabled =
+    !activeReading || activeReading.weight === null ||
+    (activeReading.source === 'manual' && !manualPhotoBlob);
 
   const showBookingChip =
     confirmedBooking
     && step !== 'identify'
     && step !== 'qr-processing'
-    && step !== 'manual-picker'
-    && step !== 'seat-picker';
+    && step !== 'manual-picker';
 
   return (
     <div
@@ -546,7 +642,7 @@ const ScaleScanModal: React.FC<Props> = ({
       >
         <div className="modal-header">
           <div className="modal-title">
-            {(step === 'identify' || step === 'qr-processing' || step === 'manual-picker' || step === 'seat-picker')
+            {(step === 'identify' || step === 'qr-processing' || step === 'manual-picker')
               ? '📱 Kenal Pasti Pemancing'
               : '📷 Imbas Timbangan'}
           </div>
@@ -562,7 +658,7 @@ const ScaleScanModal: React.FC<Props> = ({
               <span>✓</span>
               <strong>{confirmedBooking.anglerName}</strong>
               <span style={{ opacity: 0.7 }}>·</span>
-              <span>{confirmedBooking.pondName} · Peg #{confirmedBooking.seatNum}</span>
+              <span>{confirmedBooking.pondName} · {confirmedBooking.pondCode ? formatSeat(confirmedBooking.pondCode, confirmedBooking.seatNum) : `Peg #${confirmedBooking.seatNum}`}</span>
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={handleResetIdentify}
@@ -587,8 +683,7 @@ const ScaleScanModal: React.FC<Props> = ({
               <p style={{ marginBottom: 18, color: 'var(--text-muted)', fontSize: 14 }}>
                 Pilih cara untuk mengenal pasti pemancing yang sedang ditimbang.
               </p>
-              {liveQrActive && (
-                <div style={{ marginBottom: 14, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: '#0f172a' }}>
+              <div style={{ marginBottom: 14, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: '#0f172a', display: liveQrActive ? 'block' : 'none' }}>
                   <video ref={liveQrVideoRef} playsInline muted style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block' }} />
                   <canvas ref={liveQrCanvasRef} style={{ display: 'none' }} />
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', color: '#fff', fontSize: 12 }}>
@@ -596,7 +691,6 @@ const ScaleScanModal: React.FC<Props> = ({
                     <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }} onClick={stopLiveQrScan}>Tutup Kamera</button>
                   </div>
                 </div>
-              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div style={{
                   border: '1px solid var(--line)', borderRadius: 12, padding: 22,
@@ -695,7 +789,7 @@ const ScaleScanModal: React.FC<Props> = ({
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>{b.anglerName}</div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                          {b.pondName} · Peg {b.seats.map((s) => `#${s}`).join(', ')}
+                          {b.pondName} · {b.pondCode ? formatSeatList(b.pondCode, b.seats) : `Peg ${b.seats.map((s) => `#${s}`).join(', ')}`}
                         </div>
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
@@ -704,56 +798,6 @@ const ScaleScanModal: React.FC<Props> = ({
                     </div>
                   ))
                 )}
-              </div>
-            </div>
-          )}
-
-          {/* STEP: seat picker — booking found, choose which peg is being weighed */}
-          {step === 'seat-picker' && pendingBookingFull && (
-            <div style={{ padding: '8px 4px' }}>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-                Tempahan dikenal pasti
-              </div>
-              <div style={{
-                border: '2px solid var(--red)',
-                borderRadius: 12,
-                padding: '14px 18px',
-                marginBottom: 18,
-              }}>
-                <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4, fontFamily: 'var(--font-heading)' }}>
-                  {pendingBookingFull.anglerName}
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                  {pendingBookingFull.pondName}
-                  {pendingBookingFull.competitionName && ` · ${pendingBookingFull.competitionName}`}
-                </div>
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-                Pilih peg yang sedang ditimbang:
-              </div>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))',
-                gap: 10,
-              }}>
-                {pendingBookingFull.seats.map((seat) => (
-                  <button
-                    key={seat}
-                    className="btn"
-                    onClick={() => handlePickSeat(seat)}
-                    style={{
-                      padding: '14px 8px',
-                      fontSize: 18,
-                      fontWeight: 800,
-                      justifyContent: 'center',
-                    }}
-                  >
-                    #{seat}
-                  </button>
-                ))}
-              </div>
-              <div style={{ marginTop: 16, textAlign: 'right' }}>
-                <button className="btn btn-ghost" onClick={handleResetIdentify}>← Kembali</button>
               </div>
             </div>
           )}
@@ -793,6 +837,8 @@ const ScaleScanModal: React.FC<Props> = ({
                 • <strong>Jangan</strong> masukkan label seperti "TARE", "WEIGHT", "UNIT PRICE".
                 <br />
                 • Boleh sertakan "kg" jika berdekatan.
+                <br />
+                • <strong>Cubit</strong> atau guna butang <strong>+ / −</strong> untuk zoom sebelum melaraskan kotak.
               </p>
               <div style={{ textAlign: 'center' }}>
                 <CropRectOverlay imageUrl={photoUrl} initial={cropRect} onChange={setCropRect} />
@@ -835,26 +881,39 @@ const ScaleScanModal: React.FC<Props> = ({
                   </div>
                 </div>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
-                    Bacaan dikesan (kunci — tidak boleh diubah)
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+                    Bacaan untuk disimpan
+                    {activeReading && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, color: '#fff',
+                        background: activeReading.source === 'onnx' ? '#374151' : activeReading.source === 'sevenseg' ? '#7c3aed' : '#b45309',
+                      }}>
+                        {activeReading.source === 'onnx' ? 'ONNX (AI)' : activeReading.source === 'sevenseg' ? 'Sandaran (tanpa AI)' : 'Manual'}
+                      </span>
+                    )}
                   </div>
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'baseline', gap: 8,
-                    padding: '8px 14px', borderRadius: 8,
-                    background: result.weight !== null ? '#f0fdf4' : '#fef2f2',
-                    border: `2px solid ${result.weight !== null ? '#86efac' : '#fca5a5'}`,
-                  }}>
-                    <span style={{
-                      fontSize: 44, fontWeight: 800, lineHeight: 1.1,
-                      color: result.weight !== null ? '#15803d' : '#991b1b',
-                      fontFamily: 'var(--font-heading, monospace)',
-                    }}>
-                      {prefillWeight || '—'}
-                    </span>
-                    <span style={{ fontSize: 20, fontWeight: 500 }}>kg</span>
-                  </div>
+                  {(() => {
+                    const ok = !!activeReading && activeReading.weight !== null;
+                    return (
+                      <div style={{
+                        display: 'inline-flex', alignItems: 'baseline', gap: 8,
+                        padding: '8px 14px', borderRadius: 8,
+                        background: ok ? '#f0fdf4' : '#fef2f2',
+                        border: `2px solid ${ok ? '#86efac' : '#fca5a5'}`,
+                      }}>
+                        <span style={{
+                          fontSize: 44, fontWeight: 800, lineHeight: 1.1,
+                          color: ok ? '#15803d' : '#991b1b',
+                          fontFamily: 'var(--font-heading, monospace)',
+                        }}>
+                          {activeReading?.displayText || '—'}
+                        </span>
+                        <span style={{ fontSize: 20, fontWeight: 500 }}>kg</span>
+                      </div>
+                    );
+                  })()}
                   <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-                    🔒 Pengubahan manual tidak dibenarkan — ambil semula jika tidak tepat.
+                    Bandingkan dengan paparan timbangan sebenar sebelum simpan.
                   </div>
                 </div>
               </div>
@@ -863,17 +922,54 @@ const ScaleScanModal: React.FC<Props> = ({
                 marginTop: 12, padding: 10, borderRadius: 6,
                 background: '#eff6ff', color: '#1e3a8a', fontSize: 13,
               }}>
-                ℹ️ Bandingkan bacaan di atas dengan paparan timbangan sebenar. Jika tidak sepadan,
-                klik <strong>Ambil Semula</strong> dan tangkap gambar yang lebih jelas.
+                ℹ️ Tidak tepat? <strong>Ambil Semula</strong> untuk cuba AI lagi. Jika AI gagal,
+                cuba <strong>Imbas Tanpa AI</strong>. Jika masih gagal, <strong>Masukkan Manual</strong>
+                {' '}berat sambil melampirkan gambar bukti baharu.
               </div>
 
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              {manualMode && (
+                <div style={{ marginTop: 12, padding: 12, border: '1px dashed #b45309', borderRadius: 8, background: '#fffbeb' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 8 }}>
+                    ✍️ Kemasukan Manual — wajib lampirkan gambar bukti baharu
+                  </div>
+                  <label style={{ fontSize: 12, color: '#92400e' }}>Berat (kg)</label>
+                  <input
+                    type="number" inputMode="decimal" step="0.01" min="0"
+                    value={manualWeightInput}
+                    onChange={(e) => handleManualWeightChange(e.target.value)}
+                    placeholder="cth: 3.45"
+                    style={{ width: '100%', padding: '8px', borderRadius: 6, border: '1px solid #d6bd8e', margin: '4px 0 10px' }}
+                  />
+                  <input
+                    ref={manualPhotoInputRef}
+                    type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleManualPhotoChosen(f); e.currentTarget.value = ''; }}
+                  />
+                  <button className="btn" onClick={() => manualPhotoInputRef.current?.click()}>
+                    📷 {manualPhotoBlob ? 'Tukar Gambar Bukti' : 'Ambil Gambar Bukti'}
+                  </button>
+                  {manualPhotoUrl && (
+                    <img src={manualPhotoUrl} alt="bukti" style={{ display: 'block', marginTop: 8, maxWidth: '100%', maxHeight: 160, borderRadius: 6, border: '1px solid var(--line)' }} />
+                  )}
+                  {!manualPhotoBlob && (
+                    <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>Gambar bukti diperlukan sebelum simpan.</div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16, flexWrap: 'wrap' }}>
                 <button className="btn" onClick={handleRetakeWeight}>🔄 Ambil Semula</button>
+                <button className="btn" disabled={fallbackBusy || !photoBlob} onClick={handleFallbackScan}>
+                  {fallbackBusy ? 'Mengimbas…' : '🔢 Imbas Tanpa AI'}
+                </button>
+                <button className="btn" onClick={() => setManualMode((m) => !m)}>
+                  ✍️ Masukkan Manual
+                </button>
                 <button
                   className="btn btn-primary"
-                  disabled={result.weight === null}
+                  disabled={approveDisabled}
                   onClick={handleApprove}
-                  style={result.weight === null ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                  style={approveDisabled ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
                   ✅ Sahkan &amp; Simpan
                 </button>

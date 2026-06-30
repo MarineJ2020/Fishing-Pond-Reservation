@@ -58,7 +58,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOp
           <button
             className={`kks-hamburger${menuOpen ? ' is-open' : ''}`}
             onClick={() => setMenuOpen(o => !o)}
-            aria-label="Buka menu"
+            aria-label={menuOpen ? 'Tutup menu' : 'Buka menu'}
             aria-expanded={menuOpen}
             style={{ position: 'relative' }}
           >

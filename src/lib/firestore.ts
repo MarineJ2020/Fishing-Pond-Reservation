@@ -182,6 +182,7 @@ const buildBooking = (
     userPhone: data.userPhone || data.phone || '',
     pondId: pond?.id ?? 0,
     pondName: pond?.name || 'Unknown',
+    pondCode: pond?.code || data.pondCode || undefined,
     pondDate: pond?.date || normalizeTimestamp(data.eventDate) || new Date().toISOString(),
     seats: seatNumbers,
     paymentType: data.paymentType || 'full',
@@ -316,6 +317,7 @@ export const getPondsWithSeats = async (): Promise<Pond[]> => {
       id: Number.isFinite(numId) ? numId : (index + 1),
       _docId: pondSnap.id,
       name: data.name || `Pond ${pondSnap.id}`,
+      code: typeof data.code === 'string' && data.code.trim() ? data.code.trim().toUpperCase() : undefined,
       desc: data.description || '',
       date: normalizeTimestamp(data.eventDate) || new Date().toISOString(),
       open: data.open !== false,
@@ -667,6 +669,8 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
   if (entry.photoUrl)                       evidenceFields.photoUrl = entry.photoUrl;
   if (typeof entry.ocrConfidence === 'number') evidenceFields.ocrConfidence = entry.ocrConfidence;
   if (entry.ocrRawText)                     evidenceFields.ocrRawText = entry.ocrRawText;
+  if (typeof entry.ocrUserVerified === 'boolean') evidenceFields.ocrUserVerified = entry.ocrUserVerified;
+  if (entry.scanMethod)                     evidenceFields.scanMethod = entry.scanMethod;
   if (entry.capturedBy)                     evidenceFields.capturedBy = entry.capturedBy;
 
   if (entry.bookingId) {
@@ -804,18 +808,16 @@ export const submitBookingReceiptDirect = async (bookingId: string, receiptUrl: 
   return { receipts: next };
 };
 
-// One-time receipt correction: the owner replaces the image of a still-pending
-// receipt (e.g. they uploaded the wrong photo). Allowed once per booking — guarded
-// by `receiptReuploadUsed`. Owner-scoped write (see firestore.rules).
+// Receipt correction: the owner replaces the file of any not-yet-approved receipt
+// (e.g. wrong photo, or a staff-rejected receipt). A rejected receipt returns to
+// 'pending' so staff re-review it. Approved receipts and rejected bookings are
+// frozen. Owner-scoped write (see firestore.rules).
 export const replaceBookingReceiptDirect = async (bookingId: string, receiptIndex: number, newReceiptUrl: string) => {
   const bookingRef = doc(db, 'bookings', bookingId);
   const snap = await getDoc(bookingRef);
   if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
   const booking = snap.data() as any;
 
-  if (booking.receiptReuploadUsed === true) {
-    throw new Error('Anda telah menggunakan muat naik semula sekali sahaja anda. / You have already used your one-time re-upload.');
-  }
   if ((booking.status || '').toUpperCase() === 'REJECTED') {
     throw new Error('Tempahan ini telah ditolak. / This booking has been rejected.');
   }
@@ -824,16 +826,16 @@ export const replaceBookingReceiptDirect = async (bookingId: string, receiptInde
   if (receiptIndex < 0 || receiptIndex >= receipts.length) {
     throw new Error('Indeks resit tidak sah. / Invalid receipt index.');
   }
-  if (receipts[receiptIndex].status !== 'pending') {
-    throw new Error('Hanya resit yang masih menunggu pengesahan boleh digantikan. / Only a receipt still pending review can be replaced.');
+  if (receipts[receiptIndex].status === 'accepted') {
+    throw new Error('Resit yang telah disahkan tidak boleh digantikan. / An approved receipt cannot be replaced.');
   }
 
-  receipts[receiptIndex] = { ...receipts[receiptIndex], url: newReceiptUrl, submittedAt: new Date().toISOString() };
+  // Replacing a receipt always (re)submits it for review, so it goes/stays pending.
+  receipts[receiptIndex] = { ...receipts[receiptIndex], url: newReceiptUrl, status: 'pending', submittedAt: new Date().toISOString() };
 
   await setDoc(bookingRef, {
     receipts,
     receiptUrl: newReceiptUrl,
-    receiptReuploadUsed: true,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || null,
   }, { merge: true });

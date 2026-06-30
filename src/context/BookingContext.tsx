@@ -190,7 +190,9 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const tot = selectedSeats.length * getCompetitionPricePerPeg(pond);
     const payAmt = payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
 
-    const bookingRef = `BKG-${Date.now().toString().slice(-5)}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    // Short, simple, still-unique ref. Unambiguous charset (no 0/O/1/I).
+    const REF_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+    const bookingRef = `KKS-${Array.from({ length: 4 }, () => REF_CHARS[Math.floor(Math.random() * REF_CHARS.length)]).join('')}`;
 
     const receiptUrl = await uploadReceipt(receiptData, receiptFile);
 
@@ -198,6 +200,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       competitionId: selectedCompetitionId || db.comp.id || '',
       competitionName: db.competitions.find((c) => c.id === (selectedCompetitionId || db.comp.id || ''))?.name || db.comp.name,
       pondId: pond.id,
+      pondCode: pond.code || '',
       userId: effectiveEmail,
       userEmail: notifyEmail,
       userName: effectiveName,
@@ -222,6 +225,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         bookingRef: result.bookingRef || bookingRef,
         amount: payAmt,
         pondName: pond.name,
+        pondCode: pond.code || '',
         pondDate: pond.date,
         seats: selectedSeats,
       });
@@ -238,6 +242,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       userPhone: effectivePhone,
       pondId: pond.id,
       pondName: pond.name,
+      pondCode: pond.code || '',
       pondDate: pond.date,
       seats: [...selectedSeats],
       seatIds,

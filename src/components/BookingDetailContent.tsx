@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Booking } from '../types';
 import { outstandingBalance } from '../utils/booking';
 import BalanceReceiptUpload from './BalanceReceiptUpload';
 import ReceiptReupload from './ReceiptReupload';
+import DocPreviewModal from './DocPreviewModal';
 
 interface Props {
   booking: Booking;
@@ -25,12 +26,10 @@ const RECEIPT_STATUS_LABEL: Record<string, { label: string; color: string }> = {
 };
 
 /**
- * Build the QR payload for a booking. The QR encodes the booking-detail URL
- * (origin + /bookings/:id) so:
- *   - Any QR reader (including a phone camera) opens the booking page directly.
- *   - The CMS Imbas-Timbangan scanner parses the URL to identify the booking,
- *     then prompts staff to pick which seat is being weighed if the booking
- *     has more than one peg.
+ * Build the booking-detail URL (origin + /bookings/:id). Used for the email
+ * "view booking" link. NOTE: the QR code itself now encodes the bare booking id
+ * (not this URL) so the CMS check-in / weigh-in scanners get a clean id to look
+ * up; both scanners still accept a full URL for backwards compatibility.
  */
 export function buildBookingUrl(bookingId: string): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -43,6 +42,7 @@ export function buildBookingSeatUrl(bookingId: string, _seatNum: number): string
 }
 
 const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onReceiptSubmitted }) => {
+  const [docPreview, setDocPreview] = useState<string | null>(null);
   const receipts = booking.receipts && booking.receipts.length
     ? booking.receipts
     : (booking.receiptData ? [{ url: booking.receiptData, amount: booking.amount, status: 'pending' as const, submittedAt: booking.createdAt }] : []);
@@ -51,15 +51,13 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
     && booking.paymentType === 'deposit'
     && balanceDue > 0
     && booking.status !== 'rejected'
-    && receipts.length < 3;
+    && receipts.length < 2;
 
-  // One-time receipt correction: allowed on a still-pending receipt that hasn't
-  // been re-uploaded yet, while the booking is still under review.
-  const firstPendingReceiptIdx = receipts.findIndex((r) => r.status === 'pending');
-  const canReuploadReceipt = !!onReceiptSubmitted
-    && booking.status !== 'rejected'
-    && !booking.receiptReuploadUsed
-    && firstPendingReceiptIdx >= 0;
+  // Receipt correction: every receipt that hasn't been approved yet can be
+  // re-uploaded (handles deposit bookings with multiple PDFs). Approved receipts
+  // and fully-rejected bookings are frozen.
+  const reuploadEnabled = !!onReceiptSubmitted && booking.status !== 'rejected';
+  const canReuploadReceipt = (status: string) => reuploadEnabled && status !== 'accepted';
   return (
     <div
       style={{
@@ -112,7 +110,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
             }}
           >
             <QRCodeSVG
-              value={buildBookingUrl(booking.id)}
+              value={booking.id}
               size={220}
               level="M"
               marginSize={2}
@@ -126,7 +124,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
             <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>Sah untuk peg:</span>
             {booking.seats.map((s) => (
-              <span key={s} className="seat-pill">#{s}</span>
+              <span key={s} className="seat-pill">{booking.pondCode ? `${booking.pondCode}-${s}` : `#${s}`}</span>
             ))}
           </div>
         </div>
@@ -157,7 +155,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
         <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '10px' }}>📅 {booking.pondDate}</div>
         <div className="selected-pills">
           {booking.seats.map((s) => (
-            <span key={s} className="seat-pill">#{s}</span>
+            <span key={s} className="seat-pill">{booking.pondCode ? `${booking.pondCode}-${s}` : `#${s}`}</span>
           ))}
         </div>
       </div>
@@ -214,7 +212,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
                         )}
                         <button
                           className="btn btn-ghost btn-sm"
-                          onClick={() => window.open(r.url, '_blank')}
+                          onClick={() => setDocPreview(r.url)}
                           style={{ marginTop: '10px', width: '100%', justifyContent: 'center' }}
                         >
                           {isPdf ? 'Buka PDF Penuh (semua halaman)' : 'Lihat Resit Penuh'}
@@ -222,24 +220,19 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
                       </>
                     );
                   })()}
+                  {/* Per-receipt correction — available unless this receipt is approved. */}
+                  {canReuploadReceipt(r.status) && (
+                    <ReceiptReupload
+                      bookingId={booking.id}
+                      receiptIndex={i}
+                      receiptStatus={r.status}
+                      onSubmitted={onReceiptSubmitted!}
+                    />
+                  )}
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* One-time receipt correction (replace a wrongly-uploaded pending receipt) */}
-      {canReuploadReceipt && (
-        <ReceiptReupload
-          bookingId={booking.id}
-          receiptIndex={firstPendingReceiptIdx}
-          onSubmitted={onReceiptSubmitted!}
-        />
-      )}
-      {!!onReceiptSubmitted && booking.receiptReuploadUsed && booking.status !== 'rejected' && (
-        <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-          Muat naik semula sekali sahaja telah digunakan. / Your one-time receipt re-upload has been used.
         </div>
       )}
 
@@ -264,6 +257,8 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
           Tutup
         </button>
       )}
+
+      <DocPreviewModal url={docPreview} title="Resit Bayaran" onClose={() => setDocPreview(null)} />
     </div>
   );
 };

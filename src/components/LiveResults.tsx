@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Competition, Score, ScoreEntry, Pond, Booking, User } from '../types';
 import { getLB, getPrize, p2 } from '../utils';
 import { isCompetitionEnded } from '../utils/competition';
+import { formatSeat } from '../utils/seatLabel';
 import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { db as firestoreDb } from '../../lib/firebase';
 
@@ -300,7 +301,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                       <div className="kl-rank-no">{p2(rank)}</div>
                       <div className="kl-angler">
                         <strong>{e.name}{isMe ? ' · Anda' : ''}</strong>
-                        <span>Peg #{e.peg}{pondName ? ` · ${pondName}` : ''}</span>
+                        <span>{pond?.code ? formatSeat(pond.code, e.peg) : `Peg #${e.peg}${pondName ? ` · ${pondName}` : ''}`}</span>
                         <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>Ref: {bookingRefByPeg[e.peg] || '-'}</span>
                       </div>
                       <div className="kl-weight">
@@ -446,7 +447,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 return (
                   <div key={e.peg} className="kl-winner-row">
                     <div><span className="kl-winner-rank">{p2(rank)}</span></div>
-                    <div><strong>{e.name}</strong><br /><span>Peg #{e.peg}{pondName ? ` · ${pondName}` : ''}</span></div>
+                    <div><strong>{e.name}</strong><br /><span>{pond?.code ? formatSeat(pond.code, e.peg) : `Peg #${e.peg}${pondName ? ` · ${pondName}` : ''}`}</span></div>
                     <div>{e.weight.toFixed(2)}kg</div>
                     <div>{prize || '—'}</div>
                   </div>

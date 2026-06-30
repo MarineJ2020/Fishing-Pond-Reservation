@@ -26,7 +26,29 @@ import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage
 import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
 import { getCompetitionPhase } from '../utils/competition';
+import { formatSeatList, pondDisplayName } from '../utils/seatLabel';
+import { prizeRange } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
+
+// ── Pond alphabet-code helpers (single letter A–Z, unique across ponds) ──
+const POND_CODE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+function nextFreePondCode(ponds: Pond[], excludeDocId?: string): string {
+  const used = new Set(
+    ponds
+      .filter((p) => (p._docId || '') !== (excludeDocId || ''))
+      .map((p) => (p.code || '').trim().toUpperCase())
+      .filter(Boolean),
+  );
+  return POND_CODE_LETTERS.find((l) => !used.has(l)) || '';
+}
+function pondCodeError(code: string | undefined, ponds: Pond[], excludeDocId?: string): string | null {
+  const c = (code || '').trim().toUpperCase();
+  if (!c) return null; // blank is allowed; saved ponds auto-assign the next free letter
+  if (!/^[A-Z]$/.test(c)) return 'Kod kolam mesti satu huruf A–Z.';
+  if (ponds.some((p) => (p._docId || '') !== (excludeDocId || '') && (p.code || '').trim().toUpperCase() === c))
+    return `Kod "${c}" telah digunakan oleh kolam lain.`;
+  return null;
+}
 
 type CMSPage = 'dashboard' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
 
@@ -151,6 +173,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [compEdit, setCompEdit] = useState<Competition>(comp);
   const [compList, setCompList] = useState<Competition[]>(competitions.length ? competitions : (comp.name ? [comp] : []));
   const [competitionEditorOpen, setCompetitionEditorOpen] = useState(false);
+  // True while the Manage editor is creating a brand-new competition (not yet persisted).
+  const [compEditIsNew, setCompEditIsNew] = useState(false);
+  // The pond list inside the Manage editor starts collapsed; the admin expands it on demand.
+  const [compPondsExpanded, setCompPondsExpanded] = useState(false);
   const [competitionDeleteTarget, setCompetitionDeleteTarget] = useState<Competition | null>(null);
   const [settingsEdit, setSettingsEdit] = useState(settings);
   // Sync settingsEdit when the parent settings prop changes (e.g. after reloadDB)
@@ -160,9 +186,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [newPondMaxSeats, setNewPondMaxSeats] = useState(30);
   const [pondSaveError, setPondSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'rejected'>('all');
   const [approvalsSortOrder, setApprovalsSortOrder] = useState<'desc' | 'asc'>('desc');
   const [bookingSearch, setBookingSearch] = useState('');
+  // V5 kelulusan (approvals) filters
+  const [approvalStatus, setApprovalStatus] = useState<'all' | 'deposit' | 'full' | 'rejected'>('all');
+  const [approvalSearch, setApprovalSearch] = useState('');
+  const [approvalCompFilter, setApprovalCompFilter] = useState('');
+  const [approvalPayFilter, setApprovalPayFilter] = useState<'' | 'deposit' | 'full'>('');
+  // V5 semua-tempahan filters
+  const [allStatus, setAllStatus] = useState<'all' | 'review-balance' | 'pending-balance' | 'fully-paid' | 'cancelled'>('all');
+  const [allCompFilter, setAllCompFilter] = useState('');
+  const [allPayFilter, setAllPayFilter] = useState<'' | 'balance' | 'deposit' | 'full' | 'unpaid'>('');
+  const [allPondFilter, setAllPondFilter] = useState('');
   // Force-cancel-a-confirmed-booking flow: typed confirmation guard.
   const [forceCancelTarget, setForceCancelTarget] = useState<Booking | null>(null);
   const [forceCancelText, setForceCancelText] = useState('');
@@ -175,6 +210,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const depositProofInputRef = useRef<HTMLInputElement | null>(null);
   const [checkinLiveScanOn, setCheckinLiveScanOn] = useState(false);
   const [checkinLiveScanBusy, setCheckinLiveScanBusy] = useState(false);
+  // Live-scan invalid-QR hint, throttled per distinct payload via the ref.
+  const [checkinScanMsg, setCheckinScanMsg] = useState<string | null>(null);
+  const lastCheckinQrRef = useRef<string | null>(null);
   const checkinLiveVideoRef = useRef<HTMLVideoElement | null>(null);
   const checkinLiveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const checkinLiveStreamRef = useRef<MediaStream | null>(null);
@@ -202,9 +240,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Reorder/collapse state for the ponds CMS.
   const [pondReordering, setPondReordering] = useState(false);
   const [expandedPondSeats, setExpandedPondSeats] = useState<Record<string, boolean>>({});
-  // After creating a competition we open its Manage editor once it appears in the
-  // refreshed list.
-  const [pendingEditCompId, setPendingEditCompId] = useState<string | null>(null);
 
   // In-page receipt lightbox (replaces opening a new browser tab).
   const [receiptViewerUrl, setReceiptViewerUrl] = useState<string | null>(null);
@@ -279,24 +314,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setManualEntry(m => (m.pondId === pondDocId && m.seatNum === seat) ? m : ({ ...m, pondId: pondDocId, seatNum: seat }));
   }, [manualEntry.anglerName, resultsCompId, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Open the Manage editor for a freshly-created competition once the reloaded
-  // list contains it. Declared after the comp/competitions reset effect so it
-  // wins and isn't clobbered by the reset.
   useEffect(() => {
-    if (!pendingEditCompId) return;
-    const list = competitions.length ? competitions : compList;
-    const target = list.find(c => c.id === pendingEditCompId);
-    if (target) {
-      setCompEdit({ ...target });
-      setCompetitionEditorOpen(true);
-      setPendingEditCompId(null);
-    }
-  }, [pendingEditCompId, competitions, compList]);
-
-  useEffect(() => {
-    setCompEdit(comp);
     setCompList(competitions.length ? competitions : (comp.name ? [comp] : []));
-  }, [comp, competitions]);
+    // Only re-seed the working copy when no competition editor is open. reloadDB()
+    // hands back fresh comp/competitions references, so resetting unconditionally
+    // would re-point compEdit (id included) at the active competition mid-edit —
+    // a subsequent Save would then overwrite the wrong competition document.
+    if (!competitionEditorOpen) setCompEdit(comp);
+  }, [comp, competitions, competitionEditorOpen]);
   useEffect(() => { setSettingsEdit(settings); }, [settings]);
 
   // Conflict detection: map "competitionId-pondId-seatNum" → booking IDs that claim it
@@ -363,6 +388,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       return;
     }
 
+    const codeErr = pondCodeError(pond.code, ponds, pond._docId || pond.id.toString());
+    if (codeErr) { setPondSaveError(codeErr); return; }
+
     setSaving(true);
     try {
       const pondDocId = pond._docId || pond.id.toString();
@@ -379,6 +407,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
       await updatePondFirestore(pondDocId, {
         name: pond.name,
+        code: (pond.code || '').trim().toUpperCase() || nextFreePondCode(ponds, pondDocId),
         description: pond.desc,
         open: pond.open,
         totalSeats: effectiveMaxSeats,
@@ -401,11 +430,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       window.alert('Tarikh tamat mesti sama atau selepas tarikh mula.');
       return;
     }
+    if (compEditIsNew && !compEdit.name?.trim()) {
+      window.alert('Sila masukkan nama pertandingan.');
+      return;
+    }
 
     setSaving(true);
     try {
-      if (!compEdit.id) { setSaving(false); return; }
-      await updateCompetitionFirestore(compEdit.id, compEdit as any);
+      // A brand-new competition is only persisted here, on Save — clicking
+      // "Tambah Pertandingan" merely opens a blank editor.
+      if (compEditIsNew || !compEdit.id) {
+        await createCompetitionFirestore(compEdit as any);
+      } else {
+        await updateCompetitionFirestore(compEdit.id, compEdit as any);
+      }
 
       // Persist any manually toggled seat active flags back to the ponds
       for (const [pondKey, seatMap] of Object.entries(pondSeatEdits)) {
@@ -423,8 +461,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
       await reloadDB();
       setCompetitionEditorOpen(false);
+      setCompEditIsNew(false);
       setPondSeatEdits({});
-    } catch (err) { console.error('Failed to update competition:', err); }
+    } catch (err) { console.error('Failed to save competition:', err); }
     setSaving(false);
   };
 
@@ -432,31 +471,35 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(true);
     try {
       if (!compEdit.id) { setSaving(false); return; }
-      await updateCompetitionFirestore(compEdit.id, compEdit as any);
+      // Normalise prize ranges before persisting: keep `rank` in sync with
+      // `rankFrom` (back-compat) and ensure from<=to.
+      const normalizedPrizes = (compEdit.prizes || []).map((p: Prize) => {
+        const [from, to] = prizeRange(p);
+        return { ...p, rank: from, rankFrom: from, rankTo: to };
+      });
+      await updateCompetitionFirestore(compEdit.id, { ...compEdit, prizes: normalizedPrizes } as any);
       await reloadDB();
     } catch (err) { console.error('Failed to save prizes:', err); }
     setSaving(false);
   };
 
-  const handleCreateCompetition = async () => {
-    setSaving(true);
-    try {
-      const newId = await createCompetitionFirestore({
-        name: `Pertandingan ${new Date().getFullYear()}`,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        topN: 20,
-        prizes: [],
-        activePondIds: []
-      });
-      await reloadDB();
-      // Open the new competition's Manage editor straight away (see the
-      // pendingEditCompId effect, which fires once the reloaded list has it).
-      if (newId) setPendingEditCompId(newId);
-    } catch (err) {
-      console.error('Failed to create competition:', err);
-    }
-    setSaving(false);
+  const handleCreateCompetition = () => {
+    // Open a blank Manage editor; nothing is persisted until the admin clicks Simpan.
+    setPondSeatEdits({});
+    setCompPondsExpanded(false);
+    setCompEditIsNew(true);
+    setCompEdit({
+      id: '',
+      name: '',
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      topN: 20,
+      prizes: [],
+      pricePerPeg: 100,
+      activePondIds: [],
+      pondSeats: {},
+    } as Competition);
+    setCompetitionEditorOpen(true);
   };
 
   const handleDeleteCompetition = async () => {
@@ -495,6 +538,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           bookingId: target.id,
           bookingRef: target.bookingRef ?? target.id,
           pondName: target.pondName,
+          pondCode: target.pondCode || ponds.find(p => p.id === target.pondId)?.code,
           pondDate: target.pondDate ?? '',
           seats: target.seats,
         });
@@ -533,6 +577,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         bookingId: target.id,
         bookingRef: target.bookingRef ?? target.id,
         pondName: target.pondName,
+        pondCode: target.pondCode || ponds.find(p => p.id === target.pondId)?.code,
         pondDate: target.pondDate ?? '',
         seats: target.seats,
         balanceDue: target.balanceDue ?? 0,
@@ -615,7 +660,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const askForceCancel = (booking: Booking) => {
     setConfirmDialog({
       title: 'Batal Paksa Tempahan / Force Cancel',
-      message: `Tindakan ini akan MEMBATALKAN tempahan yang telah DISAHKAN untuk ${booking.userName} (${booking.pondName}, peg ${booking.seats.join(', ')}) dan melepaskan tempatnya.\n\nThis will CANCEL a CONFIRMED booking and release its seats. Continue?`,
+      message: `Tindakan ini akan MEMBATALKAN tempahan yang telah DISAHKAN untuk ${booking.userName} (${booking.pondName}, peg ${bookingSeatList(booking)}) dan melepaskan tempatnya.\n\nThis will CANCEL a CONFIRMED booking and release its seats. Continue?`,
       confirmLabel: 'Teruskan / Continue',
       tone: 'danger',
       onConfirm: () => { setForceCancelText(''); setForceCancelTarget(booking); },
@@ -721,6 +766,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
     const video = checkinLiveVideoRef.current;
     if (video) video.srcObject = null;
+    lastCheckinQrRef.current = null;
+    setCheckinScanMsg(null);
     setCheckinLiveScanOn(false);
   };
 
@@ -748,15 +795,21 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     ctx.drawImage(video, 0, 0, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
     const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-    const bookingId = code?.data ? parseBookingIdFromQr(code.data) : null;
-    if (bookingId) {
-      const found = bookings.find(b => b.id === bookingId);
+    if (code?.data) {
+      const bookingId = parseBookingIdFromQr(code.data);
+      const found = bookingId ? bookings.find(b => b.id === bookingId || b.bookingRef === bookingId) : null;
       if (found) {
+        // Valid booking QR → auto-close the camera and show the booking.
         stopCheckinLiveScan();
         setCheckinRef(found.bookingRef || found.id);
         setCheckinResult(found);
         setCheckinDone(false);
         return;
+      }
+      // Decoded a QR, but it isn't one of our bookings — flag it once and keep scanning.
+      if (lastCheckinQrRef.current !== code.data) {
+        lastCheckinQrRef.current = code.data;
+        setCheckinScanMsg('QR tidak sah / tempahan tidak dijumpai. Cuba QR tempahan yang betul.');
       }
     }
     checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
@@ -764,6 +817,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const startCheckinLiveScan = async () => {
     setCheckinLiveScanBusy(true);
+    setCheckinScanMsg(null);
+    lastCheckinQrRef.current = null;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
@@ -796,13 +851,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
       const bookingId = code?.data ? parseBookingIdFromQr(code.data) : null;
-      if (!bookingId) {
-        window.alert('QR tidak dapat dibaca. Sila cuba semula.');
-        return;
-      }
-      const found = bookings.find(b => b.id === bookingId);
+      const found = bookingId ? bookings.find(b => b.id === bookingId || b.bookingRef === bookingId) : null;
       if (!found) {
-        window.alert('Tempahan untuk QR ini tidak dijumpai.');
+        window.alert('QR tidak sah / tempahan tidak dijumpai. Sila cuba QR tempahan yang betul.');
         return;
       }
       setCheckinRef(found.bookingRef || found.id);
@@ -1005,6 +1056,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       anglerName: booking.userName,
       pondId: booking.pondId,
       pondName: pond?.name || booking.pondName,
+      pondCode: pond?.code || booking.pondCode,
       seats: [...booking.seats].sort((a, b) => a - b),
       competitionId: booking.competitionId,
       competitionName: booking.competitionName,
@@ -1036,6 +1088,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           anglerName: b.userName,
           pondId: b.pondId,
           pondName: pond?.name || b.pondName,
+          pondCode: pond?.code || b.pondCode,
           seats: [...b.seats].sort((x, y) => x - y),
           competitionId: b.competitionId,
           competitionName: b.competitionName,
@@ -1072,6 +1125,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         ocrConfidence: scan.ocrConfidence,
         ocrRawText: scan.ocrRawText,
         ocrUserVerified: !scan.userEdited,
+        scanMethod: scan.method,
         capturedBy: user?.uid || user?.email || 'unknown',
       });
       setScoreEntries(await getScoresForCompetition(resultsCompId));
@@ -1132,6 +1186,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setNewPondSeatPrice(100);
     setNewPondMaxSeats(30);
     setPondSaveError(null);
+    setNewPond((p) => ({ ...p, code: p.code || nextFreePondCode(ponds) }));
     setEditingPond({} as any);
   };
 
@@ -1269,10 +1324,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const competitionEditorSource = competitionsForCms.find(c => c.id === compEdit.id);
   const competitionEditorDirty = competitionEditorOpen && (
     Object.values(pondSeatEdits).some(seatMap => Object.keys(seatMap).length > 0)
-    || (!!competitionEditorSource && compSig(competitionEditorSource) !== compSig(compEdit))
+    || (compEditIsNew
+        ? (!!compEdit.name?.trim() || (compEdit.activePondIds?.length ?? 0) > 0)
+        : (!!competitionEditorSource && compSig(competitionEditorSource) !== compSig(compEdit)))
   );
   const closeCompetitionEditor = () => {
-    const doClose = () => { setCompetitionEditorOpen(false); setPondSeatEdits({}); };
+    const doClose = () => { setCompetitionEditorOpen(false); setCompEditIsNew(false); setPondSeatEdits({}); };
     if (!competitionEditorDirty) { doClose(); return; }
     setConfirmDialog({
       title: 'Perubahan belum disimpan',
@@ -1308,8 +1365,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const pageTitle = navSections.flatMap(s => s.items).find(i => i.id === page)?.text || 'Dashboard';
 
+  // Seat list for a booking, using the pond's alphabet code (e.g. "A-1, A-23").
+  const bookingSeatList = (b: Booking) => formatSeatList(b.pondCode || ponds.find(p => p.id === b.pondId)?.code, b.seats);
+
   return (
-    <div className="cms-page" style={{ position: 'fixed', inset: 0, zIndex: 500 }}>
+    <div className="cms-page cms-v5" style={{ position: 'fixed', inset: 0, zIndex: 500 }}>
       <div className={`overlay-bg ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)}></div>
 
       <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
@@ -1437,7 +1497,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         })()}</td>
                         <td>
                           <div style={{ display: 'flex', gap: '6px' }}>
-                            <button className="btn btn-sm btn-ghost" onClick={() => { setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Manage</button>
+                            <button className="btn btn-sm btn-ghost" onClick={() => { setCompEditIsNew(false); setCompPondsExpanded(false); setPondSeatEdits({}); setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Manage</button>
                             <button className="btn btn-sm btn-danger" onClick={() => setCompetitionDeleteTarget(competition)}>Delete</button>
                           </div>
                         </td>
@@ -1477,7 +1537,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   return (
                     <div key={pondKey} className="card">
                       <div className="card-header">
-                        <div className="card-title">{pond.name}</div>
+                        <div className="card-title">
+                          {pond.code && <span className="cms-pond-code">{pond.code}</span>} {pondDisplayName(pond)}
+                        </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <button className="btn btn-sm btn-ghost" title="Naik" disabled={pondIdx === 0 || pondReordering} onClick={() => handleMovePond(pond, 'up')} style={{ padding: '2px 8px' }}>▲</button>
                           <button className="btn btn-sm btn-ghost" title="Turun" disabled={pondIdx === ponds.length - 1 || pondReordering} onClick={() => handleMovePond(pond, 'down')} style={{ padding: '2px 8px' }}>▼</button>
@@ -1559,12 +1621,42 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             </div>
           )}
-          {page === 'prizes' && (
+          {page === 'prizes' && (() => {
+            const prizes: Prize[] = compEdit.prizes || [];
+            // Overlap detection across ranges (for the audit coverage column).
+            const overlap = new Set<number>();
+            const ranges = prizes.map((p) => prizeRange(p));
+            for (let a = 0; a < ranges.length; a++) {
+              for (let b = a + 1; b < ranges.length; b++) {
+                if (ranges[a][0] <= ranges[b][1] && ranges[b][0] <= ranges[a][1]) { overlap.add(a); overlap.add(b); }
+              }
+            }
+            const setPrizes = (next: Prize[]) => setCompEdit({ ...compEdit, prizes: next });
+            const updatePrize = (i: number, patch: Partial<Prize>) => {
+              const next = [...prizes];
+              next[i] = { ...next[i], ...patch };
+              setPrizes(next);
+            };
+            const addRange = () => {
+              const maxTo = prizes.reduce((m, p) => Math.max(m, prizeRange(p)[1]), 0);
+              const from = maxTo + 1;
+              setPrizes([...prizes, { rank: from, rankFrom: from, rankTo: from, label: 'Hadiah ' + from, prize: '' }]);
+            };
+            const duplicatePrevious = () => {
+              const last = prizes[prizes.length - 1];
+              if (!last) { addRange(); return; }
+              const [f, t] = prizeRange(last);
+              const span = t - f;
+              const nf = t + 1;
+              const nt = nf + span;
+              setPrizes([...prizes, { ...last, rank: nf, rankFrom: nf, rankTo: nt }]);
+            };
+            return (
             <div className="page active">
               <div className="page-header">
                 <div>
                   <div className="page-title">Hadiah &amp; Ranking</div>
-                  <div className="page-sub">Tetapan hadiah untuk setiap pertandingan</div>
+                  <div className="page-sub">Pilih game dahulu, kemudian set hadiah ikut julat ranking. Ranking pemenang dikira ikut seat no.</div>
                 </div>
               </div>
 
@@ -1572,7 +1664,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="card" style={{ marginBottom: '16px' }}>
                 <div className="card-body" style={{ padding: '1rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                    <label style={{ fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Pertandingan:</label>
+                    <label style={{ fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Pilih Game:</label>
                     <select
                       className="form-input"
                       style={{ maxWidth: '360px', flex: 1 }}
@@ -1594,78 +1686,61 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
               </div>
 
-              {/* Prize editor for selected competition */}
-              <div className="card">
+              {/* Prize tiers (ranges) */}
+              <div className="card" style={{ marginBottom: '16px' }}>
                 <div className="card-header">
-                  <div className="card-title">Senarai Hadiah — {compEdit.name || '—'}</div>
+                  <div>
+                    <div className="card-title">Tetapan Prize Tiers — {compEdit.name || '—'}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Set satu hadiah untuk satu rank atau satu julat rank seperti 11 hingga 20.</div>
+                  </div>
                   {prizesEditMode ? (
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        className="btn btn-sm btn-ghost"
-                        onClick={() => {
-                          const target = compList.find(c => c.id === prizesCompId) || compList[0];
-                          if (target) setCompEdit({ ...target });
-                          setPrizesEditMode(false);
-                        }}
-                      >Batal</button>
-                      <button
-                        className="btn btn-sm btn-primary"
-                        onClick={() => {
-                          const nextRank = compEdit.prizes?.length
-                            ? Math.max(...compEdit.prizes.map((p: Prize) => p.rank)) + 1
-                            : 1;
-                          setCompEdit({ ...compEdit, prizes: [...(compEdit.prizes || []), { rank: nextRank, label: 'Tempat #' + nextRank, prize: '' }] });
-                        }}
-                      >+ Tambah Tempat</button>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => {
+                        const target = compList.find(c => c.id === prizesCompId) || compList[0];
+                        if (target) setCompEdit({ ...target });
+                        setPrizesEditMode(false);
+                      }}>Batal</button>
+                      <button className="btn btn-sm btn-ghost" onClick={duplicatePrevious}>Duplicate Previous</button>
+                      <button className="btn btn-sm btn-primary" onClick={addRange}>+ Add Range</button>
                     </div>
                   ) : (
                     <button className="btn btn-sm btn-primary" onClick={() => setPrizesEditMode(true)}>Edit</button>
                   )}
                 </div>
                 <div className="card-body">
-                  <div className="prize-rows">
-                    {(compEdit.prizes || []).map((p: Prize, i: number) => (
-                      <div key={i} className="prize-row">
-                        <div className="prize-rank-badge">{p.rank}</div>
-                        {prizesEditMode ? (
-                          <>
-                            <input
-                              className="form-input"
-                              value={p.label || ''}
-                              onChange={e => {
-                                const prizes = [...(compEdit.prizes || [])];
-                                prizes[i] = { ...prizes[i], label: e.target.value };
-                                setCompEdit({ ...compEdit, prizes });
-                              }}
-                              placeholder="Label (cth: Juara, Naib Juara)"
-                            />
-                            <input
-                              className="form-input"
-                              value={p.prize}
-                              onChange={e => {
-                                const prizes = [...(compEdit.prizes || [])];
-                                prizes[i] = { ...prizes[i], prize: e.target.value };
-                                setCompEdit({ ...compEdit, prizes });
-                              }}
-                              placeholder="Hadiah (cth: RM 500)"
-                            />
-                            <button
-                              className="prize-del"
-                              onClick={() => setCompEdit({ ...compEdit, prizes: (compEdit.prizes || []).filter((_: Prize, idx: number) => idx !== i) })}
-                            >✕</button>
-                          </>
-                        ) : (
-                          <>
-                            <div className="form-input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text)', background: 'rgba(255,255,255,0.03)' }}>{p.label || '-'}</div>
-                            <div className="form-input" style={{ display: 'flex', alignItems: 'center', color: 'var(--text)', background: 'rgba(255,255,255,0.03)' }}>{p.prize || '-'}</div>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                    {(compEdit.prizes || []).length === 0 && (
-                      <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-                        Tiada hadiah ditambah untuk pertandingan ini
-                      </div>
+                  <div className="cms-prize-list">
+                    {prizes.map((p: Prize, i: number) => {
+                      const [from, to] = prizeRange(p);
+                      return (
+                        <div key={i} className="cms-prize-row">
+                          {prizesEditMode ? (
+                            <>
+                              <input className="form-input cms-rank-input" type="number" min={1} value={p.rankFrom ?? p.rank}
+                                onChange={e => { const v = parseInt(e.target.value) || 0; updatePrize(i, { rankFrom: v, rank: v }); }} title="Rank dari" />
+                              <span className="cms-rank-sep">–</span>
+                              <input className="form-input cms-rank-input" type="number" min={1} value={p.rankTo ?? p.rank}
+                                onChange={e => updatePrize(i, { rankTo: parseInt(e.target.value) || 0 })} title="Rank hingga" />
+                              <input className="form-input" value={p.label || ''} placeholder="Label (cth: Juara)"
+                                onChange={e => updatePrize(i, { label: e.target.value })} />
+                              <input className="form-input" value={p.prize} placeholder="Hadiah (cth: RM 5,000)"
+                                onChange={e => updatePrize(i, { prize: e.target.value })} />
+                              <button className="prize-del" title="Buang" onClick={() => setPrizes(prizes.filter((_, idx) => idx !== i))}>✕</button>
+                            </>
+                          ) : (
+                            <>
+                              <span className="cms-rank-chip">{from}</span>
+                              <span className="cms-rank-chip">{to}</span>
+                              <div className="cms-prize-meta">
+                                <strong>{p.label || '-'}</strong>
+                                <span className="subtext">{p.prize || '-'}{to > from ? ' setiap pemenang' : ''}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {prizes.length === 0 && (
+                      <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Tiada hadiah ditambah untuk pertandingan ini</div>
                     )}
                   </div>
                   {prizesEditMode && (
@@ -1677,10 +1752,61 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   )}
                 </div>
               </div>
+
+              {/* Audit prize structure */}
+              <div className="card">
+                <div className="card-header">
+                  <div>
+                    <div className="card-title">Audit Prize Structure</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Jadual ini bantu staff semak jika ada julat bertindih atau tertinggal.</div>
+                  </div>
+                </div>
+                <div className="card-body"><div className="table-wrap"><table>
+                  <thead><tr><th>Rank From</th><th>Rank To</th><th>Label</th><th>Prize Amount</th><th>Coverage</th></tr></thead>
+                  <tbody>
+                    {prizes.map((p: Prize, i: number) => {
+                      const [from, to] = prizeRange(p);
+                      const invalid = from < 1 || to < from;
+                      const winners = to - from + 1;
+                      let badge = <span className="badge badge-open">Valid</span>;
+                      if (invalid) badge = <span className="badge badge-live">Julat tidak sah</span>;
+                      else if (overlap.has(i)) badge = <span className="badge badge-live">Bertindih</span>;
+                      else if (winners > 1) badge = <span className="badge badge-deposit">{winners} pemenang</span>;
+                      return (
+                        <tr key={i}>
+                          <td>{from}</td>
+                          <td>{to}</td>
+                          <td>{p.label || '-'}</td>
+                          <td>{p.prize || '-'}</td>
+                          <td>{badge}</td>
+                        </tr>
+                      );
+                    })}
+                    {prizes.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem' }}>Tiada julat hadiah</td></tr>}
+                  </tbody>
+                </table></div></div>
+              </div>
             </div>
-          )}
+            );
+          })()}
           {page === 'approvals' && (() => {
-            const reviewBookings = bookings.filter(b => b.status !== 'rejected' && (b.status === 'pending' || pendingReceiptIndexes(b).length > 0));
+            const aq = approvalSearch.trim().toLowerCase();
+            const inQueue = (b: Booking) => b.status !== 'rejected' && (b.status === 'pending' || pendingReceiptIndexes(b).length > 0);
+            const reviewBookings = bookings.filter(b => {
+              if (approvalStatus === 'rejected') { if (b.status !== 'rejected') return false; }
+              else {
+                if (!inQueue(b)) return false;
+                if (approvalStatus === 'deposit' && b.paymentType !== 'deposit') return false;
+                if (approvalStatus === 'full' && b.paymentType === 'deposit') return false;
+              }
+              if (approvalPayFilter && (approvalPayFilter === 'deposit' ? b.paymentType !== 'deposit' : b.paymentType === 'deposit')) return false;
+              if (approvalCompFilter && (b.competitionId || '') !== approvalCompFilter) return false;
+              if (aq) {
+                const hay = [b.id, b.bookingRef, b.userName, b.userEmail, b.userPhone, b.pondName, b.competitionName].filter(Boolean).join(' ').toLowerCase();
+                if (!hay.includes(aq)) return false;
+              }
+              return true;
+            });
             const sortedReviewBookings = [...reviewBookings].sort((a, b) => {
               const at = new Date(a.createdAt || 0).getTime();
               const bt = new Date(b.createdAt || 0).getTime();
@@ -1707,14 +1833,45 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="page-header">
                 <div>
                   <div className="page-title">Kelulusan Tempahan</div>
-                  <div className="page-sub">{reviewRows.length} muat naik resit untuk semakan</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Susun:</span>
-                  <button className={`btn btn-sm ${approvalsSortOrder === 'desc' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setApprovalsSortOrder('desc')}>Terkini</button>
-                  <button className={`btn btn-sm ${approvalsSortOrder === 'asc' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setApprovalsSortOrder('asc')}>Terlama</button>
+                  <div className="page-sub">Semakan tempahan baru &amp; pembayaran pertama</div>
                 </div>
               </div>
+
+              <div className="cms-queue-toolbar">
+                <span className="cms-queue-counter">{reviewRows.length} muat naik dipaparkan</span>
+                <div className="cms-queue-groups">
+                  <div className="cms-filter-block">
+                    <span className="cms-filter-label">Status</span>
+                    <div className="cms-segmented">
+                      {([['all','Semua'],['deposit','Review Needed (Deposit)'],['full','Review Needed (Full)'],['rejected','Rejected']] as const).map(([v,label]) => (
+                        <button key={v} type="button" className={`btn btn-pill ${approvalStatus === v ? 'active' : ''}`} onClick={() => setApprovalStatus(v)}>{label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="cms-filter-block">
+                    <span className="cms-filter-label">Susunan</span>
+                    <div className="cms-segmented">
+                      <button type="button" className={`btn btn-pill ${approvalsSortOrder === 'desc' ? 'active' : ''}`} onClick={() => setApprovalsSortOrder('desc')}>Terkini</button>
+                      <button type="button" className={`btn btn-pill ${approvalsSortOrder === 'asc' ? 'active' : ''}`} onClick={() => setApprovalsSortOrder('asc')}>Terlama</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="cms-notice-bar">
+                <div>
+                  <h4>Peranan halaman ini</h4>
+                  <p>Halaman ini hanya untuk semakan tempahan baru atau pembayaran pertama. Semua kes balance pending perlu diurus di <strong>Semua Tempahan</strong>.</p>
+                </div>
+              </div>
+
+              <div className="cms-filter-row">
+                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, no resit..." value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} /></div>
+                <div className="field"><label>Pertandingan</label><select className="form-input" value={approvalCompFilter} onChange={e => setApprovalCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitions.map(c => <option key={c.id || c.name} value={c.id || ''}>{c.name}</option>)}</select></div>
+                <div className="field"><label>Bayaran</label><select className="form-input" value={approvalPayFilter} onChange={e => setApprovalPayFilter(e.target.value as any)}><option value="">Semua bayaran</option><option value="deposit">Deposit</option><option value="full">Full</option></select></div>
+                <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalStatus('all'); setApprovalSearch(''); setApprovalCompFilter(''); setApprovalPayFilter(''); }}>Reset</button></div>
+              </div>
+
               <div className="card"><div className="card-body"><div className="table-wrap"><table>
                 <thead><tr><th>Ref</th><th>Tarikh Tempahan</th><th>Pertandingan</th><th>Nama</th><th>Kolam</th><th>Pegs</th><th>Dibayar / Jumlah</th><th>Bayaran</th><th>Resit</th><th>Tindakan</th></tr></thead>
                 <tbody>
@@ -1729,7 +1886,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>ADMIN</span>}
                       </td>
                       <td>{b.pondName}</td>
-                      <td>{b.seats.join(', ')}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
+                      <td>{bookingSeatList(b)}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
                       <td>
                         RM {paid} / {total}
                         {balance > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {balance}</div>}
@@ -1844,38 +2001,72 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           )}
           {page === 'all-bookings' && (() => {
             const q = bookingSearch.trim().toLowerCase();
+            // Derive a V5-style status for each booking.
+            const statusOf = (b: Booking): 'review-balance' | 'pending-balance' | 'fully-paid' | 'cancelled' => {
+              if (b.status === 'rejected') return 'cancelled';
+              const bal = b.balanceDue ?? 0;
+              if (bal > 0 && pendingReceiptIndexes(b).length > 0) return 'review-balance';
+              if (bal > 0) return 'pending-balance';
+              if (b.status === 'confirmed') return 'fully-paid';
+              return 'pending-balance';
+            };
+            const statusCount = (s: typeof allStatus) => s === 'all' ? bookings.length : bookings.filter(b => statusOf(b) === s).length;
             const filteredBookings = bookings
-              .filter(b => bookingFilter === 'all' || b.status === bookingFilter)
+              .filter(b => allStatus === 'all' || statusOf(b) === allStatus)
+              .filter(b => !allCompFilter || (b.competitionId || '') === allCompFilter)
+              .filter(b => {
+                if (!allPayFilter) return true;
+                if (allPayFilter === 'deposit') return b.paymentType === 'deposit';
+                if (allPayFilter === 'full') return b.paymentType !== 'deposit';
+                if (allPayFilter === 'balance') return pendingReceiptIndexes(b).length > 0;
+                if (allPayFilter === 'unpaid') return (b.paidAmount ?? 0) === 0;
+                return true;
+              })
+              .filter(b => !allPondFilter || ((ponds.find(p => p.id === b.pondId)?.code || '').toUpperCase() === allPondFilter.toUpperCase()))
               .filter(b => {
                 if (!q) return true;
                 const haystack = [
                   b.id, b.bookingRef, b.userName, b.userId, b.userEmail, b.userPhone,
-                  b.pondName, b.competitionName, b.seats.join(' '),
+                  b.pondName, b.competitionName, bookingSeatList(b),
                 ].filter(Boolean).join(' ').toLowerCase();
                 return haystack.includes(q);
               })
               .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+            const pondCodes = Array.from(new Set(ponds.map(p => p.code).filter(Boolean))) as string[];
             return (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Semua Tempahan</div><div className="page-sub">{filteredBookings.length} daripada {bookings.length} tempahan</div></div></div>
-              <div className="card">
-                <div className="card-header" style={{ gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {(['all', 'pending', 'confirmed', 'rejected'] as const).map(f => (<button key={f} className={`btn btn-sm ${bookingFilter === f ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setBookingFilter(f)}>{f === 'all' ? 'Semua' : f === 'pending' ? 'Menunggu' : f === 'confirmed' ? 'Disahkan' : 'Ditolak'}({f === 'all' ? bookings.length : bookings.filter(b => b.status === f).length})</button>))}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', position: 'relative' }}>
-                    <input
-                      className="form-input"
-                      style={{ width: '260px', maxWidth: '60vw', padding: '6px 28px 6px 10px' }}
-                      placeholder="Cari nama, ref, email, kolam, peg…"
-                      value={bookingSearch}
-                      onChange={e => setBookingSearch(e.target.value)}
-                    />
-                    {bookingSearch && (
-                      <button onClick={() => setBookingSearch('')} title="Kosongkan" style={{ position: 'absolute', right: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem' }}>×</button>
-                    )}
+              <div className="page-header"><div><div className="page-title">Semua Tempahan</div><div className="page-sub">Hub tempahan selepas kelulusan awal &amp; jejak bayaran baki</div></div></div>
+
+              <div className="cms-queue-toolbar">
+                <span className="cms-queue-counter">{filteredBookings.length} rekod dipaparkan</span>
+                <div className="cms-queue-groups">
+                  <div className="cms-filter-block">
+                    <span className="cms-filter-label">Status</span>
+                    <div className="cms-segmented">
+                      {([['all','Semua'],['review-balance','Review Needed (Balance)'],['pending-balance','Pending Balance'],['fully-paid','Fully Paid'],['cancelled','Cancelled']] as const).map(([v,label]) => (
+                        <button key={v} type="button" className={`btn btn-pill ${allStatus === v ? 'active' : ''}`} onClick={() => setAllStatus(v)}>{label} ({statusCount(v)})</button>
+                      ))}
+                    </div>
                   </div>
                 </div>
+              </div>
+
+              <div className="cms-notice-bar">
+                <div>
+                  <h4>Manual staff flow untuk bayaran baki</h4>
+                  <p>Jika user bayar di kaunter, staff boleh terus tandakan sebagai verified. Untuk approval, semak hanya <strong>resit aktif terkini</strong>.</p>
+                </div>
+              </div>
+
+              <div className="cms-filter-row">
+                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, nombor seat..." value={bookingSearch} onChange={e => setBookingSearch(e.target.value)} /></div>
+                <div className="field"><label>Pertandingan</label><select className="form-input" value={allCompFilter} onChange={e => setAllCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitions.map(c => <option key={c.id || c.name} value={c.id || ''}>{c.name}</option>)}</select></div>
+                <div className="field"><label>Bayaran</label><select className="form-input" value={allPayFilter} onChange={e => setAllPayFilter(e.target.value as any)}><option value="">Semua bayaran</option><option value="balance">Balance Uploaded</option><option value="deposit">Deposit Only</option><option value="full">Full</option><option value="unpaid">Unpaid</option></select></div>
+                <div className="field"><label>Kolam</label><select className="form-input" value={allPondFilter} onChange={e => setAllPondFilter(e.target.value)}><option value="">Semua kolam</option>{pondCodes.map(code => <option key={code} value={code}>Kolam {code}</option>)}</select></div>
+                <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(''); setAllPayFilter(''); setAllPondFilter(''); }}>Reset</button></div>
+              </div>
+
+              <div className="card">
                 <div className="card-body"><div className="table-wrap"><table>
                   <thead><tr><th>Ref</th><th>Pertandingan</th><th>Nama</th><th>Kolam</th><th>Pegs</th><th>Jumlah</th><th>Status</th><th>Tarikh</th><th>Tindakan</th></tr></thead>
                   <tbody>
@@ -1886,9 +2077,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <td className="td-name">
                           {b.userName}
                           {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>ADMIN</span>}
+                          {/* Participant email — for admin-proxy bookings userEmail/userId already
+                              hold the participant's address, not the admin's, so this is correct. */}
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 400 }}>{b.userEmail || b.userId || '-'}</div>
                         </td>
                         <td>{b.pondName}</td>
-                        <td>{b.seats.join(', ')}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
+                        <td>{bookingSeatList(b)}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
                         <td>
                           RM {b.paidAmount ?? b.amount}{(b.totalAmount ?? b.amount) !== (b.paidAmount ?? b.amount) && <span style={{ color: 'var(--text-muted)' }}> / {b.totalAmount ?? b.amount}</span>}
                           {(b.balanceDue ?? 0) > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {b.balanceDue}</div>}
@@ -1928,16 +2122,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📲</div>
                 <h3 style={{ marginBottom: '0.25rem' }}>Carian Tempahan</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Cari guna nama peserta / booking ID / booking ref atau imbas QR</p>
-                {checkinLiveScanOn && (
-                  <div style={{ margin: '0 auto 10px', maxWidth: 420, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', background: '#0f172a' }}>
-                    <video ref={checkinLiveVideoRef} playsInline muted style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block' }} />
-                    <canvas ref={checkinLiveCanvasRef} style={{ display: 'none' }} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', color: '#fff', fontSize: 12 }}>
-                      <span>Arahkan kamera ke QR tempahan</span>
-                      <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }} onClick={stopCheckinLiveScan}>Tutup Kamera</button>
-                    </div>
+                <div style={{ margin: '0 auto 10px', maxWidth: 420, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', background: '#0f172a', display: checkinLiveScanOn ? 'block' : 'none' }}>
+                  <video ref={checkinLiveVideoRef} playsInline muted style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block' }} />
+                  <canvas ref={checkinLiveCanvasRef} style={{ display: 'none' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', color: '#fff', fontSize: 12 }}>
+                    <span>Arahkan kamera ke QR tempahan</span>
+                    <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }} onClick={stopCheckinLiveScan}>Tutup Kamera</button>
                   </div>
-                )}
+                  {checkinScanMsg && (
+                    <div style={{ padding: '6px 10px', background: '#7f1d1d', color: '#fff', fontSize: 12, fontWeight: 600 }}>
+                      ⚠️ {checkinScanMsg}
+                    </div>
+                  )}
+                </div>
                 <div className="checkin-input-wrap"><input className="checkin-input" value={checkinRef} onChange={e => setCheckinRef(e.target.value)} placeholder="Cth: BKG-12345 / nama peserta" onKeyDown={e => e.key === 'Enter' && handleCheckin()} /><button className="btn btn-primary" onClick={handleCheckin}>Cari</button></div>
                 <button className="btn btn-ghost" style={{ marginTop: '10px' }} disabled={checkinLiveScanBusy || checkinLiveScanOn} onClick={startCheckinLiveScan}>
                   {checkinLiveScanBusy ? 'Membuka Kamera...' : (checkinLiveScanOn ? 'Kamera Aktif' : '🎥 Imbas QR Secara Live')}
@@ -1954,13 +2151,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.id}</span></div>
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{checkinResult.pondName}</span></div>
-                    <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{checkinResult.seats.join(', ')}</span></div>
+                    <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingSeatList(checkinResult)}</span></div>
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Jumlah</span><span className="checkin-detail-val">RM {checkinResult.amount}</span></div>
                     {checkinResult.status !== 'confirmed' && <div className="warning-banner">⚠️ Tempahan ini belum disahkan.</div>}
                     {checkinResult.status === 'confirmed' && !checkinDone && (
                       <button className="btn btn-green w-full mt-3" disabled={checkinLoading} onClick={() => setConfirmDialog({
                         title: 'Check-In Peserta',
-                        message: `Sahkan check-in untuk ${checkinResult.userName} (${checkinResult.pondName}, peg ${checkinResult.seats.join(', ')})?`,
+                        message: `Sahkan check-in untuk ${checkinResult.userName} (${pondDisplayName({ name: checkinResult.pondName, code: checkinResult.pondCode } as any)}, peg ${bookingSeatList(checkinResult)})?`,
                         confirmLabel: 'Check-In',
                         tone: 'primary',
                         onConfirm: handlePerformCheckin,
@@ -2096,7 +2293,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <label className="form-label">Kolam &amp; Peg (auto)</label>
                         {derivedBooking ? (
                           <div className="form-input" style={{ display: 'flex', alignItems: 'center', background: 'var(--cream)', cursor: 'default' }}>
-                            {derivedPond?.name || `Kolam #${derivedBooking.pondId}`} · Peg {derivedBooking.seats.map(s => `#${s}`).join(', ')}
+                            {derivedPond ? pondDisplayName(derivedPond) : `Kolam #${derivedBooking.pondId}`} · {bookingSeatList(derivedBooking)}
                           </div>
                         ) : (
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '12px 0', lineHeight: 1.4 }}>
@@ -2446,7 +2643,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           <div className="modal-overlay open" onClick={closeCompetitionEditor}>
             <div className="modal" style={{ maxWidth: '760px', width: '95%', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
               <div className="modal-header" style={{ flexShrink: 0 }}>
-                <div className="modal-title">Manage Competition</div>
+                <div className="modal-title">{compEditIsNew ? 'Tambah Pertandingan' : 'Manage Competition'}</div>
                 <button className="modal-close" onClick={closeCompetitionEditor}>×</button>
               </div>
               <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
@@ -2471,7 +2668,21 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
 
                 <div className="card" style={{ marginTop: '12px' }}>
-                  <div className="card-header"><div className="card-title">Active Ponds For This Competition</div></div>
+                  <button
+                    type="button"
+                    className="card-header"
+                    onClick={() => setCompPondsExpanded(v => !v)}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', cursor: 'pointer', background: 'none', border: 'none', font: 'inherit', textAlign: 'left' }}
+                  >
+                    <div className="card-title" style={{ margin: 0 }}>
+                      Active Ponds For This Competition
+                      <span style={{ marginLeft: '8px', fontSize: '0.78rem', fontWeight: 400, color: 'var(--text-muted)' }}>
+                        ({(compEdit.activePondIds?.length ?? 0) > 0 ? `${compEdit.activePondIds!.length} kolam dipilih` : 'semua kolam'})
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)', transform: compPondsExpanded ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+                  </button>
+                  {compPondsExpanded && (
                   <div className="card-body">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {ponds.map((pond) => {
@@ -2581,11 +2792,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       Biarkan semua tidak ditanda untuk benarkan semua kolam. Hijau = peg aktif, kelabu = peg tidak aktif.
                     </div>
                   </div>
+                  )}
                 </div>
 
                 <div className="form-actions" style={{ marginTop: '12px' }}>
                   <button className="btn btn-ghost" onClick={closeCompetitionEditor}>Batal</button>
-                  <button className="btn btn-primary" onClick={handleCompetitionUpdate} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
+                  <button className="btn btn-primary" onClick={handleCompetitionUpdate} disabled={saving || (compEditIsNew && !compEdit.name?.trim())}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
                 </div>
               </div>
             </div>
@@ -2611,6 +2823,21 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
                 <div className="form-grid">
                   <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={isEdit ? editingPond.name : newPond.name} onChange={e => isEdit ? setEditingPond({ ...editingPond, name: e.target.value }) : setNewPond({ ...newPond, name: e.target.value })} /></div>
+                  <div className="form-group">
+                    <label className="form-label">Kod Kolam (A–Z)</label>
+                    <input
+                      className="form-input"
+                      maxLength={1}
+                      style={{ textTransform: 'uppercase', maxWidth: '120px' }}
+                      placeholder={nextFreePondCode(ponds, isEdit ? (editingPond._docId || '') : '')}
+                      value={(isEdit ? editingPond.code : newPond.code) || ''}
+                      onChange={e => {
+                        const v = e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 1);
+                        if (isEdit) setEditingPond({ ...editingPond, code: v }); else setNewPond({ ...newPond, code: v });
+                      }}
+                    />
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>Digunakan sebagai awalan nombor seat, cth. {(isEdit ? editingPond.code : newPond.code) || nextFreePondCode(ponds, isEdit ? (editingPond._docId || '') : '') || 'A'}-23. Nama kosong akan papar sebagai “Kolam {(isEdit ? editingPond.code : newPond.code) || '?'}”.</div>
+                  </div>
                   <div className="form-group"><label className="form-label">Keterangan</label><input className="form-input" value={isEdit ? editingPond.desc : newPond.desc} onChange={e => isEdit ? setEditingPond({ ...editingPond, desc: e.target.value }) : setNewPond({ ...newPond, desc: e.target.value })} /></div>
                   <div className="form-group form-span" style={{ fontSize: '0.78rem', color: 'var(--text-muted)', paddingTop: '6px' }}>
                     Harga per peg diuruskan di menu <strong>Pertandingan</strong>, bukan di Kolam.
@@ -2687,10 +2914,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           setPondSaveError(`Letakkan tepat ${newPondMaxSeats} peg pada peta (kini ${seatsPlaced}/${newPondMaxSeats}).`);
                           return;
                         }
+                        const newCodeErr = pondCodeError(newPond.code, ponds);
+                        if (newCodeErr) { setPondSaveError(newCodeErr); return; }
+                        const newCode = (newPond.code || '').trim().toUpperCase() || nextFreePondCode(ponds);
                         setSaving(true);
                         try {
                           const effectiveMax = isLegacy ? newPondMaxSeats : ((newPond.seats ?? []).length || newPondMaxSeats);
-                          const newDocId = await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: effectiveMax, pricePerSeat: 100 } as any);
+                          const newDocId = await createPondFirestore({ name: newPond.name, code: newCode, desc: newPond.desc || '', open: true, totalSeats: effectiveMax, pricePerSeat: 100 } as any);
                           // Save shape + seatLayout if present (polygon mode)
                           const shape = (newPond as any).shape ?? [];
                           const seats = newPond.seats ?? [];
@@ -2699,7 +2929,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             await updatePondFirestore(newDocId, { shape, seatLayout } as any);
                           }
                           await reloadDB();
-                          setNewPond({ name: '', desc: '', seats: [], open: true });
+                          setNewPond({ name: '', desc: '', seats: [], open: true, code: '' });
                           setNewPondMaxSeats(30);
                           setEditingPond(null);
                           setPondSaveError(null);

@@ -2,10 +2,14 @@
 import { useLocation } from 'react-router-dom';
 import './styles.css';
 import './styles.v4.css';
+import './styles.v5.css';
+import { compressImageToDataUrl } from './utils/cloudinary';
 import Navbar from './components/Navbar';
 import SecondaryMobileNav from './components/SecondaryMobileNav';
 import SeatMap from './components/SeatMap';
 import BookingForm from './components/BookingForm';
+import BookingChoiceModal from './components/BookingChoiceModal';
+import DocPreviewModal from './components/DocPreviewModal';
 import LiveResults from './components/LiveResults';
 import AuthModal from './components/AuthModal';
 import CMSModal from './components/CMSModal';
@@ -19,6 +23,7 @@ import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
 import { useCountdown } from './hooks/useCountdown';
 import { fmt } from './utils';
+import { formatSeatList, pondDisplayName } from './utils/seatLabel';
 import { countOutstanding, hasOutstandingBalance } from './utils/booking';
 import { isCompetitionEnded } from './utils/competition';
 import { normalizePdfUrl } from './utils/pdfStorage';
@@ -81,6 +86,10 @@ const AppContent: React.FC = () => {
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [pondMapOpen, setPondMapOpen] = useState(false);
   const [seatModalOpen, setSeatModalOpen] = useState(false);
+  const [choiceOpen, setChoiceOpen] = useState(false);
+  const [semakLayoutOpen, setSemakLayoutOpen] = useState(false);
+  const [rulesPdfPreview, setRulesPdfPreview] = useState<string | null>(null);
+  const choiceProceedRef = useRef<() => void>(() => {});
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
 
   const competitions = useMemo(() => {
@@ -267,6 +276,14 @@ const AppContent: React.FC = () => {
     goToBook();
   };
 
+  // Booking entry CTAs open the Website/WhatsApp choice popup. If no WhatsApp
+  // number is configured, proceed straight to the chosen website action.
+  const openBookingChoice = (proceed: () => void) => {
+    if (!db.settings.whatsapp) { proceed(); return; }
+    choiceProceedRef.current = proceed;
+    setChoiceOpen(true);
+  };
+
   const handleSelectCompetitionForBooking = (competitionId?: string) => {
     if (!competitionId) return;
     if (competitionId === selectedCompetitionId) return;
@@ -333,34 +350,27 @@ const AppContent: React.FC = () => {
       addToast('Fail imej terlalu besar. Maksimum 15MB. / Image too large (max 15MB).', 'error');
       return;
     }
-    const MAX_DIM = 1600;
-    const QUALITY = 0.82;
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
-      const w = Math.round(img.width * scale);
-      const h = Math.round(img.height * scale);
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(objectUrl);
-      const compressed = canvas.toDataURL('image/jpeg', QUALITY);
-      const bytes = atob(compressed.split(',')[1]);
-      const buf = new Uint8Array(bytes.length);
-      for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
-      const compFile = new File([buf], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
-      setReceiptData(compressed, compFile);
-    };
-    img.onerror = () => {
-      // Non-image file (e.g. PDF) — fall back to raw read
-      URL.revokeObjectURL(objectUrl);
+    // PDFs are stored raw; images go through the shared compressor (tuned for
+    // small payloads) so all receipt images share one compression setting.
+    if (isPdf) {
       const reader = new FileReader();
       reader.onload = (e) => setReceiptData(e.target?.result as string, file);
       reader.readAsDataURL(file);
-    };
-    img.src = objectUrl;
+      return;
+    }
+    compressImageToDataUrl(file)
+      .then((compressed) => {
+        const bytes = atob(compressed.split(',')[1]);
+        const buf = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+        const compFile = new File([buf], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+        setReceiptData(compressed, compFile);
+      })
+      .catch(() => {
+        const reader = new FileReader();
+        reader.onload = (e) => setReceiptData(e.target?.result as string, file);
+        reader.readAsDataURL(file);
+      });
   };
 
   const handleLogin = async (email: string, pass: string) => {
@@ -399,7 +409,7 @@ const AppContent: React.FC = () => {
       addToast('Syarat & peraturan belum dimuat naik oleh admin.', 'info');
       return;
     }
-    window.open(pdfUrl, '_blank', 'noopener,noreferrer');
+    setRulesPdfPreview(pdfUrl);
   };
 
   const handleNavigation = (section: string) => {
@@ -419,7 +429,7 @@ const AppContent: React.FC = () => {
       return;
     }
     if (section === 'book') {
-      goToBook();
+      openBookingChoice(() => goToBook());
       return;
     }
     if (section === 'live') {
@@ -790,7 +800,7 @@ const AppContent: React.FC = () => {
               </div>
             ))}
           </div>
-          <button className="btn btn-red btn-hero" onClick={() => goToBook()}>Book Slot Sekarang!</button>
+          <button className="btn btn-red btn-hero" onClick={() => openBookingChoice(() => goToBook())}>Book Slot Sekarang!</button>
         </div>
       </section>
 
@@ -879,10 +889,10 @@ const AppContent: React.FC = () => {
                 <div className="kks-event-actions">
                   <button
                     className="btn btn-navy"
-                    onClick={() => {
+                    onClick={() => openBookingChoice(() => {
                       if (featuredCompetition?.id) selectCompetition(featuredCompetition.id);
                       setPondPickerOpen(true);
-                    }}
+                    })}
                   >
                     Tempah Slot
                   </button>
@@ -937,7 +947,7 @@ const AppContent: React.FC = () => {
                       style={{ cursor: isClosed || isFull ? 'default' : 'pointer', opacity: isClosed ? 0.65 : 1 }}
                     >
                       <div className="pond-num">{letterIdx}</div>
-                      <div className="pond-name">{pond.name}</div>
+                      <div className="pond-name">{pondDisplayName(pond)}</div>
                       <div className="pond-seats">{pond.seats.length} tempat duduk · RM{(selectedCompetition?.pricePerPeg ?? pond.seats[0]?.price ?? 0)}/peg</div>
                       <div className="pond-badge">{statusLabel}</div>
                     </div>
@@ -958,7 +968,7 @@ const AppContent: React.FC = () => {
               <h2 className="kks-headline">Langkah Tempah <span>Yang Mudah</span></h2>
               <p>Proses tempahan yang simple dan cepat — kurang dari 2 minit siap.</p>
             </div>
-            <button className="btn btn-navy" onClick={() => goToBook()}>Pilih Pertandingan</button>
+            <button className="btn btn-navy" onClick={() => openBookingChoice(() => goToBook())}>Pilih Pertandingan</button>
           </div>
           <div className="kks-steps">
             <article className="kks-step" data-step="01">
@@ -1072,6 +1082,16 @@ const AppContent: React.FC = () => {
         const payableNow = payType === 'deposit' ? Math.ceil(subtotal * 0.5) : subtotal;
         const balanceDue = subtotal - payableNow;
         const samplePrice = db.ponds[0]?.seats[0]?.price || 0;
+        // Booking hero event-info card (V5) — derived from the selected competition.
+        const heroFeeVal = selectedCompetition?.pricePerPeg ?? samplePrice;
+        const heroFee = heroFeeVal ? `RM${heroFeeVal} / Joran` : 'Hubungi kami';
+        const heroSlots = competitionScopedPonds.reduce((sum, p) => sum + p.seats.filter((s) => s.status === 'available').length, 0);
+        const heroDate = (() => {
+          const iso = selectedCompetition?.startDate;
+          if (!iso) return 'Akan diumumkan';
+          const d = new Date(iso);
+          return Number.isNaN(d.getTime()) ? 'Akan diumumkan' : d.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long' });
+        })();
         // The details phase is only meaningful once seats are picked; if seats get
         // reset (e.g. pond/competition change) we fall back to the seat phase.
         const detailsPhase = bookingPhase === 'details' && hasSeats && hasCompetition;
@@ -1090,10 +1110,23 @@ const AppContent: React.FC = () => {
         return (
           <div className="bk-page">
             <section className="bk-hero">
-              <div className="bk-hero-inner">
-                <div className="bk-eyebrow">Tempahan Pertandingan</div>
-                <h1 className="bk-hero-title">Pilih Spot <span>Macam Pro</span></h1>
-                <p>Pilih pertandingan, kolam dan tempat duduk dengan yakin. Seat map dibuka dalam popup supaya mudah dikawal di telefon.</p>
+              <div className="bk-hero-inner bk-hero-grid">
+                <div className="bk-hero-copy">
+                  <div className="bk-eyebrow">Tempahan Pertandingan</div>
+                  <h1 className="bk-hero-title">Pilih Spot <span>Macam Pro</span></h1>
+                  <p>Pilih pertandingan, kolam dan tempat duduk dengan yakin. Seat map dibuka dalam popup supaya mudah dikawal di telefon.</p>
+                </div>
+                {hasCompetition && (
+                  <aside className="bk-hero-card" aria-label="Maklumat event dipilih">
+                    <div className="bk-hero-card-eyebrow">Event Dipilih</div>
+                    <h3>{selectedCompetition?.name}</h3>
+                    <div className="bk-hero-card-stats">
+                      <div><small>Tarikh</small><strong>{heroDate}</strong></div>
+                      <div><small>Slot Tersedia</small><strong>{heroSlots}</strong></div>
+                      <div><small>Yuran</small><strong>{heroFee}</strong></div>
+                    </div>
+                  </aside>
+                )}
               </div>
             </section>
 
@@ -1171,11 +1204,16 @@ const AppContent: React.FC = () => {
                                 <h2>Pilih Kolam</h2>
                                 <p>Setiap kolam ada susunan tempat duduk tersendiri.</p>
                               </div>
-                              {db.settings.pondMapImg && (
-                                <button className="btn btn-light btn-sm" type="button" onClick={() => setPondMapOpen(true)}>
+                              <div className="bk-head-actions">
+                                <button className="btn btn-light btn-sm" type="button" onClick={() => setSemakLayoutOpen(true)}>
                                   <i className="fa-solid fa-map"></i> Semak Layout Kolam
                                 </button>
-                              )}
+                                {db.settings.pondMapImg && (
+                                  <button className="btn btn-light btn-sm" type="button" onClick={() => setPondMapOpen(true)}>
+                                    <i className="fa-solid fa-image"></i> Peta Kolam
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             <div className="bk-panel-body">
                               <div className="bk-pond-grid">
@@ -1193,7 +1231,7 @@ const AppContent: React.FC = () => {
                                       disabled={disabled}
                                       onClick={() => { if (!disabled) setPond(pond.id); }}
                                     >
-                                      <strong>{pond.name}</strong>
+                                      <strong>{pondDisplayName(pond)}</strong>
                                       <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} slot tersedia`}</small>
                                     </button>
                                   );
@@ -1219,12 +1257,12 @@ const AppContent: React.FC = () => {
                                 <div className="bk-seatprev-main">
                                   <div className="bk-seat-icon"><i className="fa-solid fa-chair"></i></div>
                                   <div>
-                                    <h3>{hasSeats ? `${bookedPond?.name} — ${selectedSeats.length} tempat dipilih` : 'Belum pilih tempat'}</h3>
+                                    <h3>{hasSeats ? `${pondDisplayName(bookedPond)} — ${selectedSeats.length} tempat dipilih` : 'Belum pilih tempat'}</h3>
                                     <p>{hasSeats
-                                      ? `Pegs: ${selectedSeats.join(', ')}. Jumlah yuran RM${subtotal}.`
+                                      ? `Pegs: ${formatSeatList(bookedPond?.code, selectedSeats)}. Jumlah yuran RM${subtotal}.`
                                       : hasPond ? 'Klik "Buka Seat Map" untuk pilih satu atau lebih tempat.' : 'Pilih kolam dahulu untuk membuka seat map.'}</p>
                                     <div className="bk-tags">
-                                      <span className="bk-tag"><i className="fa-solid fa-water"></i> {bookedPond?.name || 'Belum pilih kolam'}</span>
+                                      <span className="bk-tag"><i className="fa-solid fa-water"></i> {bookedPond ? pondDisplayName(bookedPond) : 'Belum pilih kolam'}</span>
                                       <span className="bk-tag sel"><i className="fa-solid fa-ticket"></i> {hasSeats ? `${selectedSeats.length} seat` : 'Tiada seat'}</span>
                                     </div>
                                   </div>
@@ -1279,9 +1317,9 @@ const AppContent: React.FC = () => {
                     <h2>Booking Cart</h2>
                   </div>
                   <div className="bk-summary-body">
-                    <div className="bk-summary-line"><span>Event</span><strong>{selectedCompetition?.name || 'Belum dipilih'}</strong></div>
-                    <div className="bk-summary-line"><span>Kolam</span><strong>{bookedPond?.name || 'Belum dipilih'}</strong></div>
-                    <div className="bk-summary-line"><span>Seat</span><strong>{selectedSeats.length ? selectedSeats.join(', ') : 'Belum dipilih'}</strong></div>
+                    <div className="bk-summary-line"><span>Event</span><strong>{hasCompetition ? selectedCompetition?.name : 'Belum dipilih'}</strong></div>
+                    <div className="bk-summary-line"><span>Kolam</span><strong>{bookedPond ? pondDisplayName(bookedPond) : 'Belum dipilih'}</strong></div>
+                    <div className="bk-summary-line"><span>Seat</span><strong>{selectedSeats.length ? formatSeatList(bookedPond?.code, selectedSeats) : 'Belum dipilih'}</strong></div>
                     <div className="bk-summary-line"><span>Bilangan</span><strong>{selectedSeats.length} seat</strong></div>
                     <div className="bk-summary-line"><span>Bayaran</span><strong>{payType === 'deposit' ? 'Deposit 50%' : 'Penuh'}</strong></div>
                     {payType === 'deposit' && hasSeats && (
@@ -1320,7 +1358,7 @@ const AppContent: React.FC = () => {
               <div className="bk-mobile-continue">
                 <div>
                   <small>Seat Dipilih</small>
-                  <strong>{bookedPond?.name} · {selectedSeats.length} seat · RM{payableNow}</strong>
+                  <strong>{pondDisplayName(bookedPond)} · {selectedSeats.length} seat · RM{payableNow}</strong>
                 </div>
                 <button className="btn btn-red" type="button" onClick={goToDetails}>
                   <i className="fa-solid fa-arrow-right"></i> Teruskan
@@ -1335,7 +1373,7 @@ const AppContent: React.FC = () => {
                   <div className="bk-seat-modal-head">
                     <div>
                       <div className="bk-eyebrow">Seat Selection</div>
-                      <h2>{bookedPond.name}</h2>
+                      <h2>{pondDisplayName(bookedPond)}</h2>
                     </div>
                     <button className="bk-icon-btn" type="button" onClick={() => setSeatModalOpen(false)} aria-label="Tutup popup">
                       <i className="fa-solid fa-xmark"></i>
@@ -1392,8 +1430,8 @@ const AppContent: React.FC = () => {
             <div className="bookings-page">
               <div className="empty-state">
                 <span className="empty-icon">🔐</span>
-                <div className="empty-text">Please login to view your bookings.</div>
-                <button className="btn btn-primary" style={{ marginTop: '12px' }} onClick={() => setAuthModalOpen(true)}>Login</button>
+                <div className="empty-text">Sila log masuk untuk melihat tempahan anda.</div>
+                <button className="btn btn-primary" style={{ marginTop: '12px' }} onClick={() => setAuthModalOpen(true)}>Log Masuk</button>
               </div>
             </div>
           );
@@ -1673,6 +1711,64 @@ const AppContent: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Syarat & Peraturan PDF — in-app popup instead of a new tab */}
+      <DocPreviewModal url={rulesPdfPreview} title="Syarat & Peraturan" onClose={() => setRulesPdfPreview(null)} />
+
+      {/* Booking entry choice — Website vs WhatsApp (V5) */}
+      <BookingChoiceModal
+        open={choiceOpen}
+        onClose={() => setChoiceOpen(false)}
+        onWebsite={() => choiceProceedRef.current()}
+        whatsapp={db.settings.whatsapp}
+        message="Hi KKS, saya berminat untuk menempah slot pertandingan."
+      />
+
+      {/* Semak Layout — V5 pond sitemap (real ponds, two banks + centre path) */}
+      {semakLayoutOpen && (() => {
+        const layoutPonds = (competitionScopedPonds.length ? competitionScopedPonds : db.ponds);
+        return (
+          <div className="v5-layout-modal" onClick={() => setSemakLayoutOpen(false)}>
+            <div className="v5-layout-dialog" role="dialog" aria-modal="true" aria-label="Layout kolam" onClick={(e) => e.stopPropagation()}>
+              <div className="v5-layout-head">
+                <div>
+                  <div className="bk-eyebrow">Layout Kolam</div>
+                  <h2>Sitemap KKS</h2>
+                  <p>Gambaran ringkas kedudukan kolam. Seat sebenar dipilih melalui popup seat map.</p>
+                </div>
+                <button className="bk-icon-btn" type="button" aria-label="Tutup popup" onClick={() => setSemakLayoutOpen(false)}>
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+              <div className="v5-layout-body">
+                {layoutPonds.length === 0 ? (
+                  <p style={{ color: 'var(--muted)', textAlign: 'center', padding: '12px' }}>Tiada kolam dikonfigur lagi.</p>
+                ) : (
+                  <div className="v5-layout-map">
+                    <div className="v5-layout-bank">
+                      {layoutPonds.filter((_, i) => i % 2 === 0).map((p) => (
+                        <div key={p._docId || p.id} className="v5-layout-pond">
+                          <strong>{pondDisplayName(p)}</strong>
+                          <small>{p.seats.length} seat</small>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="v5-layout-path"><span>KKS</span></div>
+                    <div className="v5-layout-bank">
+                      {layoutPonds.filter((_, i) => i % 2 === 1).map((p) => (
+                        <div key={p._docId || p.id} className="v5-layout-pond">
+                          <strong>{pondDisplayName(p)}</strong>
+                          <small>{p.seats.length} seat</small>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Seat conflict error dialog */}
       {bookingError && (

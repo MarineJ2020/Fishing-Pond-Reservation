@@ -6,18 +6,20 @@ import { replaceBookingReceiptDirect } from '../lib/firestore';
 
 interface Props {
   bookingId: string;
-  /** Index of the still-pending receipt to replace. */
+  /** Index of the receipt to replace. */
   receiptIndex: number;
+  /** Current status of the receipt being replaced (drives the copy). */
+  receiptStatus?: string;
   /** Called after a successful replacement so the parent can refresh the booking. */
   onSubmitted: () => void | Promise<void>;
 }
 
 /**
- * One-time receipt correction for the booking owner. If they realise they uploaded
- * the wrong image, they can replace a still-pending receipt exactly once. The
- * warning makes clear there is no second chance, so they should double-check.
+ * Receipt correction for the booking owner. Any receipt that staff has not yet
+ * approved can be replaced — including a rejected one (which returns to pending
+ * for re-review). Supports both images and PDFs.
  */
-const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, onSubmitted }) => {
+const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, receiptStatus, onSubmitted }) => {
   const { addToast } = useUI();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -46,16 +48,21 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, onSubmitted
     }
   };
 
+  const isRejected = receiptStatus === 'rejected';
+
   return (
-    <div style={{ background: 'var(--cream)', padding: '16px', borderRadius: '14px', border: '1px dashed var(--gold, #d4a017)' }}>
+    <div style={{ marginTop: '10px', background: isRejected ? 'rgba(231,25,45,0.06)' : 'var(--cream)', padding: '14px', borderRadius: '12px', border: `1px dashed ${isRejected ? 'var(--red)' : 'var(--gold, #d4a017)'}` }}>
       <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>
-        Tukar Resit · Sekali Sahaja / One-Time Receipt Correction
+        {isRejected ? 'Resit Ditolak · Muat Naik Semula / Rejected — Re-upload' : 'Tukar Resit / Replace Receipt'}
       </div>
       <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-        Tersilap muat naik gambar/resit? Anda boleh menggantikannya <strong style={{ color: 'var(--red)' }}>sekali sahaja</strong>.
-        Pastikan resit yang betul sebelum menghantar — tiada peluang kedua.
-        <br />
-        <em>Uploaded the wrong image? You may replace it <strong>only once</strong>. Make sure the new receipt is correct before submitting — there is no second chance.</em>
+        {isRejected ? (
+          <>Resit ini telah ditolak oleh petugas. Sila muat naik resit yang betul untuk semakan semula.
+          <br /><em>This receipt was rejected. Upload a corrected receipt for re-review.</em></>
+        ) : (
+          <>Tersilap muat naik gambar/resit? Anda boleh menggantikannya selagi belum disahkan petugas.
+          <br /><em>Uploaded the wrong file? You can replace it any time before staff approves it.</em></>
+        )}
       </div>
       <input
         ref={inputRef}
@@ -66,12 +73,12 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, onSubmitted
       />
       {!confirming ? (
         <button
-          className="btn btn-ghost"
+          className="btn btn-ghost btn-sm"
           disabled={busy}
           onClick={() => setConfirming(true)}
           style={{ width: '100%', justifyContent: 'center' }}
         >
-          Tukar Resit / Replace Receipt
+          {isRejected ? 'Muat Naik Semula / Re-upload' : 'Tukar Resit / Replace Receipt'}
         </button>
       ) : (
         <div style={{ display: 'flex', gap: '8px' }}>
@@ -79,7 +86,7 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, onSubmitted
             Batal / Cancel
           </button>
           <button className="btn btn-primary" disabled={busy} onClick={() => inputRef.current?.click()} style={{ flex: 1, justifyContent: 'center' }}>
-            {busy ? 'Memuat naik… / Uploading…' : 'Pilih Gambar / Choose Image'}
+            {busy ? 'Memuat naik… / Uploading…' : 'Pilih Fail / Choose File'}
           </button>
         </div>
       )}

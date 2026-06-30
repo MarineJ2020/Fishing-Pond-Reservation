@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useRef, useCallback, useId } from 'react';
 import { Pond, Seat } from '../types';
+import { formatSeat, pondDisplayName } from '../utils/seatLabel';
 
 const SVG_W = 600;
 const SVG_H = 400;
@@ -268,6 +269,22 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
     if (status !== 'booked') onToggleSeat(num);
   };
 
+  // V5 bank-grid seat button (Kiri / Kanan banks).
+  const renderBankSeat = (s: Seat) => {
+    const isSel      = selectedSeats.includes(s.num);
+    const isBooked   = s.status === 'booked';
+    const isInactive = s.active === false;
+    const cls        = isBooked || isInactive ? 'taken' : isSel ? 'selected' : '';
+    return (
+      <button key={s.num} type="button" className={`v5-seat ${cls}`}
+        disabled={isBooked || isInactive}
+        onClick={() => handleSeatClickNormal(s.num, s.status)}
+        title={`${formatSeat(pond.code, s.num)} - ${s.status}`}>
+        {formatSeat(pond.code, s.num)}
+      </button>
+    );
+  };
+
   return (
     <>
       <div className="card seat-map-card">
@@ -293,20 +310,8 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
 
         {/* ── Seat area ── */}
         <div id="seat-map-wrap" className="seat-map-wrap">
-          {showCanvas ? (
-            <div style={{ width: '100%' }}>
-              <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="pond-booking-svg"
-                style={{ width: '100%', display: 'block', borderRadius: '8px' }}>
-                <PondSVGContent
-                  polygonPoints={polyPts}
-                  positionedSeats={posSeatsList}
-                  selectedSeats={selectedSeats}
-                  onSeatClick={handleSeatClickNormal}
-                />
-              </svg>
-            </div>
-          ) : (
-            /* ── Legacy column layout ── */
+          {useLegacyView ? (
+            /* ── Legacy column layout (kept behind the CMS toggle) ── */
             <>
               <div className="seat-zone-wrap left">
                 <div className="seat-zone-label">Kiri</div>
@@ -318,7 +323,7 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
                     return (
                       <button key={s.num} type="button" className={`seat-btn ${cls}`}
                         onClick={() => handleSeatClickNormal(s.num, s.status)}
-                        disabled={isBooked} title={`Peg #${s.num} - ${s.status}`}>{s.num}</button>
+                        disabled={isBooked} title={`${formatSeat(pond.code, s.num)} - ${s.status}`}>{formatSeat(pond.code, s.num)}</button>
                     );
                   })}
                 </div>
@@ -343,12 +348,38 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
                     return (
                       <button key={s.num} type="button" className={`seat-btn ${cls}`}
                         onClick={() => handleSeatClickNormal(s.num, s.status)}
-                        disabled={isBooked} title={`Peg #${s.num} - ${s.status}`}>{s.num}</button>
+                        disabled={isBooked} title={`${formatSeat(pond.code, s.num)} - ${s.status}`}>{formatSeat(pond.code, s.num)}</button>
                     );
                   })}
                 </div>
               </div>
             </>
+          ) : (
+            /* ── V5 seat-bank grid: Kiri | water capsule (fish swim here) | Kanan ── */
+            <div className="v5-seatmap-wrap">
+              <div className="v5-seatmap">
+                <div>
+                  <div className="v5-bank-title">Kiri</div>
+                  <div className="v5-seat-bank">
+                    {splitSeats.left.map(s => renderBankSeat(s))}
+                  </div>
+                </div>
+                <div className="v5-water">
+                  <span className="v5-water-label">{pondDisplayName(pond)}</span>
+                  <span className="v5-fish v5-fish-1">🐟</span>
+                  <span className="v5-fish v5-fish-2">🐠</span>
+                  <span className="v5-fish v5-fish-3">🐡</span>
+                  <span className="v5-fish v5-fish-4">🐟</span>
+                  <span className="v5-fish v5-fish-5">🐠</span>
+                </div>
+                <div>
+                  <div className="v5-bank-title">Kanan</div>
+                  <div className="v5-seat-bank">
+                    {splitSeats.right.map(s => renderBankSeat(s))}
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 

@@ -8,13 +8,15 @@ interface Props {
   bookingId: string;
   /** Outstanding balance — the amount this receipt is expected to cover. */
   balanceDue: number;
-  /** How many receipts already exist (cap is 3). */
+  /** How many receipts already exist (cap is 2: deposit + balance). */
   receiptCount: number;
   /** Called after a successful submit so the parent can refresh the booking. */
   onSubmitted: () => void | Promise<void>;
 }
 
-const MAX_RECEIPTS = 3;
+// A deposit booking needs at most two receipts: the deposit and the balance.
+// We never allow a third upload — a wrong receipt is corrected via re-upload.
+const MAX_RECEIPTS = 2;
 
 /**
  * Lets a deposit-booking owner upload the balance receipt. Self-contained:

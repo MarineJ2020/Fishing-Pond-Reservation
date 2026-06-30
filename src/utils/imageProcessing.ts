@@ -193,6 +193,59 @@ function labelComponents(img: ImageData): { labels: Int32Array; bboxes: Componen
   return { labels, bboxes };
 }
 
+// cv2.connectedComponentsWithStats-shaped component listing. Unlike the private
+// `labelComponents` above (which hard-codes dark<128 as foreground and returns
+// x0/y0/x1/y1), this returns x/y/w/h/area + a border-touch flag and lets the
+// caller pick the foreground polarity. The 7-segment fallback OCR works on masks
+// where the lit digit pixels are 255, so it passes `foreground: 'light'`.
+export interface ComponentStat { x: number; y: number; w: number; h: number; area: number; touchesBorder: boolean }
+
+// Returns components (1-based; index 0 of `stats` is the first real component)
+// plus a per-pixel label map where 0 = background and N = stats[N-1]. The label
+// map lets callers erase specific components in place (e.g. frame/bezel blobs).
+export function labelComponentsStats(
+  img: ImageData,
+  opts: { foreground?: 'dark' | 'light' } = {},
+): { stats: ComponentStat[]; labels: Int32Array } {
+  const { width: w, height: h, data: d } = img;
+  const N = w * h;
+  const light = opts.foreground === 'light';
+  const fg = new Uint8Array(N);
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+    fg[j] = (light ? d[i] >= 128 : d[i] < 128) ? 1 : 0;
+  }
+
+  const labels = new Int32Array(N);
+  const stack = new Int32Array(N);
+  let nextLabel = 1;
+  const stats: ComponentStat[] = [];
+
+  for (let p = 0; p < N; p++) {
+    if (!fg[p] || labels[p]) continue;
+    const label = nextLabel++;
+    let top = 0;
+    stack[top++] = p;
+    let x0 = p % w, y0 = (p / w) | 0, x1 = x0, y1 = y0, size = 0;
+    let touchesBorder = false;
+    while (top > 0) {
+      const q = stack[--top];
+      if (labels[q] || !fg[q]) continue;
+      labels[q] = label;
+      size++;
+      const qx = q % w, qy = (q / w) | 0;
+      if (qx < x0) x0 = qx; if (qx > x1) x1 = qx;
+      if (qy < y0) y0 = qy; if (qy > y1) y1 = qy;
+      if (qx === 0 || qx === w - 1 || qy === 0 || qy === h - 1) touchesBorder = true;
+      if (qx > 0)     stack[top++] = q - 1;
+      if (qx < w - 1) stack[top++] = q + 1;
+      if (qy > 0)     stack[top++] = q - w;
+      if (qy < h - 1) stack[top++] = q + w;
+    }
+    stats.push({ x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, area: size, touchesBorder });
+  }
+  return { stats, labels };
+}
+
 function eraseLabels(img: ImageData, labels: Int32Array, kill: (b: ComponentBBox) => boolean, bboxes: ComponentBBox[]) {
   const d = img.data;
   for (let p = 0; p < labels.length; p++) {

@@ -27,14 +27,19 @@ const esc = (v: unknown): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-const fmtSeats = (seats: number[]) =>
-  (seats || []).map((n) => `#${esc(n)}`).join(', ') || '-';
+// Seat labels carry the pond's alphabet code when available (e.g. "A-23"),
+// falling back to the bare "#23" form for legacy bookings without a code.
+const fmtSeats = (seats: number[], pondCode?: string) => {
+  const c = (pondCode || '').trim().toUpperCase();
+  return (seats || []).map((n) => (c ? `${esc(c)}-${esc(n)}` : `#${esc(n)}`)).join(', ') || '-';
+};
 
 interface ReceivedArgs {
   to: string;
   bookingRef?: string;
   amount: number;
   pondName: string;
+  pondCode?: string;
   pondDate: string;
   seats: number[];
 }
@@ -44,6 +49,7 @@ interface ApprovedArgs {
   bookingId: string;
   bookingRef?: string;
   pondName: string;
+  pondCode?: string;
   pondDate: string;
   seats: number[];
 }
@@ -89,7 +95,7 @@ export const queueBookingReceivedEmail = async (args: ReceivedArgs): Promise<voi
          <tr><td style="padding:6px 0;color:#666;width:40%;">No. Rujukan</td><td style="padding:6px 0;font-weight:700;">${esc(args.bookingRef) || '-'}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Kolam</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondName)}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondDate)}</td></tr>
-         <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats)}</td></tr>
+         <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats, args.pondCode)}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Jumlah Bayaran</td><td style="padding:6px 0;font-weight:700;color:${BRAND_RED};">RM ${Number(args.amount || 0).toFixed(2)}</td></tr>
        </table>
        <p>Status: <strong>Menunggu Pengesahan</strong></p>
@@ -115,6 +121,7 @@ interface BalanceReminderArgs {
   bookingId: string;
   bookingRef?: string;
   pondName: string;
+  pondCode?: string;
   pondDate: string;
   seats: number[];
   balanceDue: number;
@@ -134,7 +141,7 @@ export const queueBalanceReminderEmail = async (args: BalanceReminderArgs): Prom
        <tr><td style="padding:6px 0;color:#666;width:40%;">No. Rujukan</td><td style="padding:6px 0;font-weight:700;">${esc(args.bookingRef) || '-'}</td></tr>
        <tr><td style="padding:6px 0;color:#666;">Kolam</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondName)}</td></tr>
        <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondDate)}</td></tr>
-       <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats)}</td></tr>
+       <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats, args.pondCode)}</td></tr>
        <tr><td style="padding:6px 0;color:#666;">Baki Tertunggak</td><td style="padding:6px 0;font-weight:700;color:${BRAND_RED};">RM ${Number(args.balanceDue || 0).toFixed(2)}</td></tr>
      </table>
      <p style="text-align:center;margin:22px 0;">
@@ -161,7 +168,9 @@ export const queueBookingApprovedEmail = async (args: ApprovedArgs): Promise<voi
     const bookingUrlEsc = esc(bookingUrl);
     // Use a hosted HTTPS QR image instead of base64 data-URL so Gmail clients
     // can render it consistently (some Gmail paths strip/ignore large data URIs).
-    const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(bookingUrl)}`;
+    // The QR encodes the bare booking id (not the URL) so the CMS check-in /
+    // weigh-in scanners decode a clean id to look up.
+    const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(args.bookingId)}`;
 
     const html = layout(
       'Tempahan Disahkan',
@@ -171,7 +180,7 @@ export const queueBookingApprovedEmail = async (args: ApprovedArgs): Promise<voi
          <tr><td style="padding:6px 0;color:#666;width:40%;">No. Rujukan</td><td style="padding:6px 0;font-weight:700;">${esc(args.bookingRef) || '-'}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Kolam</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondName)}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondDate)}</td></tr>
-         <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats)}</td></tr>
+         <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats, args.pondCode)}</td></tr>
        </table>
        <div style="text-align:center;margin:22px 0;">
          <img src="${qrImgUrl}" alt="QR Tempahan" width="200" height="200" style="width:200px;height:200px;display:block;margin:0 auto;border:1px solid #eee;border-radius:8px;padding:8px;background:#fff;" />

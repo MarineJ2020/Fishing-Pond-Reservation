@@ -9,20 +9,27 @@ export const fmt = (iso: string): string => {
 
 export const p2 = (n: number): string => String(n).padStart(2, '0');
 
+/** Inclusive [from, to] rank range for a prize, falling back to its single rank. */
+export const prizeRange = (p: Prize): [number, number] => {
+  const from = p.rankFrom ?? p.rank;
+  const to = p.rankTo ?? p.rank;
+  return from <= to ? [from, to] : [to, from];
+};
+
 export const getPrize = (rank: number, prizes: Prize[]): string => {
-  let m = '';
   for (const p of prizes) {
-    if (rank >= p.rank) m = p.prize;
+    const [from, to] = prizeRange(p);
+    if (rank >= from && rank <= to) return p.prize;
   }
-  return m;
+  return '';
 };
 
 export const getPrizeLabel = (rank: number, prizes: Prize[]): string => {
-  let m = '';
   for (const p of prizes) {
-    if (rank >= p.rank) m = p.label || p.prize;
+    const [from, to] = prizeRange(p);
+    if (rank >= from && rank <= to) return p.label || p.prize;
   }
-  return m;
+  return '';
 };
 
 export const rbc = (r: number): string => r === 1 ? 'r1' : r === 2 ? 'r2' : r === 3 ? 'r3' : 'rn';
