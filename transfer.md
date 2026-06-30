@@ -17,7 +17,7 @@ data, and external account setup.
 | **Firebase Hosting** | Serves the built SPA from `dist/` | `firebase.json` → `hosting` |
 | **Firebase App Check** | reCAPTCHA v3 gate on Firestore (protects `mail` queue) | `lib/firebase.ts`; env `VITE_RECAPTCHA_SITE_KEY` |
 | **Trigger Email extension** | Sends `mail` collection docs via Zoho SMTP | Not yet installed — install fresh (see §1.9) |
-| **Cloudinary** | Receipt + image uploads (unsigned preset) | `src/utils/cloudinary.ts`; env `VITE_CLOUDINARY_*` |
+| **Firebase Storage** | Receipt + image uploads (images WebP-compressed) and PDFs | `src/utils/imageStorage.ts`, `src/utils/pdfStorage.ts`; rules `storage.rules` |
 | **Google Maps** | Lokasi section embed | `src/AppContent.tsx` — **keyless embed URLs** (`output=embed`). The `VITE_GOOGLE_MAPS_API_KEY` env var is currently **declared but unused by code** |
 
 **Current project identifiers (not secret):**
@@ -194,40 +194,26 @@ firebase deploy --only hosting
 
 ---
 
-## 2. Cloudinary migration
+## 2. Image & receipt uploads (Firebase Storage)
 
-Receipts/images upload via an **unsigned** preset from the browser
-(`src/utils/cloudinary.ts`). No secret/API-secret is used client-side — only the
-cloud name and preset name, both public.
+Receipts and all uploaded images (scale/weight photos, pond-map) upload **directly to
+Firebase Storage** from the browser — `src/utils/imageStorage.ts` for images
+(WebP-compressed, JPEG fallback) and `src/utils/pdfStorage.ts` for PDFs. No third-party
+media service and no media env vars. Buckets/paths and access are defined in
+`storage.rules`: `fishing-pond-receipts/` (any signed-in user), and
+`fishing-pond-maps/` · `fishing-pond-weights/` · `fishing-pond-rules/` (staff/admin
+write, public read).
 
-### 2.1 Create the new Cloudinary account / cloud
-1. https://cloudinary.com → sign up / create a new product environment.
-2. Note the new **Cloud name** (Dashboard → Product Environment).
-
-### 2.2 Create an unsigned upload preset
-1. Settings → **Upload → Upload presets → Add upload preset**.
-2. **Signing Mode: Unsigned**.
-3. (Optional) lock it down: restrict allowed formats to images, set a max file size,
-   and set a folder. The code passes its own `folder` arg
-   (`fishing-pond-receipts`, etc.), which works with unsigned presets.
-4. Save and note the **preset name**.
-
-### 2.3 Update env vars
-| Env var | New value |
-|---|---|
-| `VITE_CLOUDINARY_CLOUD_NAME` | new cloud name |
-| `VITE_CLOUDINARY_UPLOAD_PRESET` | new preset name |
-
-### 2.4 Existing receipt images (important)
-Receipt URLs already saved in Firestore (`bookings.receiptUrl`) are **absolute URLs**
-pointing at the **old** Cloudinary cloud (`j-portfolio`). They will keep resolving
-**only while the old account stays alive**.
-- **Simplest:** keep the old Cloudinary account active (free tier) so historical
-  receipt links don't break. New uploads go to the new cloud.
-- **Clean break:** migrate old assets — download from the old cloud and re-upload to
-  the new one, then rewrite the `receiptUrl` fields in Firestore. Only worth it if you
-  must fully decommission the old account. For a low-volume booking site, keeping the
-  old account is usually fine.
+> **Cloudinary has been retired.** Earlier builds uploaded images to Cloudinary via an
+> unsigned preset; that code (`src/utils/cloudinary.ts`) and the `VITE_CLOUDINARY_*`
+> env vars are gone.
+>
+> **Legacy data (important):** receipt/photo URLs already saved in Firestore are
+> absolute URLs pointing at the **old** Cloudinary cloud. They keep resolving **only
+> while that account stays alive** — keep the free account active so historical links
+> don't break. New uploads all go to Firebase Storage. A clean break (download old
+> assets, re-upload to Firebase, rewrite the Firestore URL fields) is only worth it to
+> fully decommission the old account.
 
 ---
 
@@ -283,9 +269,7 @@ FIREBASE_PRIVATE_KEY=
 # --- Functions base URL (leave empty unless using the Cloud Function booking path) ---
 VITE_FUNCTIONS_BASE_URL=
 
-# --- Cloudinary — from §2 ---
-VITE_CLOUDINARY_CLOUD_NAME=
-VITE_CLOUDINARY_UPLOAD_PRESET=
+# (Image/receipt uploads use Firebase Storage — no media env vars needed; see §2.)
 
 # --- Google Maps — only if Path B in §3 ---
 VITE_GOOGLE_MAPS_API_KEY=
@@ -303,7 +287,6 @@ APP_URL=https://<your-domain>
 - `lib/firebase.ts` — all `VITE_FIREBASE_*`, `VITE_RECAPTCHA_SITE_KEY`, `VITE_USE_FIREBASE_EMULATOR`
 - `lib/firebase-admin.ts` — `FIREBASE_PROJECT_ID/CLIENT_EMAIL/PRIVATE_KEY`
 - `src/lib/api.ts` — `VITE_FUNCTIONS_BASE_URL`
-- `src/utils/cloudinary.ts` — `VITE_CLOUDINARY_*`
 
 ---
 
@@ -318,8 +301,8 @@ Run locally first (`npm run dev`) with the new `.env.local`, then on the deploye
       and/or `users.role` survived migration).
 - [ ] **Data present:** competitions/ponds/seats/settings render on the homepage and
       booking page (confirms Firestore import or re-seed).
-- [ ] **Booking flow:** select seats → upload receipt → submit. Receipt uploads to the
-      **new** Cloudinary cloud (check the new dashboard); booking doc created.
+- [ ] **Booking flow:** select seats → upload receipt → submit. Receipt uploads to
+      **Firebase Storage** under `fishing-pond-receipts/` (images as `.webp`); booking doc created.
 - [ ] **Email (received):** a `mail/` doc appears, and within ~2 min the customer +
       `hello@kolamkelisayang.com.my` receive the "Tempahan Diterima" email
       (From `noreply@...`, Reply-To `hello@...`).

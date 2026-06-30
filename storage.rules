@@ -15,7 +15,25 @@ service firebase.storage {
       allow read, write: if request.auth != null;
     }
 
-    // Pond/media images handled elsewhere; keep default deny for safety.
+    // Pond layout/arrangement map shown on the public booking page (staff-managed).
+    match /fishing-pond-maps/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && (
+        request.auth.token.role in ['ADMIN', 'STAFF'] ||
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['ADMIN', 'STAFF', 'Admin', 'Staff', 'admin', 'staff']
+      );
+    }
+
+    // Scale/weight photos shown on the public live-results page (staff-captured).
+    match /fishing-pond-weights/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && (
+        request.auth.token.role in ['ADMIN', 'STAFF'] ||
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['ADMIN', 'STAFF', 'Admin', 'Staff', 'admin', 'staff']
+      );
+    }
+
+    // Anything else stays denied for safety.
     match /{allPaths=**} {
       allow read, write: if false;
     }

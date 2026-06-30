@@ -21,7 +21,7 @@ import {
   markBalanceReminderSent,
   approveDepositWithProofDirect,
 } from '../lib/firestore';
-import { normalizeCloudinaryFileUrl, uploadImageToCloudinary } from '../utils/cloudinary';
+import { compressBlobToWebp, uploadImageToFirebaseStorage } from '../utils/imageStorage';
 import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
@@ -684,7 +684,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const handleViewReceipt = (receiptData: string) => {
     if (!receiptData) return;
-    const normalizedUrl = normalizeCloudinaryFileUrl(receiptData);
+    const normalizedUrl = normalizePdfUrl(receiptData);
     setReceiptViewerUrl(normalizedUrl);
     setReceiptViewerMeta({ width: 0, height: 0, bytes: null });
     // Resolve the file size: derive it from a data-URL directly, otherwise ask
@@ -710,7 +710,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     if (!depositProofTarget) return;
     setDepositProofUploading(true);
     try {
-      const proofUrl = await uploadImageToCloudinary(file, 'fishing-pond-receipts');
+      const webp = await compressBlobToWebp(file, file.name);
+      const proofUrl = await uploadImageToFirebaseStorage(webp, 'fishing-pond-receipts', webp.name);
       await approveDepositWithProofDirect(depositProofTarget.id, proofUrl, depositProofTarget.amount);
       await reloadDB();
       window.alert('Deposit disahkan secara manual dan bukti telah disimpan.');
@@ -989,7 +990,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const handlePondMapUpload = async (file: File) => {
     setPondMapUploading(true);
     try {
-      const url = await uploadImageToCloudinary(file, 'fishing-pond-maps');
+      const webp = await compressBlobToWebp(file, file.name);
+      const url = await uploadImageToFirebaseStorage(webp, 'fishing-pond-maps', webp.name);
       setSettingsEdit(s => ({ ...s, pondMapImg: url }));
       await updateSettingsFirestore({ pondMapImg: url });
       await reloadDB();
@@ -1107,10 +1109,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(true);
     let savedAnglerName = '';
     try {
-      const photoUrl = await uploadImageToCloudinary(
-        new File([scan.photoBlob], scan.photoFileName, { type: scan.photoBlob.type || 'image/jpeg' }),
-        'fishing-pond-weights',
-      );
+      // OCR/seven-segment recognition already ran on the original frame in
+      // ScaleScanModal; only the stored copy is WebP-compressed here.
+      const webp = await compressBlobToWebp(scan.photoBlob, scan.photoFileName);
+      const photoUrl = await uploadImageToFirebaseStorage(webp, 'fishing-pond-weights', webp.name);
       const sb = scan.scannedBooking;
       savedAnglerName = sb.anglerName;
       await saveScoreEntry({
@@ -1149,10 +1151,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     let savedAnglerName = '';
     try {
       const pond = ponds.find(p => (p._docId || p.id.toString()) === manualEntry.pondId);
-      const photoUrl = await uploadImageToCloudinary(
-        new File([pendingScan.photoBlob], pendingScan.photoFileName, { type: pendingScan.photoBlob.type || 'image/jpeg' }),
-        'fishing-pond-weights',
-      );
+      // OCR already ran on the original frame; compress the stored copy only.
+      const webp = await compressBlobToWebp(pendingScan.photoBlob, pendingScan.photoFileName);
+      const photoUrl = await uploadImageToFirebaseStorage(webp, 'fishing-pond-weights', webp.name);
       savedAnglerName = manualEntry.anglerName;
       await saveScoreEntry({
         competitionId: resultsCompId,

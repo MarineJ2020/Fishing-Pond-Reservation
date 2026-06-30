@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useUI } from '../context/UIContext';
-import { compressImageToDataUrl, uploadDataUrlToCloudinary } from '../utils/cloudinary';
+import { compressImageToDataUrl, uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { replaceBookingReceiptDirect } from '../lib/firestore';
 
@@ -33,7 +33,7 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, receiptStat
         ? await uploadPdfToFirebaseStorage(file, 'fishing-pond-receipts', file.name)
         : await (async () => {
             const dataUrl = await compressImageToDataUrl(file);
-            return uploadDataUrlToCloudinary(dataUrl, 'fishing-pond-receipts');
+            return uploadDataUrlToFirebaseStorage(dataUrl, 'fishing-pond-receipts', file.name);
           })();
       await replaceBookingReceiptDirect(bookingId, receiptIndex, receiptUrl);
       addToast('Resit telah dikemaskini. / Receipt updated.', 'success');

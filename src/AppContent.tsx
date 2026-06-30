@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import './styles.css';
 import './styles.v4.css';
 import './styles.v5.css';
-import { compressImageToDataUrl } from './utils/cloudinary';
+import { compressImageToDataUrl } from './utils/imageStorage';
 import Navbar from './components/Navbar';
 import SecondaryMobileNav from './components/SecondaryMobileNav';
 import SeatMap from './components/SeatMap';
@@ -360,10 +360,14 @@ const AppContent: React.FC = () => {
     }
     compressImageToDataUrl(file)
       .then((compressed) => {
+        // Derive mime/extension from the compressed data URL (WebP when supported,
+        // JPEG fallback) so the preview File isn't mislabeled.
+        const mime = /^data:([^;,]+)[;,]/.exec(compressed)?.[1] || 'image/jpeg';
+        const ext = mime === 'image/webp' ? '.webp' : mime === 'image/png' ? '.png' : '.jpg';
         const bytes = atob(compressed.split(',')[1]);
         const buf = new Uint8Array(bytes.length);
         for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
-        const compFile = new File([buf], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+        const compFile = new File([buf], file.name.replace(/\.[^.]+$/, ext), { type: mime });
         setReceiptData(compressed, compFile);
       })
       .catch(() => {

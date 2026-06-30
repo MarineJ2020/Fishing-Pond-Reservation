@@ -4,7 +4,7 @@ import { emptyDB, setDB } from '../data';
 import { loadAppDB } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
 import { queueBookingReceivedEmail } from '../lib/email';
-import { uploadDataUrlToCloudinary } from '../utils/cloudinary';
+import { uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { isCompetitionEnded } from '../utils/competition';
 import { auth } from '../../lib/firebase';
@@ -45,7 +45,7 @@ const uploadReceipt = async (receiptData: string, receiptFile: File): Promise<st
   if (isPdfFile(receiptFile)) {
     return uploadPdfToFirebaseStorage(receiptFile, 'fishing-pond-receipts', receiptFile.name);
   }
-  return uploadDataUrlToCloudinary(receiptData, 'fishing-pond-receipts');
+  return uploadDataUrlToFirebaseStorage(receiptData, 'fishing-pond-receipts', receiptFile.name);
 };
 
 export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children }) => {

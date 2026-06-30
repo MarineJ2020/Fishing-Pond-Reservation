@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useUI } from '../context/UIContext';
-import { compressImageToDataUrl, uploadDataUrlToCloudinary } from '../utils/cloudinary';
+import { compressImageToDataUrl, uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { submitBookingReceipt } from '../lib/api';
 
@@ -20,7 +20,7 @@ const MAX_RECEIPTS = 2;
 
 /**
  * Lets a deposit-booking owner upload the balance receipt. Self-contained:
- * compresses the image, uploads to Cloudinary, then calls the Cloud Function
+ * compresses the image, uploads to Firebase Storage, then calls the Cloud Function
  * which appends it as a pending receipt for staff review.
  */
 const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptCount, onSubmitted }) => {
@@ -45,7 +45,7 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
         ? await uploadPdfToFirebaseStorage(file, 'fishing-pond-receipts', file.name)
         : await (async () => {
             const dataUrl = await compressImageToDataUrl(file);
-            return uploadDataUrlToCloudinary(dataUrl, 'fishing-pond-receipts');
+            return uploadDataUrlToFirebaseStorage(dataUrl, 'fishing-pond-receipts', file.name);
           })();
       await submitBookingReceipt({ bookingId, receiptUrl, amount: balanceDue });
       addToast('Resit baki dihantar. Petugas akan mengesahkan pembayaran anda.', 'success');
