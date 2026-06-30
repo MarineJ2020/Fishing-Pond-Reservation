@@ -25,7 +25,7 @@ import { useCountdown } from './hooks/useCountdown';
 import { fmt } from './utils';
 import { formatSeatList, pondDisplayName } from './utils/seatLabel';
 import { countOutstanding, hasOutstandingBalance } from './utils/booking';
-import { isCompetitionEnded } from './utils/competition';
+import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindowState } from './utils/competition';
 import { normalizePdfUrl } from './utils/pdfStorage';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
@@ -97,10 +97,11 @@ const AppContent: React.FC = () => {
     return db.comp?.name ? [db.comp] : [];
   }, [db.comp, db.competitions]);
 
-  // Competitions that still accept bookings — ended ("tamat") events are hidden
-  // from the booking page entirely.
+  // Competitions shown on the public booking page. Ended ("tamat") events and
+  // INACTIVE (hidden) competitions are excluded entirely. Competitions whose booking
+  // window has not opened yet (or has closed) stay listed so we can message them.
   const bookableCompetitions = useMemo(
-    () => competitions.filter((c) => !isCompetitionEnded(c)),
+    () => competitions.filter((c) => c.status !== 'INACTIVE' && !isCompetitionEnded(c)),
     [competitions],
   );
 
@@ -1078,7 +1079,11 @@ const AppContent: React.FC = () => {
       case 'book': {
         const bookedPond = activePond;
         const competitionEnded = isCompetitionEnded(selectedCompetition);
-        const hasCompetition = Boolean(selectedCompetition?.id) && !competitionEnded;
+        // Booking window: outside [bookingOpenAt, bookingCloseAt] the booking flow is
+        // blocked with a message (sale not started / closed). No window set = always open.
+        const bookingOpen = isBookingOpen(selectedCompetition);
+        const bookingClosedMsg = bookingWindowLabel(selectedCompetition);
+        const hasCompetition = Boolean(selectedCompetition?.id) && !competitionEnded && bookingOpen;
         const hasPond = Boolean(bookedPond);
         const hasSeats = selectedSeats.length > 0;
         const currentPricePerPeg = Math.max(0, selectedCompetition?.pricePerPeg ?? bookedPond?.seats?.[0]?.price ?? 0);
@@ -1164,6 +1169,10 @@ const AppContent: React.FC = () => {
                               const active = (selectedCompetition?.id || '') === (competition.id || '');
                               const pondsCount = competition.activePondIds?.length || totalPonds;
                               const competitionPrice = competition.pricePerPeg ?? samplePrice;
+                              const cardWindow = getBookingWindowState(competition);
+                              const cardLabel = cardWindow === 'before'
+                                ? (bookingWindowLabel(competition) || 'Akan dibuka')
+                                : cardWindow === 'after' ? 'Tempahan Ditutup' : 'Pendaftaran Dibuka';
                               return (
                                 <button
                                   key={competition.id || competition.name}
@@ -1171,7 +1180,7 @@ const AppContent: React.FC = () => {
                                   className={`bk-choice ${active ? 'active' : ''}`}
                                   onClick={() => handleSelectCompetitionForBooking(competition.id)}
                                 >
-                                  <small>Pendaftaran Dibuka</small>
+                                  <small>{cardLabel}</small>
                                   <strong>{competition.name}</strong>
                                   <div className="bk-choice-meta">
                                     {(competitionPrice || 0) > 0 && <span>RM{competitionPrice}</span>}
@@ -1193,6 +1202,22 @@ const AppContent: React.FC = () => {
                               Pertandingan ini telah tamat dan tidak lagi menerima tempahan baharu. Sila pilih pertandingan lain yang masih aktif.
                               <br /><br />
                               <em>This competition has ended and is no longer accepting new bookings. Please choose another active competition.</em>
+                            </p>
+                          </div>
+                        </section>
+                      )}
+
+                      {selectedCompetition?.id && !competitionEnded && !bookingOpen && (
+                        <section className="bk-panel booking-stage-enter" style={{ textAlign: 'center' }}>
+                          <div className="bk-panel-body">
+                            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🕒</div>
+                            <h2 style={{ fontFamily: 'var(--font-heading)', fontStyle: 'italic', textTransform: 'uppercase', marginBottom: '0.4rem' }}>
+                              {getBookingWindowState(selectedCompetition) === 'before' ? 'Tempahan Belum Dibuka' : 'Tempahan Telah Ditutup'}
+                            </h2>
+                            <p style={{ color: 'var(--muted)', maxWidth: '460px', margin: '0 auto', fontSize: '.9rem', lineHeight: 1.6 }}>
+                              {bookingClosedMsg || 'Tempahan untuk pertandingan ini tidak dibuka buat masa ini.'}
+                              <br /><br />
+                              <em>Booking for this competition is not open right now. Please choose another competition.</em>
                             </p>
                           </div>
                         </section>

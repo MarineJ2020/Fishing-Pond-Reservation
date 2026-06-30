@@ -26,7 +26,7 @@ import { compressBlobToWebp, uploadImageToFirebaseStorage } from '../utils/image
 import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
-import { getCompetitionPhase } from '../utils/competition';
+import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getBookingWindowState } from '../utils/competition';
 import { formatSeatList, pondDisplayName } from '../utils/seatLabel';
 import { prizeRange } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
@@ -54,6 +54,19 @@ function pondCodeError(code: string | undefined, ponds: Pond[], excludeDocId?: s
 type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
 
 const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'manual-booking', 'all-bookings', 'checkin', 'results', 'contact-settings', 'landing-content', 'users'];
+
+// Blank state for the inline "Tambah Pertandingan" form. Fields are raw input
+// strings (date/time) merged into a Competition on save.
+const EMPTY_COMP_CREATE = {
+  name: '',
+  date: '',
+  time: '',
+  bookingOpen: '',
+  bookingClose: '',
+  activePondIds: [] as string[],
+  pricePerPeg: 100 as number,
+  status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
+};
 
 interface CMSModalProps {
   isOpen: boolean;
@@ -171,6 +184,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingPond, setEditingPond] = useState<Pond | null>(null);
+  // Inline "Tambah Pertandingan" quick-create form (raw input strings; combined on save).
+  const [compCreate, setCompCreate] = useState({ ...EMPTY_COMP_CREATE });
   const [compEdit, setCompEdit] = useState<Competition>(comp);
   const [compList, setCompList] = useState<Competition[]>(competitions.length ? competitions : (comp.name ? [comp] : []));
   const [competitionEditorOpen, setCompetitionEditorOpen] = useState(false);
@@ -493,23 +508,40 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
-  const handleCreateCompetition = () => {
-    // Open a blank Manage editor; nothing is persisted until the admin clicks Simpan.
-    setPondSeatEdits({});
-    setCompPondsExpanded(false);
-    setCompEditIsNew(true);
-    setCompEdit({
-      id: '',
-      name: '',
-      startDate: new Date().toISOString(),
-      endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      topN: 20,
-      prizes: [],
-      pricePerPeg: 100,
-      activePondIds: [],
-      pondSeats: {},
-    } as Competition);
-    setCompetitionEditorOpen(true);
+  // Save the inline quick-create form as a new competition. Detailed per-pond seat
+  // tuning stays in the Manage modal; this form just captures the prototype fields.
+  const handleSaveNewCompetition = async () => {
+    if (!compCreate.name.trim()) { window.alert('Sila masukkan nama pertandingan.'); return; }
+    if (!compCreate.date) { window.alert('Sila pilih tarikh pertandingan.'); return; }
+    const startIso = new Date(`${compCreate.date}T${compCreate.time || '00:00'}`).toISOString();
+    // Booking window is date-only in this form: open at start-of-day, close inclusive end-of-day.
+    const bookingOpenAt = compCreate.bookingOpen ? new Date(`${compCreate.bookingOpen}T00:00:00`).toISOString() : undefined;
+    const bookingCloseAt = compCreate.bookingClose ? new Date(`${compCreate.bookingClose}T23:59:59`).toISOString() : undefined;
+    if (bookingOpenAt && bookingCloseAt && new Date(bookingCloseAt) < new Date(bookingOpenAt)) {
+      window.alert('Tarikh tutup tempahan mesti selepas tarikh buka.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await createCompetitionFirestore({
+        name: compCreate.name.trim(),
+        startDate: startIso,
+        endDate: startIso,
+        topN: 20,
+        prizes: [],
+        pricePerPeg: Number.isFinite(compCreate.pricePerPeg) ? compCreate.pricePerPeg : 100,
+        activePondIds: compCreate.activePondIds,
+        bookingOpenAt,
+        bookingCloseAt,
+        status: compCreate.status,
+      } as any);
+      await reloadDB();
+      setCompCreate({ ...EMPTY_COMP_CREATE });
+    } catch (err) {
+      console.error('Failed to create competition:', err);
+      window.alert('Gagal menyimpan pertandingan.');
+    }
+    setSaving(false);
   };
 
   const handleDeleteCompetition = async () => {
@@ -1545,42 +1577,99 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             </div>
           )}
-          {page === 'competitions' && (
+          {page === 'competitions' && (() => {
+            const pondKeyOf = (p: Pond) => p._docId || p.id.toString();
+            const pondNames = (c: Competition) => {
+              const ids = c.activePondIds || [];
+              if (!ids.length) return 'Semua kolam';
+              const names = ponds.filter(p => ids.includes(pondKeyOf(p))).map(p => pondDisplayName(p));
+              return names.length ? names.join(', ') : 'Semua kolam';
+            };
+            const fmtDateTime = (iso?: string) => {
+              if (!iso) return '-';
+              const d = new Date(iso);
+              return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('ms-MY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            };
+            const fmtDate = (iso?: string) => {
+              if (!iso) return '—';
+              const d = new Date(iso);
+              return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('ms-MY');
+            };
+            const activeComps = competitionsForCms.filter(c => c.status !== 'INACTIVE' && !isCompetitionEnded(c));
+            const statAktif = activeComps.length;
+            const statJualan = activeComps.filter(c => isBookingOpen(c)).length;
+            const statSetup = activeComps.filter(c => getBookingWindowState(c) === 'before').length;
+            const statDitutup = competitionsForCms.filter(c => c.status === 'INACTIVE' || isCompetitionEnded(c)).length;
+            const toggleCreatePond = (key: string) => setCompCreate(s => ({ ...s, activePondIds: s.activePondIds.includes(key) ? s.activePondIds.filter(k => k !== key) : [...s.activePondIds, key] }));
+            return (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Pertandingan</div><div className="page-sub">Urus semua pertandingan</div></div><button className="btn btn-primary" onClick={handleCreateCompetition} disabled={saving}>{saving ? 'Menambah...' : '+ Tambah Pertandingan'}</button></div>
+              <div className="page-header"><div><div className="page-title">Pertandingan</div><div className="page-sub">Tambah dan urus pertandingan</div></div></div>
+
+              <div className="stats-grid">
+                <div className="stat-card stat-accent"><div className="stat-label">Pertandingan Aktif</div><div className="stat-value">{statAktif}</div><div className="stat-change">Dipapar di website</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Jualan Dibuka</div><div className="stat-value">{statJualan}</div><div className="stat-change">Tempahan dibuka</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Menunggu Setup</div><div className="stat-value">{statSetup}</div><div className="stat-change">Tempahan belum dibuka</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Ditutup</div><div className="stat-value">{statDitutup}</div><div className="stat-change">Inactive / tamat</div></div>
+              </div>
+
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-header"><div className="card-title">Tambah Pertandingan</div><button className="btn btn-primary" onClick={handleSaveNewCompetition} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan Pertandingan'}</button></div>
+                <div className="card-body">
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+                    <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={compCreate.name} onChange={e => setCompCreate({ ...compCreate, name: e.target.value })} placeholder="Contoh: Pertandingan Apex" /></div>
+                    <div className="form-group"><label className="form-label">Tarikh</label><input className="form-input" type="date" value={compCreate.date} onChange={e => setCompCreate({ ...compCreate, date: e.target.value })} /></div>
+                    <div className="form-group"><label className="form-label">Masa</label><input className="form-input" type="time" value={compCreate.time} onChange={e => setCompCreate({ ...compCreate, time: e.target.value })} /></div>
+                    <div className="form-group"><label className="form-label">Tarikh Buka Tempahan</label><input className="form-input" type="date" value={compCreate.bookingOpen} onChange={e => setCompCreate({ ...compCreate, bookingOpen: e.target.value })} /></div>
+                    <div className="form-group"><label className="form-label">Tarikh Tutup Tempahan</label><input className="form-input" type="date" value={compCreate.bookingClose} onChange={e => setCompCreate({ ...compCreate, bookingClose: e.target.value })} /></div>
+                    <div className="form-group"><label className="form-label">Harga Per Seat (RM)</label><input className="form-input" type="number" min="0" value={compCreate.pricePerPeg} onChange={e => setCompCreate({ ...compCreate, pricePerPeg: Number(e.target.value) })} /></div>
+                    <div className="form-group"><label className="form-label">Status</label><select className="form-input" value={compCreate.status} onChange={e => setCompCreate({ ...compCreate, status: e.target.value as 'ACTIVE' | 'INACTIVE' })}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></div>
+                  </div>
+                  <div className="form-group" style={{ marginTop: 14 }}>
+                    <label className="form-label">Kolam Open</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
+                      {ponds.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Tiada kolam. Tambah kolam dahulu di tab Kolam.</span>}
+                      {ponds.map(pond => {
+                        const key = pondKeyOf(pond);
+                        const checked = compCreate.activePondIds.includes(key);
+                        return (
+                          <label key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px' }}>
+                            <input type="checkbox" checked={checked} onChange={() => toggleCreatePond(key)} style={{ accentColor: 'var(--green)' }} />
+                            {pond.code && <span className="cms-pond-code">{pond.code}</span>} {pondDisplayName(pond)}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <p style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.5 }}>Active = boleh dilihat di website. Inactive = tersembunyi. Untuk Kolam Open, tanda lebih daripada satu kolam jika perlu. Pengurusan peg &amp; tempat duduk terperinci ada di butang <strong>Manage</strong>.</p>
+                </div>
+              </div>
+
               <div className="card">
                 <div className="card-header"><div className="card-title">Senarai Pertandingan</div></div>
                 <div className="card-body"><div className="table-wrap"><table>
-                  <thead><tr><th>Nama</th><th>Tarikh</th><th>Kolam Aktif</th><th>Tempat</th><th>Status</th><th>Tindakan</th></tr></thead>
+                  <thead><tr><th>Nama</th><th>Tarikh &amp; Masa</th><th>Tempahan Buka</th><th>Tempahan Tutup</th><th>Kolam Open</th><th>Harga/Seat</th><th>Status</th><th>Tindakan</th></tr></thead>
                   <tbody>
                     {competitionsForCms.map((competition) => (
                       <tr key={competition.id || competition.name}>
                         <td className="td-name">{competition.name}</td>
-                        <td>{competition.startDate ? new Date(competition.startDate).toLocaleDateString('ms-MY') : '-'}</td>
-                        <td>{competition.activePondIds?.length ? competition.activePondIds.length : ponds.length} kolam</td>
-                        <td>{ponds.filter((pond) => !competition.activePondIds?.length || competition.activePondIds.includes(pond._docId || pond.id.toString())).reduce((s, p) => {
-                          const pondKey = p._docId || p.id.toString();
-                          const configured = competition.pondSeats?.[pondKey];
-                          const safeConfigured = typeof configured === 'number' ? Math.max(0, Math.min(p.seats.length, Math.floor(configured))) : p.seats.length;
-                          return s + safeConfigured;
-                        }, 0)}</td>
-                        <td>{(() => {
-                          const status = getCompetitionStatusMeta(competition);
-                          return <span className={`badge ${status.badgeClass}`}>{status.label}</span>;
-                        })()}</td>
+                        <td>{fmtDateTime(competition.startDate)}</td>
+                        <td>{fmtDate(competition.bookingOpenAt)}</td>
+                        <td>{fmtDate(competition.bookingCloseAt)}</td>
+                        <td>{pondNames(competition)}</td>
+                        <td>{competition.pricePerPeg != null ? `RM ${competition.pricePerPeg}` : '-'}</td>
+                        <td><span className={`badge ${competition.status === 'INACTIVE' ? 'badge-draft' : 'badge-open'}`}>{competition.status === 'INACTIVE' ? 'Inactive' : 'Active'}</span></td>
                         <td>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button className="btn btn-sm btn-ghost" onClick={() => { setCompEditIsNew(false); setCompPondsExpanded(false); setPondSeatEdits({}); setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Manage</button>
-                            <button className="btn btn-sm btn-danger" onClick={() => setCompetitionDeleteTarget(competition)}>Delete</button>
-                          </div>
+                          <button className="btn btn-sm btn-ghost" onClick={() => { setCompEditIsNew(false); setCompPondsExpanded(false); setPondSeatEdits({}); setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Manage</button>
                         </td>
                       </tr>
                     ))}
+                    {competitionsForCms.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada pertandingan lagi.</td></tr>}
                   </tbody>
                 </table></div></div>
               </div>
             </div>
-          )}
+            );
+          })()}
           {page === 'ponds' && (
             <div className="page active">
               <div className="page-header">
@@ -2757,6 +2846,27 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       Semua kolam dalam pertandingan ini berkongsi harga per peg yang sama.
                     </div>
                   </div>
+                  <div className="form-group">
+                    <label className="form-label">Tarikh Buka Tempahan</label>
+                    <div className="date-input-wrap"><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.bookingOpenAt || '')} onChange={(e) => setCompEdit({ ...compEdit, bookingOpenAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })} /></div>
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      Kosongkan untuk benarkan tempahan sehingga pertandingan tamat.
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Tarikh Tutup Tempahan</label>
+                    <div className="date-input-wrap"><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.bookingCloseAt || '')} onChange={(e) => setCompEdit({ ...compEdit, bookingCloseAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })} /></div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Status</label>
+                    <select className="form-input" value={compEdit.status || 'ACTIVE'} onChange={(e) => setCompEdit({ ...compEdit, status: e.target.value as 'ACTIVE' | 'INACTIVE' })}>
+                      <option value="ACTIVE">Active</option>
+                      <option value="INACTIVE">Inactive</option>
+                    </select>
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      Inactive = tersembunyi dari website.
+                    </div>
+                  </div>
                 </div>
 
                 <div className="card" style={{ marginTop: '12px' }}>
@@ -2887,7 +2997,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   )}
                 </div>
 
-                <div className="form-actions" style={{ marginTop: '12px' }}>
+                <div className="form-actions" style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {!compEditIsNew && compEdit.id && (
+                    <button className="btn btn-danger" onClick={() => setCompetitionDeleteTarget(compEdit as Competition)} style={{ marginRight: 'auto' }}>Padam Pertandingan</button>
+                  )}
                   <button className="btn btn-ghost" onClick={closeCompetitionEditor}>Batal</button>
                   <button className="btn btn-primary" onClick={handleCompetitionUpdate} disabled={saving || (compEditIsNew && !compEdit.name?.trim())}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
                 </div>

@@ -76,6 +76,11 @@ const normalizeCompetition = (data: any): Competition => ({
   activePondIds: Array.isArray(data.activePondIds) ? data.activePondIds.map((id: any) => id?.toString?.() || '').filter(Boolean) : [],
   pondSeats: data.pondSeats && typeof data.pondSeats === 'object' ? data.pondSeats : undefined,
   pricePerPeg: typeof data.pricePerPeg === 'number' ? data.pricePerPeg : undefined,
+  bookingOpenAt: normalizeTimestamp(data.bookingOpenAt) || undefined,
+  bookingCloseAt: normalizeTimestamp(data.bookingCloseAt) || undefined,
+  // Treat any explicit closed/inactive marker as INACTIVE; everything else (incl. legacy
+  // docs with no status) is ACTIVE so existing competitions stay publicly visible.
+  status: ['INACTIVE', 'DRAFT', 'CLOSED'].includes((data.status || '').toString().toUpperCase()) ? 'INACTIVE' : 'ACTIVE',
 });
 
 const normalizeSettings = (data: any): Settings => ({
@@ -255,7 +260,9 @@ export const createCompetition = async (data: Partial<Competition>) => {
     pricePerPeg: typeof data.pricePerPeg === 'number' ? data.pricePerPeg : 100,
     activePondIds: data.activePondIds || [],
     pondSeats: data.pondSeats || {},
-    status: 'ACTIVE',
+    bookingOpenAt: data.bookingOpenAt || null,
+    bookingCloseAt: data.bookingCloseAt || null,
+    status: data.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -539,6 +546,9 @@ export const updateCompetition = async (competitionId: string, updates: Partial<
   if (typeof updates.prizes !== 'undefined') payload.prizes = updates.prizes;
   if (typeof updates.activePondIds !== 'undefined') payload.activePondIds = updates.activePondIds;
   if (typeof updates.pondSeats !== 'undefined') payload.pondSeats = updates.pondSeats;
+  if (typeof updates.bookingOpenAt !== 'undefined') payload.bookingOpenAt = updates.bookingOpenAt || null;
+  if (typeof updates.bookingCloseAt !== 'undefined') payload.bookingCloseAt = updates.bookingCloseAt || null;
+  if (typeof updates.status !== 'undefined') payload.status = updates.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
   await setDoc(compRef, payload, { merge: true });
 };
 

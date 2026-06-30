@@ -6,7 +6,7 @@ import { createBooking as createBookingApi } from '../lib/api';
 import { queueBookingReceivedEmail } from '../lib/email';
 import { uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
-import { isCompetitionEnded } from '../utils/competition';
+import { isCompetitionEnded, isBookingOpen, bookingWindowLabel } from '../utils/competition';
 import { auth } from '../../lib/firebase';
 
 interface BookingContextType {
@@ -167,6 +167,15 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const targetCompetition = db.competitions.find((c) => c.id === targetCompetitionId) || db.comp;
     if (isCompetitionEnded(targetCompetition)) {
       throw new Error('Pertandingan ini telah tamat dan tidak menerima tempahan baharu. / This competition has ended and is no longer accepting new bookings.');
+    }
+    // Safety net mirroring the public UI gating: reject hidden competitions and any
+    // booking made outside the configured booking window.
+    if (targetCompetition?.status === 'INACTIVE') {
+      throw new Error('Pertandingan ini tidak tersedia untuk tempahan. / This competition is not available for booking.');
+    }
+    if (!isBookingOpen(targetCompetition)) {
+      const msg = bookingWindowLabel(targetCompetition) || 'Tempahan untuk pertandingan ini tidak dibuka buat masa ini.';
+      throw new Error(`${msg}. / Booking for this competition is not open right now.`);
     }
 
     const isStaff = user.role === 'ADMIN' || user.role === 'STAFF';

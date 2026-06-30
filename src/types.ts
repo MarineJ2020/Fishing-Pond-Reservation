@@ -123,6 +123,12 @@ export interface Competition {
   activePondIds?: string[];
   pondSeats?: Record<string, number>;
   pricePerPeg?: number;
+  /** Booking window opens (ISO). When unset, booking is open until the event ends. */
+  bookingOpenAt?: string;
+  /** Booking window closes (ISO, inclusive). When unset, booking stays open until the event ends. */
+  bookingCloseAt?: string;
+  /** Public visibility. INACTIVE competitions are hidden from the public site. Defaults to ACTIVE. */
+  status?: 'ACTIVE' | 'INACTIVE';
 }
 
 export interface Settings {
