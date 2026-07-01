@@ -300,7 +300,7 @@
 }
 
 /* Tables */
-.cms-v5 .table-wrap { border: 1px solid var(--cv-line); border-radius: 14px; overflow: hidden; background: var(--cv-surface); }
+.cms-v5 .table-wrap { border: 1px solid var(--cv-line); border-radius: 14px; overflow-x: auto; overflow-y: hidden; background: var(--cv-surface); -webkit-overflow-scrolling: touch; }
 .cms-v5 .table-wrap table { width: 100%; border-collapse: collapse; }
 .cms-v5 .table-wrap th {
   background: var(--cv-surface-alt); color: var(--cv-soft);
