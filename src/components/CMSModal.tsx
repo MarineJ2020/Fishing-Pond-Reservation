@@ -55,14 +55,14 @@ type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes
 
 const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'manual-booking', 'all-bookings', 'checkin', 'results', 'contact-settings', 'landing-content', 'users'];
 
-// Blank state for the inline "Tambah Pertandingan" form. Fields are raw input
-// strings (date/time) merged into a Competition on save.
+// Blank state for the inline "Tambah Pertandingan" form. Date fields are raw
+// datetime-local input strings, converted to ISO merged into a Competition on save.
 const EMPTY_COMP_CREATE = {
   name: '',
-  date: '',
-  time: '',
-  bookingOpen: '',
-  bookingClose: '',
+  startDateTime: '',
+  endDateTime: '',
+  bookingOpenAt: '',
+  bookingCloseAt: '',
   activePondIds: [] as string[],
   pricePerPeg: 100 as number,
   status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
@@ -512,11 +512,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // tuning stays in the Manage modal; this form just captures the prototype fields.
   const handleSaveNewCompetition = async () => {
     if (!compCreate.name.trim()) { window.alert('Sila masukkan nama pertandingan.'); return; }
-    if (!compCreate.date) { window.alert('Sila pilih tarikh pertandingan.'); return; }
-    const startIso = new Date(`${compCreate.date}T${compCreate.time || '00:00'}`).toISOString();
-    // Booking window is date-only in this form: open at start-of-day, close inclusive end-of-day.
-    const bookingOpenAt = compCreate.bookingOpen ? new Date(`${compCreate.bookingOpen}T00:00:00`).toISOString() : undefined;
-    const bookingCloseAt = compCreate.bookingClose ? new Date(`${compCreate.bookingClose}T23:59:59`).toISOString() : undefined;
+    if (!compCreate.startDateTime) { window.alert('Sila pilih tarikh & masa mula pertandingan.'); return; }
+    const startIso = new Date(compCreate.startDateTime).toISOString();
+    const endIso = compCreate.endDateTime ? new Date(compCreate.endDateTime).toISOString() : startIso;
+    if (new Date(endIso) < new Date(startIso)) {
+      window.alert('Tarikh & masa tamat mesti selepas tarikh & masa mula.');
+      return;
+    }
+    const bookingOpenAt = compCreate.bookingOpenAt ? new Date(compCreate.bookingOpenAt).toISOString() : undefined;
+    const bookingCloseAt = compCreate.bookingCloseAt ? new Date(compCreate.bookingCloseAt).toISOString() : undefined;
     if (bookingOpenAt && bookingCloseAt && new Date(bookingCloseAt) < new Date(bookingOpenAt)) {
       window.alert('Tarikh tutup tempahan mesti selepas tarikh buka.');
       return;
@@ -526,7 +530,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       await createCompetitionFirestore({
         name: compCreate.name.trim(),
         startDate: startIso,
-        endDate: startIso,
+        endDate: endIso,
         topN: 20,
         prizes: [],
         pricePerPeg: Number.isFinite(compCreate.pricePerPeg) ? compCreate.pricePerPeg : 100,
@@ -1474,8 +1478,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <li>Tempahan baharu masuk sebagai <strong>Menunggu</strong>. Buka tab <strong>Kelulusan</strong> untuk melihat senarai yang perlu tindakan.</li>
                     <li>Semak resit yang dimuat naik pelanggan (klik <strong>Lihat</strong>). Kemudian:
                       <ul style={{ paddingLeft: 18, marginTop: 4 }}>
-                        <li><strong>✓ Sahkan Resit</strong> — terima resit. Tempahan hanya <strong>disahkan automatik</strong> apabila jumlah penuh telah dibayar.</li>
-                        <li><strong>✕ Tolak Resit</strong> — tolak resit itu sahaja; tempahan kekal menunggu dan pelanggan boleh muat naik resit baharu.</li>
+                        <li><strong>Sahkan Resit Ini</strong> — terima resit. Tempahan hanya <strong>disahkan automatik</strong> apabila jumlah penuh telah dibayar.</li>
+                        <li><strong>Tolak Resit Ini</strong> — tolak resit itu sahaja; tempahan kekal menunggu dan pelanggan boleh muat naik resit baharu.</li>
                       </ul>
                     </li>
                     <li><strong>Bayaran deposit:</strong> selepas deposit diterima, tempahan <strong>kekal menunggu</strong> sehingga baki dibayar dan disahkan.</li>
@@ -1491,8 +1495,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
                   <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <li><strong>Resit / Resit #n</strong> — lihat resit yang dihantar untuk tempahan tersebut.</li>
-                    <li><strong>✓</strong> — sahkan resit tertunggak terus dari sini.</li>
-                    <li><strong>✕</strong> — tolak tempahan yang masih menunggu.</li>
+                    <li><strong>Sahkan Resit</strong> — sahkan resit tertunggak terus dari sini.</li>
+                    <li><strong>Tolak Tempahan</strong> — tolak tempahan yang masih menunggu.</li>
                     <li><strong>Batal Paksa</strong> — hanya untuk tempahan yang <strong>telah DISAHKAN</strong>. Perlu pengesahan dua peringkat (dialog + menaip <code>DELETE BOOKING</code>). Tempat akan dilepaskan.</li>
                   </ul>
                 </div>
@@ -1617,10 +1621,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-body">
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
                     <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={compCreate.name} onChange={e => setCompCreate({ ...compCreate, name: e.target.value })} placeholder="Contoh: Pertandingan Apex" /></div>
-                    <div className="form-group"><label className="form-label">Tarikh</label><input className="form-input" type="date" value={compCreate.date} onChange={e => setCompCreate({ ...compCreate, date: e.target.value })} /></div>
-                    <div className="form-group"><label className="form-label">Masa</label><input className="form-input" type="time" value={compCreate.time} onChange={e => setCompCreate({ ...compCreate, time: e.target.value })} /></div>
-                    <div className="form-group"><label className="form-label">Tarikh Buka Tempahan</label><input className="form-input" type="date" value={compCreate.bookingOpen} onChange={e => setCompCreate({ ...compCreate, bookingOpen: e.target.value })} /></div>
-                    <div className="form-group"><label className="form-label">Tarikh Tutup Tempahan</label><input className="form-input" type="date" value={compCreate.bookingClose} onChange={e => setCompCreate({ ...compCreate, bookingClose: e.target.value })} /></div>
+                    <div className="form-group"><label className="form-label">Tarikh & Masa Mula</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.startDateTime} onChange={e => setCompCreate({ ...compCreate, startDateTime: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
+                    <div className="form-group">
+                      <label className="form-label">Tarikh & Masa Tamat</label>
+                      <div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.endDateTime} onChange={e => setCompCreate({ ...compCreate, endDateTime: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div>
+                      <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Kosongkan untuk guna masa yang sama seperti Mula.</div>
+                    </div>
+                    <div className="form-group"><label className="form-label">Tarikh & Masa Buka Tempahan</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.bookingOpenAt} onChange={e => setCompCreate({ ...compCreate, bookingOpenAt: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
+                    <div className="form-group"><label className="form-label">Tarikh & Masa Tutup Tempahan</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.bookingCloseAt} onChange={e => setCompCreate({ ...compCreate, bookingCloseAt: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
                     <div className="form-group"><label className="form-label">Harga Per Seat (RM)</label><input className="form-input" type="number" min="0" value={compCreate.pricePerPeg} onChange={e => setCompCreate({ ...compCreate, pricePerPeg: Number(e.target.value) })} /></div>
                     <div className="form-group"><label className="form-label">Status</label><select className="form-input" value={compCreate.status} onChange={e => setCompCreate({ ...compCreate, status: e.target.value as 'ACTIVE' | 'INACTIVE' })}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></div>
                   </div>
@@ -2076,8 +2084,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           )}
                           {r.status === 'pending' && (
                             <span className="receipt-group">
-                              <button className="btn btn-sm btn-green btn-icon" disabled={saving} title="Sahkan resit" onClick={() => askAcceptReceipt(b.id, i)}>✓</button>
-                              <button className="btn btn-sm btn-red btn-icon" disabled={saving} title="Tolak resit" onClick={() => askRejectReceipt(b.id, i)}>✕</button>
+                              <button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit ini" onClick={() => askAcceptReceipt(b.id, i)}>Sahkan Resit Ini</button>
+                              <button className="btn btn-sm btn-red" disabled={saving} title="Tolak resit ini" onClick={() => askRejectReceipt(b.id, i)}>Tolak Resit Ini</button>
                             </span>
                           )}
                           <button className="btn btn-sm btn-red" disabled={saving} title="Tolak keseluruhan tempahan" onClick={() => askRejectBooking(b.id)}>Tolak Tempahan</button>
@@ -2265,8 +2273,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               ));
                             return receiptBtns.length ? <span className="receipt-group">{receiptBtns}</span> : null;
                           })()}
-                          {pendingReceiptIndexes(b).length > 0 && (<button className="btn btn-sm btn-green btn-icon" disabled={saving} title="Sahkan resit menunggu" onClick={() => askAcceptReceipt(b.id, pendingReceiptIndexes(b)[0])}>✓</button>)}
-                          {b.status === 'pending' && (<button className="btn btn-sm btn-red btn-icon" disabled={saving} title="Tolak tempahan" onClick={() => askRejectBooking(b.id)}>✕</button>)}
+                          {pendingReceiptIndexes(b).length > 0 && (<button className="btn btn-sm btn-green" disabled={saving} title="Sahkan resit menunggu" onClick={() => askAcceptReceipt(b.id, pendingReceiptIndexes(b)[0])}>Sahkan Resit</button>)}
+                          {b.status === 'pending' && (<button className="btn btn-sm btn-red" disabled={saving} title="Tolak tempahan" onClick={() => askRejectBooking(b.id)}>Tolak Tempahan</button>)}
                           {b.status === 'confirmed' && (<button className="btn btn-sm btn-danger" disabled={saving} title="Batal paksa tempahan disahkan" onClick={() => askForceCancel(b)}>Batal Paksa</button>)}
                         </div></td>
                       </tr>
