@@ -120,6 +120,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Admin activity log — append-only. Nothing may edit or delete an entry
+    // once written, so the trail stays tamper-evident.
+    match /auditLog/{entryId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
     // Outbound email queue consumed by the "Trigger Email from Firestore" extension
     // (routed to Zoho Mail Lite SMTP). Writes are constrained so authenticated users
     // cannot mail third parties using our sender reputation:

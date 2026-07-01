@@ -103,6 +103,25 @@ export interface ScoreEntry {
   capturedAt?: string;
 }
 
+export interface AuditEntry {
+  id?: string;
+  /** Machine key, e.g. 'booking.reject', 'competition.delete'. */
+  action: string;
+  /** Malay display label, e.g. "Tolak Tempahan". */
+  actionLabel: string;
+  entityType: 'booking' | 'competition' | 'pond' | 'prize' | 'settings' | 'score';
+  entityId?: string;
+  /** Human-readable target, e.g. booking ref / competition name / pond code. */
+  entityLabel?: string;
+  actorUid?: string;
+  actorEmail?: string;
+  actorName?: string;
+  /** Optional short free-text summary. */
+  details?: string;
+  /** ISO, normalized on read from serverTimestamp. */
+  createdAt: string;
+}
+
 export interface Prize {
   /** Legacy single rank — kept for back-compat; equals rankFrom for new data. */
   rank: number;

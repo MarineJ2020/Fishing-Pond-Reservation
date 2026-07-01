@@ -3,6 +3,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   getDocs,
   doc,
   getDoc,
@@ -15,7 +16,7 @@ import {
 } from 'firebase/firestore';
 import { auth } from '../../lib/firebase';
 import { db } from '../../lib/firebase';
-import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry, User } from '../types';
+import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry, User, AuditEntry } from '../types';
 import { emptyDB } from '../data';
 
 const normalizeTimestamp = (value: any) => {
@@ -695,6 +696,38 @@ export const getScoresForCompetition = async (competitionId: string): Promise<Sc
   return entries;
 };
 
+// Unscoped weigh-in history across every competition (for the "Semua Timbangan
+// Rekod" admin page). Ordered + capped instead of filtered — no `where` clause
+// means no new composite index is needed; competition/pond/angler filtering
+// happens client-side against this list, same as other CMS list pages.
+export const getAllScoreEntries = async (limitCount = 500): Promise<ScoreEntry[]> => {
+  const snap = await getDocs(query(collection(db, 'eventResults'), orderBy('createdAt', 'desc'), limit(limitCount)));
+  return snap.docs.map((d) => {
+    const data = d.data() as any;
+    const rawCompetitionId = data.competitionId;
+    const competitionId = rawCompetitionId && typeof rawCompetitionId === 'object' ? rawCompetitionId.id : rawCompetitionId || '';
+    const rawBookingId = data.bookingId;
+    const bookingId = rawBookingId && typeof rawBookingId === 'object' ? rawBookingId.id : rawBookingId || undefined;
+    return {
+      id: d.id,
+      competitionId,
+      bookingId,
+      anglerName: data.anglerName || '',
+      pondId: typeof data.pondId === 'number' ? data.pondId : 0,
+      pondName: data.pondName || '',
+      seatNum: data.seatNum || data.seatNumber || 0,
+      weight: parseFloat(data.weight ?? data.totalWeight ?? 0),
+      photoUrl: data.photoUrl || undefined,
+      ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
+      ocrRawText: data.ocrRawText || undefined,
+      ocrUserVerified: typeof data.ocrUserVerified === 'boolean' ? data.ocrUserVerified : undefined,
+      scanMethod: data.scanMethod || undefined,
+      capturedBy: data.capturedBy || undefined,
+      capturedAt: normalizeTimestamp(data.updatedAt) || normalizeTimestamp(data.createdAt) || undefined,
+    } as ScoreEntry;
+  });
+};
+
 export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<string> => {
   const resultsRef = collection(db, 'eventResults');
   const evidenceFields: Record<string, unknown> = {};
@@ -744,6 +777,24 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
 
 export const deleteScoreEntry = async (id: string): Promise<void> => {
   await deleteDoc(doc(db, 'eventResults', id));
+};
+
+// Append-only admin activity log. Logging failures are swallowed — recording
+// an action must never block the action itself from succeeding.
+export const logAuditEvent = async (entry: Omit<AuditEntry, 'id' | 'createdAt'>): Promise<void> => {
+  try {
+    await addDoc(collection(db, 'auditLog'), { ...entry, createdAt: serverTimestamp() });
+  } catch (err) {
+    console.error('Failed to log audit event:', err);
+  }
+};
+
+export const getAuditLog = async (limitCount = 200): Promise<AuditEntry[]> => {
+  const snap = await getDocs(query(collection(db, 'auditLog'), orderBy('createdAt', 'desc'), limit(limitCount)));
+  return snap.docs.map((d) => {
+    const data = d.data() as any;
+    return { id: d.id, ...data, createdAt: normalizeTimestamp(data.createdAt) || '' } as AuditEntry;
+  });
 };
 
 const sumAcceptedReceipts = (receipts: any[]) =>

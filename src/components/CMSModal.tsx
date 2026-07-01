@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import jsQR from 'jsqr';
 import { useSearchParams } from 'react-router-dom';
-import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking } from '../types';
+import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
 import { checkInBooking, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
@@ -21,6 +21,9 @@ import {
   markBalanceReminderSent,
   approveDepositWithProofDirect,
   getUsers,
+  logAuditEvent,
+  getAuditLog,
+  getAllScoreEntries,
 } from '../lib/firestore';
 import { compressBlobToWebp, uploadImageToFirebaseStorage } from '../utils/imageStorage';
 import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
@@ -31,6 +34,7 @@ import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel'
 import { parseQrPayload } from '../utils/qr';
 import { prizeRange } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
+import DocPreviewModal from './DocPreviewModal';
 
 // ── Pond alphabet-code helpers (single letter A–Z, unique across ponds) ──
 const POND_CODE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -52,9 +56,9 @@ function pondCodeError(code: string | undefined, ponds: Pond[], excludeDocId?: s
   return null;
 }
 
-type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'contact-settings' | 'landing-content' | 'users';
+type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'contact-settings' | 'landing-content' | 'users' | 'audit-log';
 
-const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'manual-booking', 'all-bookings', 'checkin', 'results', 'contact-settings', 'landing-content', 'users'];
+const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'manual-booking', 'all-bookings', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'users', 'audit-log'];
 
 // Blank state for the inline "Tambah Pertandingan" form. Date fields are raw
 // datetime-local input strings, converted to ISO merged into a Competition on save.
@@ -242,6 +246,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [pondSeatEdits, setPondSeatEdits] = useState<Record<string, Record<number, boolean>>>({});
   const seatDragValue = useRef<boolean | null>(null);
 
+  // Audit Log page state
+  const [auditLogEntries, setAuditLogEntries] = useState<AuditEntry[]>([]);
+  const [auditLogSearch, setAuditLogSearch] = useState('');
+
+  // Weigh-in proof photo viewer — shared by "Papan Markah Semasa" and "Semua Timbangan Rekod"
+  const [scorePhotoUrl, setScorePhotoUrl] = useState<string | null>(null);
+
+  // Semua Timbangan Rekod (all-competition weigh-in log) page state
+  const [allWeighEntries, setAllWeighEntries] = useState<ScoreEntry[]>([]);
+  const [allWeighCompId, setAllWeighCompId] = useState<string>('');
+  const [allWeighPond, setAllWeighPond] = useState<string>('');
+  const [allWeighAngler, setAllWeighAngler] = useState('');
+
   // Results / Live page state
   const [resultsCompId, setResultsCompId] = useState<string>(comp.id || '');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
@@ -324,6 +341,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     if (page !== 'results' || !resultsCompId) return;
     getScoresForCompetition(resultsCompId).then(setScoreEntries);
   }, [page, resultsCompId]);
+
+  useEffect(() => {
+    if (page !== 'audit-log') return;
+    getAuditLog().then(setAuditLogEntries);
+  }, [page]);
 
   // Weight submission is keyed to the participant, not a peg. When the admin
   // picks/types a participant name that matches a booking in this competition,
@@ -446,6 +468,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       } as any);
       await syncPondSeatsFirestore(pondDocId, effectiveMaxSeats, safePrice);
       await reloadDB();
+      await logAuditEvent({
+        action: 'pond.edit', actionLabel: 'Edit Kolam', entityType: 'pond',
+        entityId: pondDocId, entityLabel: pond.code ? `${pond.code} — ${pond.name}` : pond.name,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
       setEditingPond(null);
       setPondSaveError(null);
     } catch (err) { console.error('Failed to update pond:', err); }
@@ -468,11 +495,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       // A brand-new competition is only persisted here, on Save — clicking
       // "Tambah Pertandingan" merely opens a blank editor.
-      if (compEditIsNew || !compEdit.id) {
-        await createCompetitionFirestore(compEdit as any);
+      const isNew = compEditIsNew || !compEdit.id;
+      let competitionId = compEdit.id;
+      if (isNew) {
+        competitionId = await createCompetitionFirestore(compEdit as any);
       } else {
         await updateCompetitionFirestore(compEdit.id, compEdit as any);
       }
+      await logAuditEvent({
+        action: isNew ? 'competition.create' : 'competition.edit',
+        actionLabel: isNew ? 'Cipta Pertandingan' : 'Edit Pertandingan',
+        entityType: 'competition', entityId: competitionId, entityLabel: compEdit.name,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
 
       // Persist any manually toggled seat active flags back to the ponds
       for (const [pondKey, seatMap] of Object.entries(pondSeatEdits)) {
@@ -508,6 +543,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
       await updateCompetitionFirestore(compEdit.id, { ...compEdit, prizes: normalizedPrizes } as any);
       await reloadDB();
+      await logAuditEvent({
+        action: 'prize.save', actionLabel: 'Kemaskini Hadiah', entityType: 'prize',
+        entityId: compEdit.id, entityLabel: compEdit.name,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) { console.error('Failed to save prizes:', err); }
     setSaving(false);
   };
@@ -531,7 +571,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
     setSaving(true);
     try {
-      await createCompetitionFirestore({
+      const newId = await createCompetitionFirestore({
         name: compCreate.name.trim(),
         startDate: startIso,
         endDate: endIso,
@@ -544,6 +584,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         status: compCreate.status,
       } as any);
       await reloadDB();
+      await logAuditEvent({
+        action: 'competition.create', actionLabel: 'Cipta Pertandingan', entityType: 'competition',
+        entityId: newId, entityLabel: compCreate.name.trim(),
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
       setCompCreate({ ...EMPTY_COMP_CREATE });
     } catch (err) {
       console.error('Failed to create competition:', err);
@@ -558,6 +603,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       await deleteCompetitionFirestore(competitionDeleteTarget.id);
       await reloadDB();
+      await logAuditEvent({
+        action: 'competition.delete', actionLabel: 'Padam Pertandingan', entityType: 'competition',
+        entityId: competitionDeleteTarget.id, entityLabel: competitionDeleteTarget.name,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
       setCompetitionDeleteTarget(null);
       setCompetitionEditorOpen(false);
     } catch (err) {
@@ -568,7 +618,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const handleRejectBooking = async (bookingId: string) => {
     setSaving(true);
-    try { await updateBookingStatusFirestore(bookingId, 'rejected'); await reloadDB(); }
+    try {
+      await updateBookingStatusFirestore(bookingId, 'rejected');
+      await reloadDB();
+      await logAuditEvent({
+        action: 'booking.reject', actionLabel: 'Tolak Tempahan', entityType: 'booking',
+        entityId: bookingId, entityLabel: bookings.find(b => b.id === bookingId)?.bookingRef || bookingId,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    }
     catch (err) { console.error('Failed to reject booking:', err); }
     setSaving(false);
   };
@@ -594,6 +652,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         });
       }
       await reloadDB();
+      await logAuditEvent({
+        action: 'booking.receipt_accept', actionLabel: 'Sahkan Resit', entityType: 'booking',
+        entityId: bookingId, entityLabel: target?.bookingRef || bookingId,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Failed to accept receipt:', err);
       window.alert(`Gagal mengesahkan resit / Failed to accept receipt: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
@@ -603,7 +666,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const handleRejectReceipt = async (bookingId: string, receiptIndex: number) => {
     setSaving(true);
-    try { await rejectBookingReceipt({ bookingId, receiptIndex }); await reloadDB(); }
+    try {
+      await rejectBookingReceipt({ bookingId, receiptIndex });
+      await reloadDB();
+      await logAuditEvent({
+        action: 'booking.receipt_reject', actionLabel: 'Tolak Resit', entityType: 'booking',
+        entityId: bookingId, entityLabel: bookings.find(b => b.id === bookingId)?.bookingRef || bookingId,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    }
     catch (err) {
       console.error('Failed to reject receipt:', err);
       window.alert(`Gagal menolak resit / Failed to reject receipt: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
@@ -634,6 +705,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
       await markBalanceReminderSent(bookingId);
       await reloadDB();
+      await logAuditEvent({
+        action: 'booking.balance_reminder', actionLabel: 'Hantar Peringatan Baki', entityType: 'booking',
+        entityId: bookingId, entityLabel: target.bookingRef || bookingId,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Failed to send balance reminder:', err);
       window.alert(`Gagal menghantar peringatan / Failed to send reminder: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
@@ -649,6 +725,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       await updateBookingStatusFirestore(forceCancelTarget.id, 'rejected');
       await reloadDB();
+      await logAuditEvent({
+        action: 'booking.force_cancel', actionLabel: 'Batal Paksa Tempahan', entityType: 'booking',
+        entityId: forceCancelTarget.id, entityLabel: forceCancelTarget.bookingRef || forceCancelTarget.id,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
       setForceCancelTarget(null);
       setForceCancelText('');
     } catch (err) {
@@ -764,6 +845,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const proofUrl = await uploadImageToFirebaseStorage(webp, 'fishing-pond-receipts', webp.name);
       await approveDepositWithProofDirect(depositProofTarget.id, proofUrl, depositProofTarget.amount);
       await reloadDB();
+      await logAuditEvent({
+        action: 'booking.deposit_manual_approve', actionLabel: 'Sahkan Deposit + Bukti', entityType: 'booking',
+        entityId: depositProofTarget.id, entityLabel: depositProofTarget.bookingRef || depositProofTarget.id,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
       window.alert('Deposit disahkan secara manual dan bukti telah disimpan.');
     } catch (err) {
       console.error('Manual deposit approval failed:', err);
@@ -923,6 +1009,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const nextCheckedIn = Array.from(new Set([...priorSeats, ...seatsToMark]));
       const allDone = allSeats.length > 0 && nextCheckedIn.length >= allSeats.length;
       setCheckinResult((prev: any) => ({ ...prev, checkedInSeats: nextCheckedIn, checkedIn: allDone }));
+      const bookingRef = checkinResult.bookingRef || checkinResult.id;
+      await logAuditEvent({
+        action: 'booking.checkin', actionLabel: 'Check-In Peserta', entityType: 'booking',
+        entityId: checkinResult.id, entityLabel: seatNum != null ? `${bookingRef} · peg ${seatNum}` : bookingRef,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Check-in failed:', err);
     }
@@ -942,6 +1034,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         contactSubtitle: settingsEdit.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.',
       });
       await reloadDB();
+      await logAuditEvent({
+        action: 'settings.contact', actionLabel: 'Kemaskini Contact Us', entityType: 'settings',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Failed to update contact settings:', err);
     }
@@ -966,6 +1062,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         ocrDecimalPlaces: settingsEdit.ocrDecimalPlaces,
       });
       await reloadDB();
+      await logAuditEvent({
+        action: 'settings.landing', actionLabel: 'Kemaskini Laman Utama', entityType: 'settings',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Failed to update landing content settings:', err);
     }
@@ -978,6 +1078,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       await updateSettingsFirestore({ ocrUsePreprocess: next });
       await reloadDB();
+      await logAuditEvent({
+        action: 'settings.ocr_preprocess', actionLabel: 'Tukar Pra-pemprosesan OCR', entityType: 'settings',
+        details: next ? 'Dihidupkan' : 'Dimatikan',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Failed to update OCR preprocess setting:', err);
     }
@@ -991,6 +1096,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       await updateSettingsFirestore({ ocrDecimalPlaces: next });
       await reloadDB();
+      await logAuditEvent({
+        action: 'settings.ocr_decimal', actionLabel: 'Tukar Tetapan Perpuluhan OCR', entityType: 'settings',
+        details: value,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Failed to update OCR decimal-place setting:', err);
     }
@@ -1028,6 +1138,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       setSettingsEdit(s => ({ ...s, rulesPdfUrl: url }));
       await updateSettingsFirestore({ rulesPdfUrl: url });
       await reloadDB();
+      await logAuditEvent({
+        action: 'settings.rules_pdf', actionLabel: 'Muat Naik Syarat & Peraturan', entityType: 'settings',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Failed to upload rules PDF:', err);
     }
@@ -1042,6 +1156,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       setSettingsEdit(s => ({ ...s, pondMapImg: url }));
       await updateSettingsFirestore({ pondMapImg: url });
       await reloadDB();
+      await logAuditEvent({
+        action: 'settings.pond_map', actionLabel: 'Muat Naik Peta Kolam', entityType: 'settings',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Failed to upload pond map image:', err);
     }
@@ -1054,6 +1172,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       await updateSettingsFirestore({ useLegacyPondView: next });
       await reloadDB();
+      await logAuditEvent({
+        action: 'settings.pond_view_toggle', actionLabel: 'Tukar Paparan Kolam', entityType: 'settings',
+        details: next ? 'Paparan lama' : 'Paparan baharu',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) {
       console.error('Failed to update pond view setting:', err);
     }
@@ -1080,8 +1203,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const handleDeleteEntry = async (id: string) => {
     try {
+      const entry = scoreEntries.find(e => e.id === id);
       await deleteScoreEntry(id);
       setScoreEntries(prev => prev.filter(e => e.id !== id));
+      await logAuditEvent({
+        action: 'score.delete', actionLabel: 'Padam Rekod Keputusan', entityType: 'score',
+        entityId: id, entityLabel: entry ? `${entry.anglerName} · ${entry.pondName} peg ${entry.seatNum} · ${entry.weight}kg` : id,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) { console.error(err); }
   };
 
@@ -1250,6 +1379,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       await Promise.all(ordered.map((p, i) => updatePondFirestore(p._docId || p.id.toString(), { order: i } as any)));
       await reloadDB();
+      await logAuditEvent({
+        action: 'pond.reorder', actionLabel: 'Susun Semula Kolam', entityType: 'pond',
+        entityId: pond._docId || pond.id.toString(), entityLabel: pond.code ? `${pond.code} — ${pond.name}` : pond.name,
+        details: `Alih ${dir === 'up' ? 'ke atas' : 'ke bawah'}`,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
     } catch (err) { console.error('Failed to reorder ponds:', err); }
     setPondReordering(false);
   };
@@ -1338,6 +1473,23 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const compOptionLabel = (c: Competition) =>
     `${c.name}${getCompetitionPhase(c) === 'ended' ? ' (tamat)' : ''}`;
 
+  // Semua Timbangan Rekod: default to the live competition, or (since an
+  // upcoming one has no weigh-ins yet) the most recently *ended* one instead.
+  useEffect(() => {
+    if (page !== 'all-weigh-ins' || allWeighCompId || competitionsForCms.length === 0) return;
+    const live = competitionsForCms.find((c) => getCompetitionPhase(c) === 'live');
+    const mostRecentEnded = competitionsForCms
+      .filter((c) => getCompetitionPhase(c) === 'ended')
+      .sort((a, b) => new Date(b.endDate || b.startDate).getTime() - new Date(a.endDate || a.startDate).getTime())[0];
+    const fallback = live || mostRecentEnded || competitionsForCms[0];
+    if (fallback?.id) setAllWeighCompId(fallback.id);
+  }, [page, competitionsForCms, allWeighCompId]);
+
+  useEffect(() => {
+    if (page !== 'all-weigh-ins') return;
+    getAllScoreEntries().then(setAllWeighEntries);
+  }, [page]);
+
   // ── Unsaved-changes guard ────────────────────────────────────────────────
   const compSig = (c?: Partial<Competition>) => c ? JSON.stringify({
     name: c.name || '', startDate: c.startDate || '', endDate: c.endDate || '', topN: c.topN || 0,
@@ -1406,11 +1558,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     { label: 'Hari Pertandingan', items: [
       { id: 'checkin' as CMSPage, icon: '📲', text: 'Check-In' },
       { id: 'results' as CMSPage, icon: '⚖️', text: 'Keputusan & Live' },
+      { id: 'all-weigh-ins' as CMSPage, icon: '📜', text: 'Semua Timbangan' },
     ]},
     { label: 'Admin', items: [
       { id: 'landing-content' as CMSPage, icon: '🏡', text: 'Laman Utama' },
       { id: 'contact-settings' as CMSPage, icon: '☎️', text: 'Contact Us' },
       { id: 'users' as CMSPage, icon: '👥', text: 'Pengguna' },
+      { id: 'audit-log' as CMSPage, icon: '🗒️', text: 'Log Audit' },
     ] },
   ];
 
@@ -1510,18 +1664,41 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <li><strong>Pertandingan</strong> — cipta atau edit pertandingan (nama, tarikh, harga peg, hadiah). Aktif/nyahaktif peg secara per-pertandingan dalam editor susun atur.</li>
                     <li>Peg yang sudah ditempah (tempahan aktif) <strong>tidak boleh dinyahaktifkan</strong> — batalkan tempahan dahulu jika perlu.</li>
                     <li><strong>Kolam</strong> — cipta atau edit kolam: kod kolam (huruf A–Z), bilangan tempat, dan susun atur (capsule atau polygon). Tempat dijana automatik mengikut bilangan.</li>
-                    <li><strong>Hadiah & Ranking</strong> — tetapkan julat kedudukan dan jumlah hadiah; perubahan direkod dalam jadual audit.</li>
+                    <li><strong>Hadiah & Ranking</strong> — tetapkan julat kedudukan dan jumlah hadiah; jadual di bawah menyemak julat tidak sah/bertindih. Setiap simpanan direkod dalam <strong>Log Audit</strong>.</li>
                   </ul>
                 </div>
               </div>
 
-              <div className="card">
+              <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-header"><div className="card-title">👥 Pengguna & Peranan</div></div>
                 <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
                   <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <li><span className="badge badge-live">Admin</span> &amp; <span className="badge badge-deposit">Staf</span> — akses penuh ke CMS (kelulusan, pengurusan, tetapan).</li>
                     <li><span className="badge badge-open">Pengguna</span> — pelanggan biasa; hanya boleh menempah, tiada akses CMS.</li>
                     <li>Peranan ditetapkan di <strong>backend (Firebase custom claims / dokumen users)</strong>, bukan diedit melalui CMS ini. Tab Pengguna memaparkan peranan sebenar setiap akaun.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header"><div className="card-title">🗒️ Log Audit</div></div>
+                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
+                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li>Merekod hampir setiap tindakan staf/admin yang mengubah data — kelulusan/tolak/check-in tempahan, cipta/edit/padam pertandingan &amp; kolam, kemaskini hadiah, dan tukar tetapan — bersama <strong>siapa</strong> dan <strong>bila</strong>.</li>
+                    <li>Simpanan berat (weigh-in) individu <strong>tidak</strong> direkod di sini (terlalu kerap semasa hari pertandingan) — hanya <strong>padam rekod keputusan</strong> yang direkod.</li>
+                    <li>Log bersifat <strong>tetap</strong> (tidak boleh disunting atau dipadam) dan memaparkan 200 catatan terkini. Guna carian untuk tapis mengikut nama staf atau jenis tindakan.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: 16 }}>
+                <div className="card-header"><div className="card-title">📜 Semua Timbangan Rekod</div></div>
+                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
+                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li>Sejarah timbangan <strong>merentas semua pertandingan</strong> (berbeza daripada Papan Markah Semasa di tab Keputusan &amp; Live, yang hanya memaparkan satu pertandingan pada satu masa). Terbuka dengan tapisan pertandingan ditetapkan kepada yang <strong>sedang berlangsung</strong>, atau yang <strong>terkini tamat</strong> jika tiada yang aktif.</li>
+                    <li>Tapis mengikut <strong>pertandingan</strong>, <strong>kolam</strong>, atau <strong>nama peserta</strong> untuk cari rekod tertentu dengan cepat.</li>
+                    <li><strong>Bukti</strong> — lihat gambar paparan timbangan yang disimpan bersama setiap rekod (termasuk kemasukan manual).</li>
+                    <li>Halaman ini hanya untuk semakan (papar sahaja) — sunting/padam rekod dibuat di tab Keputusan &amp; Live.</li>
                   </ul>
                 </div>
               </div>
@@ -2593,6 +2770,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             <th>Kolam</th>
                             <th>Peg</th>
                             <th style={{ textAlign: 'right' }}>Berat (kg)</th>
+                            <th>Bukti</th>
                             <th></th>
                           </tr>
                         </thead>
@@ -2611,6 +2789,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 <span className="w-cell">{e.weight.toFixed(2)}</span> kg
                               </td>
                               <td>
+                                {e.photoUrl ? (
+                                  <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(e.photoUrl!)}>👁 Bukti</button>
+                                ) : '—'}
+                              </td>
+                              <td>
                                 <button
                                   className="btn btn-sm"
                                   style={{ color: '#ef4444' }}
@@ -2620,7 +2803,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             </tr>
                           ))}
                           {scoreEntries.length === 0 && (
-                            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                               Tiada rekod untuk pertandingan ini
                             </td></tr>
                           )}
@@ -2630,6 +2813,102 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                 </div>
               </div>
+            );
+          })()}
+          {page === 'all-weigh-ins' && (() => {
+            const fmtDateTime = (iso?: string) => {
+              if (!iso) return '-';
+              const d = new Date(iso);
+              return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('ms-MY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            };
+            const compNameById = new Map(competitionsForCms.map((c) => [c.id || '', c.name]));
+            const methodBadge = (m?: string) => {
+              const meta = m === 'onnx' ? { label: 'ONNX (AI)', bg: '#374151' }
+                : m === 'sevenseg' ? { label: 'Sandaran (tanpa AI)', bg: '#7c3aed' }
+                : m === 'manual' ? { label: 'Manual', bg: '#b45309' }
+                : null;
+              if (!meta) return '—';
+              return <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, color: '#fff', background: meta.bg }}>{meta.label}</span>;
+            };
+            const pondOptions = Array.from(new Set(allWeighEntries.map((e) => e.pondName).filter(Boolean))).sort();
+            const anglerQ = allWeighAngler.trim().toLowerCase();
+            const filtered = allWeighEntries.filter((e) =>
+              (!allWeighCompId || e.competitionId === allWeighCompId)
+              && (!allWeighPond || e.pondName === allWeighPond)
+              && (!anglerQ || e.anglerName.toLowerCase().includes(anglerQ)));
+            return (
+            <div className="page active">
+              <div className="page-header"><div><div className="page-title">Semua Timbangan Rekod</div><div className="page-sub">Sejarah timbangan merentas semua pertandingan (500 terkini)</div></div></div>
+
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div className="form-group" style={{ minWidth: 200 }}>
+                    <label className="form-label">Pertandingan</label>
+                    <select className="form-input" value={allWeighCompId} onChange={(e) => setAllWeighCompId(e.target.value)}>
+                      <option value="">— Semua Pertandingan —</option>
+                      {compsEndedLast.map((c) => (
+                        <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ minWidth: 160 }}>
+                    <label className="form-label">Kolam</label>
+                    <select className="form-input" value={allWeighPond} onChange={(e) => setAllWeighPond(e.target.value)}>
+                      <option value="">— Semua Kolam —</option>
+                      {pondOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ minWidth: 200, flex: 1 }}>
+                    <label className="form-label">Peserta</label>
+                    <input className="form-input" placeholder="Cari nama peserta…" value={allWeighAngler} onChange={(e) => setAllWeighAngler(e.target.value)} />
+                  </div>
+                  <button className="btn btn-sm" onClick={() => getAllScoreEntries().then(setAllWeighEntries)}>🔄 Muat Semula</button>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header"><div className="card-title">{filtered.length} rekod</div></div>
+                <div className="card-body"><div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Waktu</th>
+                        <th>Peserta</th>
+                        <th>Pertandingan</th>
+                        <th>Kolam</th>
+                        <th>Peg</th>
+                        <th style={{ textAlign: 'right' }}>Berat (kg)</th>
+                        <th>Kaedah</th>
+                        <th>Bukti</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((e) => (
+                        <tr key={e.id}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(e.capturedAt)}</td>
+                          <td className="td-name">{e.anglerName}</td>
+                          <td>{compNameById.get(e.competitionId || '') || '—'}</td>
+                          <td>{e.pondName}</td>
+                          <td>{e.seatNum}</td>
+                          <td style={{ textAlign: 'right' }}><span className="w-cell">{e.weight.toFixed(2)}</span> kg</td>
+                          <td>{methodBadge(e.scanMethod)}</td>
+                          <td>
+                            {e.photoUrl ? (
+                              <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(e.photoUrl!)}>👁 Bukti</button>
+                            ) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                      {filtered.length === 0 && (
+                        <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          {allWeighEntries.length === 0 ? 'Tiada rekod timbangan lagi' : 'Tiada rekod sepadan dengan tapisan'}
+                        </td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div></div>
+              </div>
+            </div>
             );
           })()}
           {page === 'contact-settings' && (
@@ -2877,6 +3156,54 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {users.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>{(userDocs.length === 0 && bookings.length === 0) ? 'Tiada pengguna' : 'Tiada pengguna sepadan dengan carian'}</td></tr>}
                 </tbody>
               </table></div></div>
+              </div>
+            </div>
+            );
+          })()}
+          {page === 'audit-log' && (() => {
+            const fmtDateTime = (iso?: string) => {
+              if (!iso) return '-';
+              const d = new Date(iso);
+              return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('ms-MY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            };
+            const q = auditLogSearch.trim().toLowerCase();
+            const filtered = auditLogEntries.filter(e => !q
+              || e.actionLabel.toLowerCase().includes(q)
+              || (e.actorName || '').toLowerCase().includes(q)
+              || (e.actorEmail || '').toLowerCase().includes(q)
+              || (e.entityLabel || '').toLowerCase().includes(q));
+            return (
+            <div className="page active">
+              <div className="page-header"><div><div className="page-title">Log Audit</div><div className="page-sub">Sejarah tindakan staf/admin dalam CMS (200 terkini)</div></div></div>
+              <div className="card">
+                <div className="card-header" style={{ justifyContent: 'flex-end' }}>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      className="form-input"
+                      style={{ width: '280px', maxWidth: '60vw', padding: '6px 28px 6px 10px' }}
+                      placeholder="Cari staf atau tindakan…"
+                      value={auditLogSearch}
+                      onChange={e => setAuditLogSearch(e.target.value)}
+                    />
+                    {auditLogSearch && (
+                      <button onClick={() => setAuditLogSearch('')} title="Kosongkan" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem' }}>×</button>
+                    )}
+                  </div>
+                </div>
+                <div className="card-body"><div className="table-wrap"><table>
+                  <thead><tr><th>Waktu</th><th>Staf</th><th>Tindakan</th><th>Butiran</th></tr></thead>
+                  <tbody>
+                    {filtered.map(e => (
+                      <tr key={e.id}>
+                        <td style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(e.createdAt)}</td>
+                        <td className="td-name">{e.actorName || e.actorEmail || e.actorUid || '—'}</td>
+                        <td>{e.actionLabel}</td>
+                        <td>{[e.entityLabel, e.details].filter(Boolean).join(' — ') || '—'}</td>
+                      </tr>
+                    ))}
+                    {filtered.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>{auditLogEntries.length === 0 ? 'Tiada log lagi' : 'Tiada log sepadan dengan carian'}</td></tr>}
+                  </tbody>
+                </table></div></div>
               </div>
             </div>
             );
@@ -3197,6 +3524,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             await updatePondFirestore(newDocId, { shape, seatLayout } as any);
                           }
                           await reloadDB();
+                          await logAuditEvent({
+                            action: 'pond.create', actionLabel: 'Cipta Kolam', entityType: 'pond',
+                            entityId: newDocId, entityLabel: newCode ? `${newCode} — ${newPond.name}` : newPond.name,
+                            actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+                          });
                           setNewPond({ name: '', desc: '', seats: [], open: true, code: '' });
                           setNewPondMaxSeats(30);
                           setEditingPond(null);
@@ -3242,6 +3574,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         lookupBookingFull={lookupBookingFullForScan}
         listBookings={listBookingsForScan}
       />
+
+      <DocPreviewModal url={scorePhotoUrl} title="Bukti Timbangan" onClose={() => setScorePhotoUrl(null)} />
 
       {/* In-page receipt lightbox (replaces opening a new browser tab) */}
       {receiptViewerUrl && (() => {

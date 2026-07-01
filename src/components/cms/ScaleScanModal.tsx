@@ -991,6 +991,7 @@ const ScaleScanModal: React.FC<Props> = ({
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16, flexWrap: 'wrap' }}>
                 <button className="btn" onClick={handleRetakeWeight}>🔄 Ambil Semula</button>
+                <button className="btn" disabled={!photoBlob} onClick={handleScan}>🤖 Imbas AI Semula</button>
                 <button className="btn" disabled={fallbackBusy || !photoBlob} onClick={handleFallbackScan}>
                   {fallbackBusy ? 'Mengimbas…' : '🔢 Imbas Tanpa AI'}
                 </button>
