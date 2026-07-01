@@ -710,6 +710,7 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
       resultsRef,
       where('competitionId', '==', entry.competitionId),
       where('bookingId', '==', entry.bookingId),
+      where('seatNum', '==', entry.seatNum),
     );
     const snap = await getDocs(q);
     if (!snap.empty) {

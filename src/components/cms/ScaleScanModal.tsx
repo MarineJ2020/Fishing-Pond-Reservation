@@ -4,6 +4,7 @@ import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 import { sevenSegmentScan } from '../../utils/sevenSegmentFallback';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
+import { parseQrPayload } from '../../utils/qr';
 
 /**
  * A booking as the CMS sees it during the weigh-in scan flow. Carries the
@@ -73,6 +74,7 @@ type Step =
   | 'identify'         // initial: choose between scan QR or manual pick
   | 'qr-processing'    // decoding scanned QR
   | 'manual-picker'    // searchable list of bookings
+  | 'pick-seat'        // choose which peg (only when the booking/QR didn't specify one)
   | 'capture'          // weight photo capture
   | 'crop'             // crop the weight photo
   | 'processing'       // running OCR
@@ -147,27 +149,6 @@ function renderHighlightedPreview(result: ScanResult): HTMLCanvasElement {
   }
 
   return display;
-}
-
-/**
- * Parse the decoded QR text into a bookingId. Supports:
- *   • Full URL: https://kks.com/bookings/{id}
- *   • Bare path: /bookings/{id}
- *   • Raw booking id: {id}
- *   • Legacy URL with ?seat=N (seat is now ignored — staff picks).
- */
-function parseBookingQr(text: string): string | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  try {
-    const url = new URL(trimmed, 'http://placeholder');
-    const match = url.pathname.match(/^\/bookings\/([^/]+)/);
-    if (match) return decodeURIComponent(match[1]);
-  } catch {
-    /* fall through */
-  }
-  if (/^[A-Za-z0-9_-]{4,}$/.test(trimmed)) return trimmed;
-  return null;
 }
 
 async function decodeQrFromFile(file: Blob): Promise<string | null> {
@@ -247,6 +228,9 @@ const ScaleScanModal: React.FC<Props> = ({
   // camera doesn't re-trigger setError on every animation frame.
   const lastInvalidQrRef = useRef<string | null>(null);
   const [confirmedBooking, setConfirmedBooking] = useState<ScannedBookingLite | null>(null);
+  // Held only while on the 'pick-seat' step — the booking is known but which
+  // peg is being weighed isn't (legacy QR / manual pick with 2+ seats).
+  const [pendingFullBooking, setPendingFullBooking] = useState<ScannedBookingFull | null>(null);
   const [manualSearch, setManualSearch] = useState('');
   const [liveQrActive, setLiveQrActive] = useState(false);
   const [liveQrBusy, setLiveQrBusy] = useState(false);
@@ -284,6 +268,7 @@ const ScaleScanModal: React.FC<Props> = ({
       setError(null);
       setProgress('');
       setConfirmedBooking(null);
+      setPendingFullBooking(null);
       setManualSearch('');
       lastInvalidQrRef.current = null;
       setLiveQrActive(false);
@@ -338,12 +323,32 @@ const ScaleScanModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  /** After we have a booking (from QR or manual pick), go straight to capture.
-   *  Peg selection was removed — the weight is recorded against the booking,
-   *  tagged with its first peg for traceability. */
-  const onBookingResolved = (full: ScannedBookingFull) => {
+  /**
+   * After we have a booking (from QR or manual pick), decide the peg:
+   *   • per-seat QR already told us which peg → go straight to capture.
+   *   • no seat known and the booking has 2+ pegs → ask staff to pick one.
+   *   • single-peg booking → that's the only choice, no need to ask.
+   */
+  const onBookingResolved = (full: ScannedBookingFull, seatNum?: number) => {
     setError(null);
+    if (seatNum != null) {
+      setConfirmedBooking(toLite(full, seatNum));
+      setStep('capture');
+      return;
+    }
+    if (full.seats.length > 1) {
+      setPendingFullBooking(full);
+      setStep('pick-seat');
+      return;
+    }
     setConfirmedBooking(toLite(full, full.seats[0] ?? 0));
+    setStep('capture');
+  };
+
+  const handleSeatPicked = (seatNum: number) => {
+    if (!pendingFullBooking) return;
+    setConfirmedBooking(toLite(pendingFullBooking, seatNum));
+    setPendingFullBooking(null);
     setStep('capture');
   };
 
@@ -388,13 +393,13 @@ const ScaleScanModal: React.FC<Props> = ({
     const imageData = ctx.getImageData(0, 0, w, h);
     const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
     if (code?.data) {
-      const bookingId = parseBookingQr(code.data);
-      const booking = bookingId ? lookupBookingFull(bookingId) : null;
+      const parsed = parseQrPayload(code.data);
+      const booking = parsed ? lookupBookingFull(parsed.bookingId) : null;
       if (booking) {
         // Valid booking QR → auto-close the camera and proceed.
         lastInvalidQrRef.current = null;
         stopLiveQrScan();
-        onBookingResolved(booking);
+        onBookingResolved(booking, parsed?.seatNum);
         return;
       }
       // A QR was decoded but it isn't a booking for this competition. Surface a
@@ -442,19 +447,19 @@ const ScaleScanModal: React.FC<Props> = ({
         setStep('identify');
         return;
       }
-      const bookingId = parseBookingQr(decoded);
-      if (!bookingId) {
+      const parsed = parseQrPayload(decoded);
+      if (!parsed) {
         setError(`QR dikesan tetapi format tidak sah: ${decoded.slice(0, 80)}`);
         setStep('identify');
         return;
       }
-      const booking = lookupBookingFull(bookingId);
+      const booking = lookupBookingFull(parsed.bookingId);
       if (!booking) {
         setError('Tempahan tidak dijumpai untuk QR ini. Pastikan QR untuk pertandingan semasa.');
         setStep('identify');
         return;
       }
-      onBookingResolved(booking);
+      onBookingResolved(booking, parsed.seatNum);
     } catch (err: any) {
       console.error(err);
       setError(err?.message || 'Imbasan QR gagal. Sila cuba lagi.');
@@ -592,6 +597,7 @@ const ScaleScanModal: React.FC<Props> = ({
     setError(null);
     lastInvalidQrRef.current = null;
     setConfirmedBooking(null);
+    setPendingFullBooking(null);
     setManualSearch('');
     setStep('identify');
   };
@@ -642,7 +648,7 @@ const ScaleScanModal: React.FC<Props> = ({
       >
         <div className="modal-header">
           <div className="modal-title">
-            {(step === 'identify' || step === 'qr-processing' || step === 'manual-picker')
+            {(step === 'identify' || step === 'qr-processing' || step === 'manual-picker' || step === 'pick-seat')
               ? '📱 Kenal Pasti Pemancing'
               : '📷 Imbas Timbangan'}
           </div>
@@ -798,6 +804,32 @@ const ScaleScanModal: React.FC<Props> = ({
                     </div>
                   ))
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* STEP: pick which peg — only reached when the booking has 2+ seats
+              and we don't already know which one (legacy QR / manual pick). */}
+          {step === 'pick-seat' && pendingFullBooking && (
+            <div>
+              <p style={{ marginBottom: 14, color: 'var(--text-muted)', fontSize: 14 }}>
+                <strong>{pendingFullBooking.anglerName}</strong> · {pendingFullBooking.pondName} — pilih peg yang sedang ditimbang.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 10 }}>
+                {pendingFullBooking.seats.map((seat) => (
+                  <button
+                    key={seat}
+                    type="button"
+                    className="btn"
+                    onClick={() => handleSeatPicked(seat)}
+                    style={{ padding: '14px 8px', fontWeight: 700 }}
+                  >
+                    {pendingFullBooking.pondCode ? formatSeat(pendingFullBooking.pondCode, seat) : `#${seat}`}
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <button className="btn btn-ghost btn-sm" onClick={handleResetIdentify}>← Kembali</button>
               </div>
             </div>
           )}

@@ -471,7 +471,7 @@ app.post('/rejectBooking', verifyToken, requireStaff, async (req, res) => {
 });
 
 app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
-    const { bookingRef, amount, method } = req.body;
+    const { bookingRef, amount, method, seatNum } = req.body;
     if (!bookingRef || amount == null || !method) {
         return res.status(400).json({ error: 'bookingRef, amount and method are required.' });
     }
@@ -483,21 +483,39 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
         }
 
         const bookingDoc = bookingQuery.docs[0];
+        const booking = bookingDoc.data();
+        const allSeats = Array.isArray(booking.seats) ? booking.seats : [];
+        const priorCheckedIn = Array.isArray(booking.checkedInSeats) ? booking.checkedInSeats : [];
+        const isFirstArrival = priorCheckedIn.length === 0;
+
+        // A specific seat only marks that one seat checked in. Omitting seatNum
+        // (legacy callers with no per-seat QR info) falls back to marking every
+        // seat in the booking at once, matching the old whole-booking check-in.
+        const seatsToMark = seatNum != null ? [seatNum] : allSeats;
+        const nextCheckedIn = Array.from(new Set([...priorCheckedIn, ...seatsToMark]));
+        const fullyCheckedIn = allSeats.length > 0 && nextCheckedIn.length >= allSeats.length;
+
         await bookingDoc.ref.update({
-            checkedIn: true,
+            checkedInSeats: nextCheckedIn,
+            checkedIn: fullyCheckedIn,
             checkedInAt: new Date(),
             updatedAt: new Date(),
             updatedBy: req.user.uid,
         });
 
-        await bookingDoc.ref.collection('payments').add({
-            amount,
-            method,
-            recordedBy: req.user.uid,
-            createdAt: new Date(),
-        });
+        // Only log a payment record on the booking's first arrival — otherwise
+        // checking in each seat of a group one-by-one would log the full booking
+        // amount multiple times in the payments ledger.
+        if (isFirstArrival) {
+            await bookingDoc.ref.collection('payments').add({
+                amount,
+                method,
+                recordedBy: req.user.uid,
+                createdAt: new Date(),
+            });
+        }
 
-        return res.json({ success: true });
+        return res.json({ success: true, checkedInSeats: nextCheckedIn, checkedIn: fullyCheckedIn });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to check in booking.' });

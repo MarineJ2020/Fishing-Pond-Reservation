@@ -66,6 +66,8 @@ export interface Booking {
   updatedAt?: string;
   createdByStaff?: boolean;
   checkedIn?: boolean;
+  /** Seat numbers that have individually checked in (subset of `seats`). */
+  checkedInSeats?: number[];
   /** Last time a balance-due reminder email was sent to the user (ISO). */
   balanceReminderSentAt?: string;
   /** True once the owner has used their one-time receipt re-upload (correction). */

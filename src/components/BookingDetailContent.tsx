@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Booking } from '../types';
 import { outstandingBalance } from '../utils/booking';
+import { buildSeatQrValue } from '../utils/qr';
+import { formatSeat } from '../utils/seatLabel';
 import BalanceReceiptUpload from './BalanceReceiptUpload';
 import ReceiptReupload from './ReceiptReupload';
 import DocPreviewModal from './DocPreviewModal';
@@ -24,22 +26,6 @@ const RECEIPT_STATUS_LABEL: Record<string, { label: string; color: string }> = {
   accepted: { label: 'Disahkan', color: 'var(--green-bright, #16a34a)' },
   rejected: { label: 'Ditolak', color: 'var(--red)' },
 };
-
-/**
- * Build the booking-detail URL (origin + /bookings/:id). Used for the email
- * "view booking" link. NOTE: the QR code itself now encodes the bare booking id
- * (not this URL) so the CMS check-in / weigh-in scanners get a clean id to look
- * up; both scanners still accept a full URL for backwards compatibility.
- */
-export function buildBookingUrl(bookingId: string): string {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  return `${origin}/bookings/${encodeURIComponent(bookingId)}`;
-}
-
-/** @deprecated Kept for any external callers; new code should use buildBookingUrl. */
-export function buildBookingSeatUrl(bookingId: string, _seatNum: number): string {
-  return buildBookingUrl(bookingId);
-}
 
 const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onReceiptSubmitted }) => {
   const [docPreview, setDocPreview] = useState<string | null>(null);
@@ -84,49 +70,58 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
         </div>
       </div>
 
-      {/* One QR per booking — staff scans, then picks which peg is being weighed */}
+      {/* One QR per seat — each is valid for that peg only, so a group booking's
+          participants can be checked in / weighed independently. */}
       <div style={{ background: '#fff', border: '2px solid var(--red)', padding: '18px', borderRadius: '14px' }}>
         <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 700 }}>
           QR Tempahan
         </div>
         <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
-          Tunjukkan QR ini kepada petugas semasa proses timbang ikan. Petugas akan pilih nombor peg
-          yang sedang ditimbang selepas mengimbas.
+          Tunjukkan QR peg anda kepada petugas semasa check-in / proses timbang ikan. Setiap QR sah untuk satu peg sahaja.
+        </div>
+        <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--navy)', textAlign: 'center', marginBottom: '12px' }}>
+          {booking.pondName}
         </div>
         <div
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '12px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: '14px',
           }}
         >
-          <div
-            style={{
-              background: '#fff',
-              padding: '14px',
-              borderRadius: '10px',
-              border: '1px solid var(--line)',
-            }}
-          >
-            <QRCodeSVG
-              value={booking.id}
-              size={220}
-              level="M"
-              marginSize={2}
-              bgColor="#ffffff"
-              fgColor="#112a41"
-            />
-          </div>
-          <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--navy)' }}>
-            {booking.pondName}
-          </div>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
-            <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>Sah untuk peg:</span>
-            {booking.seats.map((s) => (
-              <span key={s} className="seat-pill">{booking.pondCode ? `${booking.pondCode}-${s}` : `#${s}`}</span>
-            ))}
-          </div>
+          {booking.seats.map((s) => {
+            const checkedIn = !!booking.checkedInSeats?.includes(s);
+            return (
+              <div
+                key={s}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: '#fff',
+                  padding: '14px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--line)',
+                }}
+              >
+                <QRCodeSVG
+                  value={buildSeatQrValue(booking.id, s)}
+                  size={160}
+                  level="M"
+                  marginSize={2}
+                  bgColor="#ffffff"
+                  fgColor="#112a41"
+                />
+                <span className="seat-pill">{formatSeat(booking.pondCode, s)}</span>
+                {checkedIn && (
+                  <span style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--green-bright, #16a34a)' }}>
+                    ✓ Sudah Check-In
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -27,7 +27,8 @@ import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage
 import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getBookingWindowState } from '../utils/competition';
-import { formatSeatList, pondDisplayName } from '../utils/seatLabel';
+import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
+import { parseQrPayload } from '../utils/qr';
 import { prizeRange } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 
@@ -220,7 +221,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [checkinRef, setCheckinRef] = useState('');
   const [checkinResult, setCheckinResult] = useState<any>(null);
   const [checkinLoading, setCheckinLoading] = useState(false);
-  const [checkinDone, setCheckinDone] = useState(false);
+  // Seat number decoded from a scanned per-seat QR (highlights that row); null
+  // for legacy QR/manual search where the seat isn't known ahead of time.
+  const [checkinScannedSeat, setCheckinScannedSeat] = useState<number | null>(null);
+  const [checkinActiveSeat, setCheckinActiveSeat] = useState<number | null>(null);
   const [depositProofUploading, setDepositProofUploading] = useState(false);
   const [depositProofTarget, setDepositProofTarget] = useState<Booking | null>(null);
   const depositProofInputRef = useRef<HTMLInputElement | null>(null);
@@ -785,22 +789,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       return bookingId === q || bookingRef === q || bookingId.includes(q) || bookingRef.includes(q) || userName.includes(q);
     });
     setCheckinResult(found || null);
-    setCheckinDone(false);
+    setCheckinScannedSeat(null);
   };
 
-  const parseBookingIdFromQr = (raw: string): string | null => {
-    const trimmed = raw.trim();
-    if (!trimmed) return null;
-    try {
-      const url = new URL(trimmed, 'http://placeholder');
-      const match = url.pathname.match(/^\/bookings\/([^/]+)/);
-      if (match) return decodeURIComponent(match[1]);
-    } catch {
-      // not a URL; continue with plain id fallback
-    }
-    if (/^[A-Za-z0-9_-]{6,}$/.test(trimmed)) return trimmed;
-    return null;
-  };
 
   const stopCheckinLiveScan = () => {
     if (checkinLiveRafRef.current) {
@@ -843,14 +834,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const imageData = ctx.getImageData(0, 0, w, h);
     const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
     if (code?.data) {
-      const bookingId = parseBookingIdFromQr(code.data);
-      const found = bookingId ? bookings.find(b => b.id === bookingId || b.bookingRef === bookingId) : null;
+      const parsed = parseQrPayload(code.data);
+      const found = parsed ? bookings.find(b => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId) : null;
       if (found) {
         // Valid booking QR → auto-close the camera and show the booking.
         stopCheckinLiveScan();
         setCheckinRef(found.bookingRef || found.id);
         setCheckinResult(found);
-        setCheckinDone(false);
+        setCheckinScannedSeat(parsed?.seatNum ?? null);
         return;
       }
       // Decoded a QR, but it isn't one of our bookings — flag it once and keep scanning.
@@ -897,36 +888,46 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       ctx.drawImage(bitmap, 0, 0);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-      const bookingId = code?.data ? parseBookingIdFromQr(code.data) : null;
-      const found = bookingId ? bookings.find(b => b.id === bookingId || b.bookingRef === bookingId) : null;
+      const parsed = code?.data ? parseQrPayload(code.data) : null;
+      const found = parsed ? bookings.find(b => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId) : null;
       if (!found) {
         window.alert('QR tidak sah / tempahan tidak dijumpai. Sila cuba QR tempahan yang betul.');
         return;
       }
       setCheckinRef(found.bookingRef || found.id);
       setCheckinResult(found);
-      setCheckinDone(false);
+      setCheckinScannedSeat(parsed?.seatNum ?? null);
     } catch (err) {
       console.error('Failed to scan check-in QR:', err);
       window.alert('Imbas QR gagal. Sila cuba lagi.');
     }
   };
 
-  const handlePerformCheckin = async () => {
+  // Checks in one specific seat of the found booking. Omitting seatNum falls
+  // back to checking in every seat at once (legacy path — kept for safety, the
+  // UI always passes a specific seat now).
+  const handlePerformCheckin = async (seatNum?: number) => {
     if (!checkinResult) return;
+    setCheckinActiveSeat(seatNum ?? null);
     setCheckinLoading(true);
     try {
       await checkInBooking({
         bookingRef: checkinResult.bookingRef || checkinResult.id,
         amount: checkinResult.amount,
         method: 'manual',
+        seatNum,
       });
-      setCheckinDone(true);
-      setCheckinResult((prev: any) => ({ ...prev, checkedIn: true }));
+      const allSeats: number[] = checkinResult.seats || [];
+      const priorSeats: number[] = checkinResult.checkedInSeats || [];
+      const seatsToMark = seatNum != null ? [seatNum] : allSeats;
+      const nextCheckedIn = Array.from(new Set([...priorSeats, ...seatsToMark]));
+      const allDone = allSeats.length > 0 && nextCheckedIn.length >= allSeats.length;
+      setCheckinResult((prev: any) => ({ ...prev, checkedInSeats: nextCheckedIn, checkedIn: allDone }));
     } catch (err) {
       console.error('Check-in failed:', err);
     }
     setCheckinLoading(false);
+    setCheckinActiveSeat(null);
   };
 
   const handleContactSettingsSave = async () => {
@@ -2315,35 +2316,72 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleCheckinQrFile(f); e.target.value = ''; }} />
                 </label>
               </div>
-              {checkinResult && (
-                <div className="checkin-result">
-                  <div className="checkin-result-header"><h3>✓ Tempahan Dijumpai</h3><span className={`badge badge-${checkinResult.status === 'confirmed' ? 'approved' : checkinResult.status}`}>{checkinResult.status}</span></div>
-                  <div className="checkin-result-body">
-                    <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.id}</span></div>
-                    <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
-                    <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{checkinResult.pondName}</span></div>
-                    <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingSeatList(checkinResult)}</span></div>
-                    <div className="checkin-detail-row"><span className="checkin-detail-key">Jumlah</span><span className="checkin-detail-val">RM {checkinResult.amount}</span></div>
-                    {checkinResult.status !== 'confirmed' && <div className="warning-banner">⚠️ Tempahan ini belum disahkan.</div>}
-                    {checkinResult.status === 'confirmed' && !checkinDone && (
-                      <button className="btn btn-green w-full mt-3" disabled={checkinLoading} onClick={() => setConfirmDialog({
-                        title: 'Check-In Peserta',
-                        message: `Sahkan check-in untuk ${checkinResult.userName} (${pondDisplayName({ name: checkinResult.pondName, code: checkinResult.pondCode } as any)}, peg ${bookingSeatList(checkinResult)})?`,
-                        confirmLabel: 'Check-In',
-                        tone: 'primary',
-                        onConfirm: handlePerformCheckin,
-                      })}>
-                        {checkinLoading ? '⏳ Memproses...' : '✓ Check-In Peserta'}
-                      </button>
-                    )}
-                    {checkinDone && (
-                      <div className="btn btn-green w-full mt-3" style={{ textAlign: 'center', cursor: 'default', opacity: 0.8 }}>
-                        ✓ Daftar Masuk Berjaya
-                      </div>
-                    )}
+              {checkinResult && (() => {
+                const allSeats: number[] = checkinResult.seats || [];
+                const checkedInSeats: number[] = checkinResult.checkedInSeats || [];
+                const allDone = allSeats.length > 0 && checkedInSeats.length >= allSeats.length;
+                const pondCode = checkinResult.pondCode || ponds.find(p => p.id === checkinResult.pondId)?.code;
+                return (
+                  <div className="checkin-result">
+                    <div className="checkin-result-header"><h3>✓ Tempahan Dijumpai</h3><span className={`badge badge-${checkinResult.status === 'confirmed' ? 'approved' : checkinResult.status}`}>{checkinResult.status}</span></div>
+                    <div className="checkin-result-body">
+                      <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.id}</span></div>
+                      <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
+                      <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{checkinResult.pondName}</span></div>
+                      <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingSeatList(checkinResult)}</span></div>
+                      <div className="checkin-detail-row"><span className="checkin-detail-key">Jumlah</span><span className="checkin-detail-val">RM {checkinResult.amount}</span></div>
+                      {checkinResult.status !== 'confirmed' && <div className="warning-banner">⚠️ Tempahan ini belum disahkan.</div>}
+                      {checkinResult.status === 'confirmed' && (
+                        <div style={{ marginTop: 12 }}>
+                          <div className="checkin-detail-key" style={{ marginBottom: 6 }}>Check-In Setiap Peg</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {allSeats.map((seat) => {
+                              const seatCheckedIn = checkedInSeats.includes(seat);
+                              const isScanned = checkinScannedSeat === seat;
+                              const seatLabel = formatSeat(pondCode, seat);
+                              return (
+                                <div
+                                  key={seat}
+                                  style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                                    padding: '10px 12px', borderRadius: 8,
+                                    border: isScanned ? '2px solid var(--gold)' : '1px solid var(--border)',
+                                    background: seatCheckedIn ? 'var(--green-pale, #eafaf0)' : 'var(--white)',
+                                  }}
+                                >
+                                  <span style={{ fontWeight: 700 }}>{seatLabel}</span>
+                                  {seatCheckedIn ? (
+                                    <span style={{ color: 'var(--green-dark, #16a34a)', fontWeight: 700, fontSize: '0.85rem' }}>✓ Sudah Check-In</span>
+                                  ) : (
+                                    <button
+                                      className="btn btn-sm btn-green"
+                                      disabled={checkinLoading}
+                                      onClick={() => setConfirmDialog({
+                                        title: 'Check-In Peserta',
+                                        message: `Sahkan check-in untuk ${checkinResult.userName} (${pondDisplayName({ name: checkinResult.pondName, code: pondCode } as any)}, peg ${seatLabel})?`,
+                                        confirmLabel: 'Check-In',
+                                        tone: 'primary',
+                                        onConfirm: () => handlePerformCheckin(seat),
+                                      })}
+                                    >
+                                      {checkinLoading && checkinActiveSeat === seat ? '⏳ Memproses...' : 'Check-In'}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {allDone && (
+                            <div className="btn btn-green w-full mt-3" style={{ textAlign: 'center', cursor: 'default', opacity: 0.8 }}>
+                              ✓ Semua Peg Sudah Check-In
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
               {checkinRef && !checkinResult && <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Tempahan tidak dijumpai.</div>}
             </div>
           )}
@@ -2461,10 +2499,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             )}
                           </div>
                       <div className="form-group">
-                        <label className="form-label">Kolam &amp; Peg (auto)</label>
+                        <label className="form-label">Kolam {derivedBooking && derivedBooking.seats.length > 1 ? '(auto)' : '& Peg (auto)'}</label>
                         {derivedBooking ? (
                           <div className="form-input" style={{ display: 'flex', alignItems: 'center', background: 'var(--cream)', cursor: 'default' }}>
-                            {derivedPond ? pondDisplayName(derivedPond) : `Kolam #${derivedBooking.pondId}`} · {bookingSeatList(derivedBooking)}
+                            {derivedPond ? pondDisplayName(derivedPond) : `Kolam #${derivedBooking.pondId}`}
+                            {derivedBooking.seats.length <= 1 && <> · {bookingSeatList(derivedBooking)}</>}
                           </div>
                         ) : (
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '12px 0', lineHeight: 1.4 }}>
@@ -2474,6 +2513,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           </div>
                         )}
                       </div>
+                      {derivedBooking && derivedBooking.seats.length > 1 && (
+                        <div className="form-group">
+                          <label className="form-label">Peg</label>
+                          <select
+                            className="form-input"
+                            value={manualEntry.seatNum}
+                            onChange={(e) => setManualEntry(m => ({ ...m, seatNum: e.target.value }))}
+                          >
+                            {derivedBooking.seats.map((seat) => (
+                              <option key={seat} value={seat}>
+                                {formatSeat(derivedBooking.pondCode || derivedPond?.code, seat)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                       <div className="form-group">
                         <label className="form-label">Berat (kg)</label>
                         {pendingScan ? (

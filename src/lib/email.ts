@@ -1,5 +1,6 @@
 import { addDoc, collection } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { buildBookingUrl, buildSeatQrValue } from '../utils/qr';
 
 const STAFF_CC = 'hello@kolamkelisayang.com.my';
 const BRAND_RED = '#b91c1c';
@@ -128,9 +129,7 @@ interface BalanceReminderArgs {
 }
 
 export const queueBalanceReminderEmail = async (args: BalanceReminderArgs): Promise<void> => {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const bookingUrl = `${origin}/bookings/${encodeURIComponent(args.bookingId)}`;
-  const bookingUrlEsc = esc(bookingUrl);
+  const bookingUrlEsc = esc(buildBookingUrl(args.bookingId));
 
   const html = layout(
     'Peringatan: Baki Bayaran Tertunggak',
@@ -163,14 +162,20 @@ export const queueBalanceReminderEmail = async (args: BalanceReminderArgs): Prom
 
 export const queueBookingApprovedEmail = async (args: ApprovedArgs): Promise<void> => {
   try {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const bookingUrl = `${origin}/bookings/${encodeURIComponent(args.bookingId)}`;
-    const bookingUrlEsc = esc(bookingUrl);
-    // Use a hosted HTTPS QR image instead of base64 data-URL so Gmail clients
-    // can render it consistently (some Gmail paths strip/ignore large data URIs).
-    // The QR encodes the bare booking id (not the URL) so the CMS check-in /
-    // weigh-in scanners decode a clean id to look up.
-    const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(args.bookingId)}`;
+    const bookingUrlEsc = esc(buildBookingUrl(args.bookingId));
+    // Use hosted HTTPS QR images instead of base64 data-URLs so Gmail clients
+    // can render them consistently (some Gmail paths strip/ignore large data
+    // URIs). One QR per seat — each encodes the booking id + that seat number
+    // so the CMS check-in / weigh-in scanners can identify the exact peg
+    // without staff having to pick it manually.
+    const seatQrCells = (args.seats || []).map((seatNum) => {
+      const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(buildSeatQrValue(args.bookingId, seatNum))}`;
+      const seatLabel = fmtSeats([seatNum], args.pondCode);
+      return `<td style="padding:8px;text-align:center;vertical-align:top;">
+          <img src="${qrImgUrl}" alt="QR Peg ${seatLabel}" width="160" height="160" style="width:160px;height:160px;display:block;margin:0 auto;border:1px solid #eee;border-radius:8px;padding:6px;background:#fff;" />
+          <div style="font-size:12px;font-weight:700;color:${BRAND_NAVY};margin-top:6px;">${seatLabel}</div>
+        </td>`;
+    }).join('');
 
     const html = layout(
       'Tempahan Disahkan',
@@ -183,8 +188,8 @@ export const queueBookingApprovedEmail = async (args: ApprovedArgs): Promise<voi
          <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats, args.pondCode)}</td></tr>
        </table>
        <div style="text-align:center;margin:22px 0;">
-         <img src="${qrImgUrl}" alt="QR Tempahan" width="200" height="200" style="width:200px;height:200px;display:block;margin:0 auto;border:1px solid #eee;border-radius:8px;padding:8px;background:#fff;" />
-         <div style="font-size:12px;color:#888;margin-top:6px;">Imbas QR untuk paparkan butiran tempahan</div>
+         <div style="font-size:12px;color:#888;margin-bottom:8px;">Setiap peg mempunyai QR sendiri — imbas QR peg berkenaan semasa check-in / timbang ikan</div>
+         <table style="border-collapse:collapse;margin:0 auto;"><tr>${seatQrCells}</tr></table>
        </div>
        <p style="text-align:center;">
          <a href="${bookingUrlEsc}" style="display:inline-block;background:${BRAND_RED};color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;">Lihat Butiran Tempahan</a>
