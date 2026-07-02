@@ -3873,7 +3873,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       {receiptViewerUrl && (() => {
         const isPdf = /\.pdf($|\?)/i.test(receiptViewerUrl) || receiptViewerUrl.startsWith('data:application/pdf');
         return (
-        <div className="modal-overlay open" style={{ zIndex: 600 }} onClick={() => setReceiptViewerUrl(null)}>
+        <div className="modal-overlay open" style={{ zIndex: 1100 }} onClick={() => setReceiptViewerUrl(null)}>
           <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
             <button
               className="modal-close"
