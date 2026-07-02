@@ -75,7 +75,7 @@ export const useAuth = () => {
   }, [addToast]);
 
   const register = useCallback(async (name: string, email: string, phone: string, pass: string) => {
-    if (!name || !email || !pass) {
+    if (!name || !email || !phone || !pass) {
       addToast('Fill all required fields', 'error');
       return false;
     }
@@ -107,12 +107,17 @@ export const useAuth = () => {
     }
   }, [addToast]);
 
-  const signInWithGoogle = useCallback(async () => {
+  // Returns needsPhone=true on a brand-new Google account — Google never
+  // collects a phone number, so the caller should immediately prompt for one
+  // (see CompleteProfileModal) to keep "phone required at signup" true for
+  // both signup paths without touching this account-creation write.
+  const signInWithGoogle = useCallback(async (): Promise<{ success: boolean; needsPhone?: boolean }> => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
       const userDocRef = doc(firestoreDb, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
+      let needsPhone = false;
       if (!userDoc.exists()) {
         await setDoc(userDocRef, {
           email: user.email,
@@ -121,6 +126,7 @@ export const useAuth = () => {
           role: 'CLIENT',
           createdAt: new Date(),
         });
+        needsPhone = true;
         // First-time Google sign-up — send a branded welcome email via Zoho.
         if (user.email) {
           await queueWelcomeEmail({
@@ -130,13 +136,39 @@ export const useAuth = () => {
         }
       }
       addToast('Log masuk berjaya!', 'success');
-      return true;
+      return { success: true, needsPhone };
     } catch (error) {
       console.error(error);
       addToast('Google sign-in failed. Please try again.', 'error');
-      return false;
+      return { success: false };
     }
   }, [addToast]);
+
+  const updateUserProfile = useCallback(async (name: string, phone: string) => {
+    if (!auth.currentUser) {
+      addToast('Sila log masuk dahulu.', 'error');
+      return false;
+    }
+    if (!name.trim() || !phone.trim()) {
+      addToast('Nama dan nombor telefon diperlukan.', 'error');
+      return false;
+    }
+    try {
+      await setDoc(doc(firestoreDb, 'users', auth.currentUser.uid), {
+        name: name.trim(),
+        phone: phone.trim(),
+        updatedAt: new Date(),
+      }, { merge: true });
+      const refreshed = await mapFirebaseUser(auth.currentUser);
+      setUser(refreshed);
+      addToast('Profil dikemaskini.', 'success');
+      return true;
+    } catch (error) {
+      console.error(error);
+      addToast('Gagal mengemaskini profil.', 'error');
+      return false;
+    }
+  }, [setUser, addToast]);
 
   const logout = useCallback(async () => {
     try {
@@ -186,5 +218,5 @@ export const useAuth = () => {
     }
   }, [setUser, addToast]);
 
-  return { login, register, signInWithGoogle, logout, resendVerification, refreshUser, authReady };
+  return { login, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady };
 };

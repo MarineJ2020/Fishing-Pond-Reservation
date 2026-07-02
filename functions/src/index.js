@@ -41,6 +41,15 @@ const sumAccepted = (receipts) =>
         .filter((r) => r?.status === 'accepted')
         .reduce((sum, r) => sum + (Number(r?.amount) || 0), 0);
 
+// Mirrors computeBalanceStage in src/lib/firestore.ts — kept in sync manually
+// since this endpoint currently isn't the live path (VITE_FUNCTIONS_BASE_URL
+// is empty in this deployment) but should stay correct for when it is used.
+const computeBalanceStage = (paidAmount, totalAmount, hasPendingReceipts) => {
+    const balanceDue = Math.max(0, (Number(totalAmount) || 0) - (Number(paidAmount) || 0));
+    if (balanceDue <= 0) return 'fully-paid';
+    return hasPendingReceipts ? 'review-balance' : 'pending-balance';
+};
+
 // A booking's userId is stored as a users/{uid} DocumentReference (server path)
 // or, on the legacy direct-write path, the raw email string.
 const ownsBooking = (bookingData, user) => {
@@ -336,19 +345,22 @@ app.post('/acceptBookingReceipt', verifyToken, requireStaff, async (req, res) =>
         const fullyPaid = totalAmount > 0 && paidAmount >= totalAmount;
         const statusUpper = (booking.status || '').toUpperCase();
         const alreadyConfirmed = ['APPROVED', 'CONFIRMED', 'LIVE'].includes(statusUpper);
-        // Confirm the booking (status + hold seats) only once it is fully paid. A deposit
-        // booking with only the deposit receipt accepted stays PENDING_APPROVAL — its seats
-        // remain held by the pending-booking seat-conflict logic — until the balance is in.
-        const shouldConfirm = fullyPaid && !alreadyConfirmed;
+        // Confirm the booking (status + hold seats) on its FIRST ever accepted
+        // receipt — a deposit booking confirms as soon as the deposit is
+        // approved, not only once the balance is also in.
+        const justConfirmed = !alreadyConfirmed;
+        const hasPendingReceipts = receipts.some((r) => r.status === 'pending');
+        const balanceStage = computeBalanceStage(paidAmount, totalAmount, hasPendingReceipts);
 
         const update = {
             receipts,
             paidAmount,
             paymentStatus: fullyPaid ? 'APPROVED' : 'PARTIAL',
+            balanceStage,
             updatedAt: new Date(),
             updatedBy: req.user.uid,
         };
-        if (shouldConfirm) update.status = 'APPROVED';
+        if (justConfirmed) update.status = 'APPROVED';
 
         await bookingDocRef.update(update);
 
@@ -361,11 +373,11 @@ app.post('/acceptBookingReceipt', verifyToken, requireStaff, async (req, res) =>
                 createdAt: new Date(),
             });
         }
-        if (shouldConfirm) {
+        if (justConfirmed) {
             await updateSeatsForBooking(booking, 'booked');
         }
 
-        return res.json({ success: true, paidAmount, fullyPaid, status: update.status || booking.status });
+        return res.json({ success: true, paidAmount, fullyPaid, justConfirmed, balanceStage, status: update.status || booking.status });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to accept receipt.' });
@@ -395,15 +407,29 @@ app.post('/rejectBookingReceipt', verifyToken, requireStaff, async (req, res) =>
 
         receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'rejected' };
         const paidAmount = sumAccepted(receipts);
+        const totalAmount = Number(booking.totalAmount) || 0;
+        const statusUpper = (booking.status || '').toUpperCase();
+        const alreadyConfirmed = ['APPROVED', 'CONFIRMED', 'LIVE'].includes(statusUpper);
 
-        await bookingDocRef.update({
+        const update = {
             receipts,
             paidAmount,
             updatedAt: new Date(),
             updatedBy: req.user.uid,
-        });
+        };
+        if (alreadyConfirmed) {
+            const hasPendingReceipts = receipts.some((r) => r.status === 'pending');
+            update.balanceStage = computeBalanceStage(paidAmount, totalAmount, hasPendingReceipts);
+        } else {
+            update.status = 'REJECTED';
+        }
 
-        return res.json({ success: true, paidAmount });
+        await bookingDocRef.update(update);
+        if (!alreadyConfirmed) {
+            await updateSeatsForBooking(booking, 'available');
+        }
+
+        return res.json({ success: true, paidAmount, bookingRejected: !alreadyConfirmed });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to reject receipt.' });

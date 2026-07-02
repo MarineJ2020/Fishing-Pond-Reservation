@@ -6,6 +6,7 @@ const PATH_TO_SECTION: Record<string, string> = {
   '/book': 'book',
   '/live': 'live',
   '/my-bookings': 'mybookings',
+  '/profile': 'profile',
   '/confirmed': 'confirmed',
   '/cms': 'cms',
 };
@@ -15,6 +16,7 @@ const SECTION_TO_PATH: Record<string, string> = {
   book: '/book',
   live: '/live',
   mybookings: '/my-bookings',
+  profile: '/profile',
   confirmed: '/confirmed',
   cms: '/cms',
 };
@@ -42,6 +44,7 @@ export const useNavigation = () => {
   const goToBook = useCallback(() => navigate('/book'), [navigate]);
   const goToLive = useCallback(() => navigate('/live'), [navigate]);
   const goToMyBookings = useCallback(() => navigate('/my-bookings'), [navigate]);
+  const goToProfile = useCallback(() => navigate('/profile'), [navigate]);
   const goToConfirmed = useCallback(() => navigate('/confirmed'), [navigate]);
   const goToCMS = useCallback(() => navigate('/cms'), [navigate]);
   const goToBookingDetail = useCallback(
@@ -57,6 +60,7 @@ export const useNavigation = () => {
     goToBook,
     goToLive,
     goToMyBookings,
+    goToProfile,
     goToConfirmed,
     goToBookingDetail,
     goToCMS,

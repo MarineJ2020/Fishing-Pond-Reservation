@@ -89,6 +89,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOp
                 </span>
               )}
             </a>
+            <a onClick={() => handleNav('profile')}><i className="fa-solid fa-user"></i> Profil Saya</a>
             {(user.role === 'ADMIN' || user.role === 'STAFF') && (
               <a onClick={() => handleAction(onOpenCMS)}><i className="fa-solid fa-shield-halved"></i> Staff CMS</a>
             )}

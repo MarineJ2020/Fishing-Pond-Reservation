@@ -4,6 +4,7 @@ import {
   where,
   orderBy,
   limit,
+  startAfter,
   getDocs,
   doc,
   getDoc,
@@ -13,6 +14,8 @@ import {
   serverTimestamp,
   Timestamp,
   writeBatch,
+  QueryDocumentSnapshot,
+  DocumentData,
 } from 'firebase/firestore';
 import { auth } from '../../lib/firebase';
 import { db } from '../../lib/firebase';
@@ -383,6 +386,81 @@ export const getBookings = async (competitionId?: string, competitions: Competit
     .map((docSnap) => buildBooking(docSnap, seatMap, pondMap, competitionMap));
 };
 
+export interface BookingsPageOptions {
+  /** Raw Firestore status values, e.g. ['PENDING_APPROVAL'] or ['APPROVED','CONFIRMED','REJECTED']. */
+  statuses: string[];
+  balanceStage?: 'review-balance' | 'pending-balance' | 'fully-paid';
+  competitionId?: string;
+  paymentType?: 'deposit' | 'full' | 'baki';
+  sortField?: 'createdAt' | 'userName' | 'totalAmount';
+  sortDir?: 'asc' | 'desc';
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  /** Needed to resolve competitionId -> name/dates on each row, same as getBookings(). */
+  competitions?: Competition[];
+}
+
+export interface BookingsPageResult {
+  items: Booking[];
+  firstDoc: QueryDocumentSnapshot<DocumentData> | null;
+  lastDoc: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}
+
+/**
+ * Scoped, cursor-paginated booking fetch for the Kelulusan / Semua Tempahan
+ * CMS pages — unlike getBookings() (used for the app's global in-memory
+ * bookings blob), this only ever pulls one page's worth of documents that
+ * match the given status/filter combo, so these two admin pages stay fast
+ * even once the bookings collection grows into the thousands.
+ */
+export const getBookingsPage = async (opts: BookingsPageOptions): Promise<BookingsPageResult> => {
+  const pageSize = opts.pageSize ?? 50;
+  const sortField = opts.sortField ?? 'createdAt';
+  const sortDir = opts.sortDir ?? 'desc';
+
+  const clauses = [where('status', 'in', opts.statuses)];
+  if (opts.balanceStage) clauses.push(where('balanceStage', '==', opts.balanceStage));
+  if (opts.competitionId) clauses.push(where('competitionId', '==', opts.competitionId));
+  if (opts.paymentType) clauses.push(where('paymentType', '==', opts.paymentType));
+
+  let q = query(collection(db, 'bookings'), ...clauses, orderBy(sortField, sortDir), limit(pageSize + 1));
+  if (opts.cursor) q = query(q, startAfter(opts.cursor));
+
+  const snap = await getDocs(q);
+  const hasMore = snap.docs.length > pageSize;
+  const pageDocs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
+
+  // Same lookup-map setup getBookings() uses — ponds/seats are bounded by
+  // physical infrastructure, not booking volume, so fetching them in full
+  // here isn't a scalability concern.
+  const ponds = await getPondsWithSeats();
+  const pondMap = new Map<string, Pond>();
+  ponds.forEach((pond) => {
+    pondMap.set(pond.id.toString(), pond);
+    if (pond._docId) pondMap.set(pond._docId, pond);
+  });
+  const seatSnapshot = await getDocs(collection(db, 'seats'));
+  const seatMap = new Map<string, number>();
+  seatSnapshot.forEach((seatSnap) => {
+    const data = seatSnap.data();
+    if (data.seatNumber) {
+      seatMap.set(seatSnap.id, data.seatNumber);
+      seatMap.set(seatSnap.ref.path, data.seatNumber);
+    }
+  });
+  const competitionMap = new Map<string, Competition>();
+  (opts.competitions || []).forEach((c) => { if (c.id) competitionMap.set(c.id, c); });
+
+  const items = pageDocs.map((d) => buildBooking(d, seatMap, pondMap, competitionMap));
+  return {
+    items,
+    firstDoc: pageDocs[0] || null,
+    lastDoc: pageDocs[pageDocs.length - 1] || null,
+    hasMore,
+  };
+};
+
 export const loadAppDB = async (): Promise<DB> => {
   try {
     const [competition, competitions, ponds, settings] = await Promise.all([
@@ -412,26 +490,50 @@ export const loadAppDB = async (): Promise<DB> => {
   }
 };
 
-// Fetch all user profile docs. Admin-only readable (firestore.rules); callers
-// must already be staff/admin (e.g. CMSModal). Degrades to [] on any error so a
-// permission hiccup never throws into the caller.
-export const getUsers = async (): Promise<User[]> => {
-  try {
-    const snap = await getDocs(collection(db, 'users'));
-    return snap.docs.map((d) => {
-      const data = d.data() as Record<string, unknown>;
-      return {
-        uid: d.id,
-        email: (data.email as string) || '',
-        name: (data.name as string) || '',
-        phone: (data.phone as string) || '',
-        role: (data.role as User['role']) || 'CLIENT',
-      };
-    });
-  } catch (error) {
-    console.error('Failed to load users:', error);
-    return [];
-  }
+const buildUserFromDoc = (d: QueryDocumentSnapshot<DocumentData>): User => {
+  const data = d.data() as Record<string, unknown>;
+  return {
+    uid: d.id,
+    email: (data.email as string) || '',
+    name: (data.name as string) || '',
+    phone: (data.phone as string) || '',
+    role: (data.role as User['role']) || 'CLIENT',
+  };
+};
+
+export interface UsersPageOptions {
+  sortDir?: 'asc' | 'desc';
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+}
+
+export interface UsersPageResult {
+  items: User[];
+  lastDoc: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}
+
+/**
+ * Scoped, cursor-paginated fetch of registered accounts for the Pengguna CMS
+ * page — every account write (email/password, Google, staff-created) always
+ * sets `name` (possibly ''), so ordering by it never silently drops a doc.
+ */
+export const getUsersPage = async (opts: UsersPageOptions = {}): Promise<UsersPageResult> => {
+  const pageSize = opts.pageSize ?? 50;
+  const sortDir = opts.sortDir ?? 'asc';
+
+  let q = query(collection(db, 'users'), orderBy('name', sortDir), limit(pageSize + 1));
+  if (opts.cursor) q = query(q, startAfter(opts.cursor));
+
+  const snap = await getDocs(q);
+  const hasMore = snap.docs.length > pageSize;
+  const pageDocs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
+
+  return {
+    items: pageDocs.map(buildUserFromDoc),
+    lastDoc: pageDocs[pageDocs.length - 1] || null,
+    hasMore,
+  };
 };
 
 export const createUserProfile = async (uid: string, data: { email: string; name: string; phone?: string; role?: string }) => {
@@ -696,36 +798,72 @@ export const getScoresForCompetition = async (competitionId: string): Promise<Sc
   return entries;
 };
 
-// Unscoped weigh-in history across every competition (for the "Semua Timbangan
-// Rekod" admin page). Ordered + capped instead of filtered — no `where` clause
-// means no new composite index is needed; competition/pond/angler filtering
-// happens client-side against this list, same as other CMS list pages.
-export const getAllScoreEntries = async (limitCount = 500): Promise<ScoreEntry[]> => {
-  const snap = await getDocs(query(collection(db, 'eventResults'), orderBy('createdAt', 'desc'), limit(limitCount)));
-  return snap.docs.map((d) => {
-    const data = d.data() as any;
-    const rawCompetitionId = data.competitionId;
-    const competitionId = rawCompetitionId && typeof rawCompetitionId === 'object' ? rawCompetitionId.id : rawCompetitionId || '';
-    const rawBookingId = data.bookingId;
-    const bookingId = rawBookingId && typeof rawBookingId === 'object' ? rawBookingId.id : rawBookingId || undefined;
-    return {
-      id: d.id,
-      competitionId,
-      bookingId,
-      anglerName: data.anglerName || '',
-      pondId: typeof data.pondId === 'number' ? data.pondId : 0,
-      pondName: data.pondName || '',
-      seatNum: data.seatNum || data.seatNumber || 0,
-      weight: parseFloat(data.weight ?? data.totalWeight ?? 0),
-      photoUrl: data.photoUrl || undefined,
-      ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
-      ocrRawText: data.ocrRawText || undefined,
-      ocrUserVerified: typeof data.ocrUserVerified === 'boolean' ? data.ocrUserVerified : undefined,
-      scanMethod: data.scanMethod || undefined,
-      capturedBy: data.capturedBy || undefined,
-      capturedAt: normalizeTimestamp(data.updatedAt) || normalizeTimestamp(data.createdAt) || undefined,
-    } as ScoreEntry;
-  });
+const buildScoreEntryFromDoc = (d: QueryDocumentSnapshot<DocumentData>): ScoreEntry => {
+  const data = d.data() as any;
+  const rawCompetitionId = data.competitionId;
+  const competitionId = rawCompetitionId && typeof rawCompetitionId === 'object' ? rawCompetitionId.id : rawCompetitionId || '';
+  const rawBookingId = data.bookingId;
+  const bookingId = rawBookingId && typeof rawBookingId === 'object' ? rawBookingId.id : rawBookingId || undefined;
+  return {
+    id: d.id,
+    competitionId,
+    bookingId,
+    anglerName: data.anglerName || '',
+    pondId: typeof data.pondId === 'number' ? data.pondId : 0,
+    pondName: data.pondName || '',
+    seatNum: data.seatNum || data.seatNumber || 0,
+    weight: parseFloat(data.weight ?? data.totalWeight ?? 0),
+    photoUrl: data.photoUrl || undefined,
+    ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
+    ocrRawText: data.ocrRawText || undefined,
+    ocrUserVerified: typeof data.ocrUserVerified === 'boolean' ? data.ocrUserVerified : undefined,
+    scanMethod: data.scanMethod || undefined,
+    capturedBy: data.capturedBy || undefined,
+    capturedAt: normalizeTimestamp(data.updatedAt) || normalizeTimestamp(data.createdAt) || undefined,
+  } as ScoreEntry;
+};
+
+export interface ScoreEntriesPageOptions {
+  competitionId?: string;
+  pondName?: string;
+  sortDir?: 'asc' | 'desc';
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+}
+
+export interface ScoreEntriesPageResult {
+  items: ScoreEntry[];
+  lastDoc: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}
+
+/**
+ * Cursor-paginated weigh-in history for the "Semua Timbangan Rekod" admin
+ * page. saveScoreEntry always writes competitionId/pondName as plain strings,
+ * so filtering on them directly is safe for all current and future data; a
+ * handful of pre-migration docs that stored competitionId as a
+ * DocumentReference (see getScoresForCompetition, which dual-queries both
+ * forms for scoring accuracy) won't match a competition filter here — browsing
+ * with no competition selected still finds them via plain orderBy.
+ */
+export const getScoreEntriesPage = async (opts: ScoreEntriesPageOptions = {}): Promise<ScoreEntriesPageResult> => {
+  const pageSize = opts.pageSize ?? 50;
+  const clauses: ReturnType<typeof where>[] = [];
+  if (opts.competitionId) clauses.push(where('competitionId', '==', opts.competitionId));
+  if (opts.pondName) clauses.push(where('pondName', '==', opts.pondName));
+
+  let q = query(collection(db, 'eventResults'), ...clauses, orderBy('createdAt', opts.sortDir ?? 'desc'), limit(pageSize + 1));
+  if (opts.cursor) q = query(q, startAfter(opts.cursor));
+
+  const snap = await getDocs(q);
+  const hasMore = snap.docs.length > pageSize;
+  const pageDocs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
+
+  return {
+    items: pageDocs.map(buildScoreEntryFromDoc),
+    lastDoc: pageDocs[pageDocs.length - 1] || null,
+    hasMore,
+  };
 };
 
 export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<string> => {
@@ -801,6 +939,30 @@ const sumAcceptedReceipts = (receipts: any[]) =>
   (Array.isArray(receipts) ? receipts : [])
     .filter((r) => r?.status === 'accepted')
     .reduce((sum, r) => sum + (Number(r?.amount) || 0), 0);
+
+/**
+ * Fine-grained payment stage for a CONFIRMED booking, used so Semua Tempahan
+ * can filter/paginate on `balanceStage` server-side instead of scanning every
+ * booking's receipts. Computed from primitives so it's usable both at
+ * write-time (accept/reject a receipt) and as a display fallback for older
+ * bookings that don't have the field stored yet.
+ */
+export const computeBalanceStage = (
+  paidAmount: number,
+  totalAmount: number,
+  hasPendingReceipts: boolean,
+): 'review-balance' | 'pending-balance' | 'fully-paid' => {
+  const balanceDue = Math.max(0, (Number(totalAmount) || 0) - (Number(paidAmount) || 0));
+  if (balanceDue <= 0) return 'fully-paid';
+  return hasPendingReceipts ? 'review-balance' : 'pending-balance';
+};
+
+/** Display-side fallback for bookings written before `balanceStage` existed. */
+export const deriveBalanceStage = (booking: Booking): 'review-balance' | 'pending-balance' | 'fully-paid' => {
+  if (booking.balanceStage) return booking.balanceStage;
+  const hasPendingReceipts = (booking.receipts || []).some((r) => r.status === 'pending');
+  return computeBalanceStage(booking.paidAmount ?? booking.amount, booking.totalAmount, hasPendingReceipts);
+};
 
 // Mirror buildBooking's receipt derivation so the on-disk document matches the
 // indexes the CMS renders. Legacy bookings store a single `receiptUrl` with no
@@ -942,19 +1104,23 @@ export const acceptBookingReceiptDirect = async (bookingId: string, receiptIndex
   const fullyPaid = totalAmount > 0 && paidAmount >= totalAmount;
   const statusUpper = (booking.status || '').toUpperCase();
   const alreadyConfirmed = ['APPROVED', 'CONFIRMED', 'LIVE'].includes(statusUpper);
-  // Confirm the booking (status + hold seats) only once it is fully paid. A deposit
-  // booking with only the deposit receipt accepted stays PENDING_APPROVAL — its seats
-  // remain held by the pending-booking seat-conflict logic — until the balance is in.
-  const shouldConfirm = fullyPaid && !alreadyConfirmed;
+  // Confirm the booking (status + hold seats) on its FIRST ever accepted
+  // receipt — a deposit booking confirms as soon as the deposit is approved,
+  // not only once the balance is also in. `justConfirmed` tells the caller
+  // this is the moment to fire the approval email / secure the seat.
+  const justConfirmed = !alreadyConfirmed;
+  const hasPendingReceipts = receipts.some((r) => r.status === 'pending');
+  const balanceStage = computeBalanceStage(paidAmount, totalAmount, hasPendingReceipts);
 
   const update: Record<string, any> = {
     receipts,
     paidAmount,
     paymentStatus: fullyPaid ? 'APPROVED' : 'PARTIAL',
+    balanceStage,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || null,
   };
-  if (shouldConfirm) update.status = 'APPROVED';
+  if (justConfirmed) update.status = 'APPROVED';
 
   await setDoc(bookingRef, update, { merge: true });
 
@@ -966,9 +1132,9 @@ export const acceptBookingReceiptDirect = async (bookingId: string, receiptIndex
       createdAt: serverTimestamp(),
     });
   }
-  if (shouldConfirm) await setSeatStatusForBooking(booking, 'booked');
+  if (justConfirmed) await setSeatStatusForBooking(booking, 'booked');
 
-  return { success: true, paidAmount, fullyPaid, status: update.status || booking.status };
+  return { success: true, paidAmount, fullyPaid, justConfirmed, balanceStage, status: update.status || booking.status };
 };
 
 // Staff-assisted deposit approval path: attach uploaded proof, mark the
@@ -994,6 +1160,8 @@ export const approveDepositWithProofDirect = async (bookingId: string, proofUrl:
   const totalAmount = Number(booking.totalAmount) || 0;
   const balanceDue = Math.max(0, totalAmount - paidAmount);
   const nextPaymentType = balanceDue > 0 ? 'baki' : 'full';
+  const hasPendingReceipts = nextReceipts.some((r) => r.status === 'pending');
+  const balanceStage = computeBalanceStage(paidAmount, totalAmount, hasPendingReceipts);
 
   await setDoc(bookingRef, {
     receipts: nextReceipts,
@@ -1002,6 +1170,7 @@ export const approveDepositWithProofDirect = async (bookingId: string, proofUrl:
     paymentType: nextPaymentType,
     paymentStatus: balanceDue > 0 ? 'PARTIAL' : 'APPROVED',
     status: 'APPROVED',
+    balanceStage,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || null,
   }, { merge: true });
@@ -1016,6 +1185,28 @@ export const approveDepositWithProofDirect = async (bookingId: string, proofUrl:
 
   await setSeatStatusForBooking(booking, 'booked');
   return { success: true, paidAmount, balanceDue, paymentType: nextPaymentType };
+};
+
+// Append-only staff note log on a booking (Kelulusan/Semua Tempahan). Never
+// overwrites prior notes — each call adds one dated entry.
+export const addStaffRemark = async (bookingId: string, text: string, byName?: string) => {
+  const bookingRef = doc(db, 'bookings', bookingId);
+  const snap = await getDoc(bookingRef);
+  if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
+  const booking = snap.data() as any;
+  const staffRemarks = Array.isArray(booking.staffRemarks) ? booking.staffRemarks : [];
+  const entry = {
+    text: text.trim(),
+    byUid: auth.currentUser?.uid || null,
+    byName: byName || auth.currentUser?.email || null,
+    at: new Date().toISOString(),
+  };
+  await setDoc(bookingRef, {
+    staffRemarks: [...staffRemarks, entry],
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || null,
+  }, { merge: true });
+  return entry;
 };
 
 // Stamp the time a balance reminder was sent so the 7-day auto-remind window
@@ -1038,13 +1229,30 @@ export const rejectBookingReceiptDirect = async (bookingId: string, receiptIndex
 
   receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'rejected' };
   const paidAmount = sumAcceptedReceipts(receipts);
+  const totalAmount = Number(booking.totalAmount) || 0;
+  const statusUpper = (booking.status || '').toUpperCase();
+  const alreadyConfirmed = ['APPROVED', 'CONFIRMED', 'LIVE'].includes(statusUpper);
 
-  await setDoc(bookingRef, {
+  const update: Record<string, any> = {
     receipts,
     paidAmount,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.uid || null,
-  }, { merge: true });
+  };
+  if (alreadyConfirmed) {
+    // Rejecting the balance receipt on an already-confirmed (deposit-approved)
+    // booking doesn't undo the confirmation — it just sends the balance back
+    // to "awaiting a fresh upload" so the owner can re-submit.
+    const hasPendingReceipts = receipts.some((r) => r.status === 'pending');
+    update.balanceStage = computeBalanceStage(paidAmount, totalAmount, hasPendingReceipts);
+  } else {
+    // No decision has been made on this booking yet — rejecting its (only)
+    // receipt at this stage IS the decision: reject the whole booking.
+    update.status = 'REJECTED';
+  }
 
-  return { success: true, paidAmount };
+  await setDoc(bookingRef, update, { merge: true });
+  if (!alreadyConfirmed) await setSeatStatusForBooking(booking, 'available');
+
+  return { success: true, paidAmount, bookingRejected: !alreadyConfirmed };
 };

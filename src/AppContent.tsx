@@ -14,7 +14,9 @@ import LiveResults from './components/LiveResults';
 import AuthModal from './components/AuthModal';
 import CMSModal from './components/CMSModal';
 import BookingDetailsModal from './components/BookingDetailsModal';
+import CompleteProfileModal from './components/CompleteProfileModal';
 import BookingDetailContent from './components/BookingDetailContent';
+import ProfileContent from './components/ProfileContent';
 import Toast from './components/Toast';
 import Footer from './components/Footer';
 import { useBooking } from './context/BookingContext';
@@ -55,9 +57,10 @@ const AppContent: React.FC = () => {
     reloadDB
   } = useBooking();
   const { addToast, setAuthModalOpen, authModalOpen } = useUI();
-  const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToConfirmed, goToBookingDetail, goToCMS } = useNavigation();
+  const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToProfile, goToConfirmed, goToBookingDetail, goToCMS } = useNavigation();
   const location = useLocation();
-  const { login, register, signInWithGoogle, logout, resendVerification, refreshUser, authReady } = useAuth();
+  const { login, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady } = useAuth();
+  const [completeProfileOpen, setCompleteProfileOpen] = useState(false);
 
   const [homeScrollTarget, setHomeScrollTarget] = useState<string | null>(null);
   const [pondPickerOpen, setPondPickerOpen] = useState(false);
@@ -396,12 +399,24 @@ const AppContent: React.FC = () => {
   };
 
   const handleGoogleLogin = async () => {
-    const success = await signInWithGoogle();
+    const { success, needsPhone } = await signInWithGoogle();
     if (success) {
       setAuthModalOpen(false);
-      goToMyBookings();
+      if (needsPhone) {
+        setCompleteProfileOpen(true);
+      } else {
+        goToMyBookings();
+      }
     }
     return success;
+  };
+
+  const handleCompleteProfile = async (phone: string) => {
+    const ok = await updateUserProfile(user?.name || '', phone);
+    if (ok) {
+      setCompleteProfileOpen(false);
+      goToMyBookings();
+    }
   };
 
   const handleLogout = () => {
@@ -448,6 +463,14 @@ const AppContent: React.FC = () => {
     if (section === 'mybookings') {
       if (user) {
         goToMyBookings();
+      } else {
+        setAuthModalOpen(true);
+      }
+      return;
+    }
+    if (section === 'profile') {
+      if (user) {
+        goToProfile();
       } else {
         setAuthModalOpen(true);
       }
@@ -1536,6 +1559,29 @@ const AppContent: React.FC = () => {
             )}
           </div>
         );
+      case 'profile':
+        if (!authReady) {
+          return (
+            <div className="bookings-page">
+              <div className="empty-state">
+                <span className="empty-icon">⏳</span>
+                <div className="empty-text">Checking your session...</div>
+              </div>
+            </div>
+          );
+        }
+        if (!user) {
+          return (
+            <div className="bookings-page">
+              <div className="empty-state">
+                <span className="empty-icon">🔐</span>
+                <div className="empty-text">Sila log masuk untuk melihat profil anda.</div>
+                <button className="btn btn-primary" style={{ marginTop: '12px' }} onClick={() => setAuthModalOpen(true)}>Log Masuk</button>
+              </div>
+            </div>
+          );
+        }
+        return <ProfileContent user={user} onSave={updateUserProfile} />;
       case 'confirmed': {
         const lastBooking = db.bookings[0];
         return (
@@ -1688,6 +1734,7 @@ const AppContent: React.FC = () => {
       {location.pathname === '/' && (
         <Footer settings={db.settings} onNavigate={handleNavigation} />
       )}
+      <CompleteProfileModal isOpen={completeProfileOpen} onSubmit={handleCompleteProfile} />
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}

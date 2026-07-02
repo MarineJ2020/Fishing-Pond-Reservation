@@ -72,6 +72,15 @@ export interface Booking {
   balanceReminderSentAt?: string;
   /** True once the owner has used their one-time receipt re-upload (correction). */
   receiptReuploadUsed?: boolean;
+  /**
+   * Fine-grained payment stage, only meaningful when status === 'confirmed'.
+   * Maintained at write-time (receipt accept/reject) so the CMS can filter on
+   * it server-side. Absent on older bookings — derive on the fly from
+   * balanceDue/receipts when missing (see computeBalanceStage).
+   */
+  balanceStage?: 'review-balance' | 'pending-balance' | 'fully-paid';
+  /** Append-only staff note log shown on Kelulusan/Semua Tempahan. */
+  staffRemarks?: { text: string; byUid?: string; byName?: string; at: string }[];
 }
 
 export interface Score {
