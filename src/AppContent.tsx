@@ -1354,6 +1354,7 @@ const AppContent: React.FC = () => {
                           isSubmitting={bookingSubmitting}
                           payType={payType}
                           receiptData={receiptData}
+                          settings={db.settings}
                           adminProxyName={adminProxyName}
                           adminProxyEmail={adminProxyEmail}
                           adminProxyPhone={adminProxyPhone}
@@ -1534,7 +1535,7 @@ const AppContent: React.FC = () => {
                         style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: 'var(--red)', flex: '0 0 auto' }}
                       />
                     )}
-                    {b.id}
+                    {b.bookingRef || b.id}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>{fmt(b.createdAt)}</div>
                 </div>

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { User, Pond, Booking } from '../types';
+import { User, Pond, Settings } from '../types';
 
 interface BookingFormProps {
   user: User | null;
@@ -9,6 +9,7 @@ interface BookingFormProps {
   isSubmitting?: boolean;
   payType: 'full' | 'deposit';
   receiptData: string | null;
+  settings: Settings;
   adminProxyName: string;
   adminProxyEmail: string;
   adminProxyPhone: string;
@@ -33,6 +34,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   isSubmitting = false,
   payType,
   receiptData,
+  settings,
   adminProxyName,
   adminProxyEmail,
   adminProxyPhone,
@@ -181,6 +183,25 @@ const BookingForm: React.FC<BookingFormProps> = ({
       {payType === 'deposit' && (
         <div style={{ marginBottom: '14px', padding: '10px 12px', borderRadius: '9px', border: '1px solid rgba(185,28,28,0.25)', background: 'rgba(185,28,28,0.06)', fontSize: '.78rem', lineHeight: 1.5, color: '#7a2230' }}>
           <strong style={{ color: 'var(--red)' }}>Nota:</strong> Deposit akan ditolak daripada jumlah penuh. Baki perlu dijelaskan sebelum/ketika hari pertandingan.
+        </div>
+      )}
+
+      {(settings.qrBank || settings.qrName || settings.qrAccNo || settings.qrImg) && (
+        <div style={{ marginBottom: '16px', padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--border, #e5e0d8)', background: 'var(--cream, #f7f7f5)', display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {settings.qrImg && (
+            <img
+              src={settings.qrImg}
+              alt="QR Pembayaran"
+              style={{ width: 110, height: 110, objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border, #e5e0d8)', background: '#fff', flex: '0 0 auto' }}
+            />
+          )}
+          <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+            <div style={{ fontSize: '.7rem', color: 'var(--text-muted)', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 700, marginBottom: '6px' }}>Bayar Ke</div>
+            {settings.qrBank && <div style={{ fontSize: '.85rem', fontWeight: 700 }}>{settings.qrBank}</div>}
+            {settings.qrName && <div style={{ fontSize: '.82rem', marginTop: '2px' }}>{settings.qrName}</div>}
+            {settings.qrAccNo && <div style={{ fontSize: '.82rem', marginTop: '2px', fontFamily: 'monospace', letterSpacing: '.5px' }}>{settings.qrAccNo}</div>}
+            <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '6px' }}>Imbas QR atau pindah terus, kemudian muat naik resit di bawah.</div>
+          </div>
         </div>
       )}
 

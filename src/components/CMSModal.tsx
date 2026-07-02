@@ -297,6 +297,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
   const [prizesEditMode, setPrizesEditMode] = useState(false);
   const [pondMapUploading, setPondMapUploading] = useState(false);
+  const [qrImgUploading, setQrImgUploading] = useState(false);
   const [rulesPdfUploading, setRulesPdfUploading] = useState(false);
   // Users page search query (narrows the currently-loaded page only).
   const [userSearch, setUserSearch] = useState('');
@@ -1175,6 +1176,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         location: settingsEdit.location || '',
         contactTitle: settingsEdit.contactTitle || 'Ada Soalan?',
         contactSubtitle: settingsEdit.contactSubtitle || 'Jangan segan untuk hubungi kami. Kami sedia membantu.',
+        qrBank: settingsEdit.qrBank || '',
+        qrName: settingsEdit.qrName || '',
+        qrAccNo: settingsEdit.qrAccNo || '',
       });
       await reloadDB();
       await logAuditEvent({
@@ -1307,6 +1311,24 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       console.error('Failed to upload pond map image:', err);
     }
     setPondMapUploading(false);
+  };
+
+  const handleQrImgUpload = async (file: File) => {
+    setQrImgUploading(true);
+    try {
+      const webp = await compressBlobToWebp(file, file.name);
+      const url = await uploadImageToFirebaseStorage(webp, 'fishing-pond-payment-qr', webp.name);
+      setSettingsEdit(s => ({ ...s, qrImg: url }));
+      await updateSettingsFirestore({ qrImg: url });
+      await reloadDB();
+      await logAuditEvent({
+        action: 'settings.payment_qr', actionLabel: 'Muat Naik QR Pembayaran', entityType: 'settings',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    } catch (err) {
+      console.error('Failed to upload payment QR image:', err);
+    }
+    setQrImgUploading(false);
   };
 
   const handlePondViewToggle = async () => {
@@ -1921,7 +1943,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <tbody>
                           {bookings.slice(0, 5).map(b => (
                             <tr key={b.id}>
-                              <td className="td-ref">{b.id.slice(0, 10)}</td>
+                              <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
                               <td>{b.competitionName || comp.name || '-'}</td>
                               <td className="td-name">{b.userName}</td>
                               <td>{b.pondName}</td>
@@ -2398,7 +2420,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     const balance = b.balanceDue ?? Math.max(0, total - paid);
                     return (
                     <tr key={b.id}>
-                      <td className="td-ref">{b.id.slice(0, 10)}</td>
+                      <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
                       <td style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{b.createdAt ? new Date(b.createdAt).toLocaleString('ms-MY') : '-'}</td>
                       <td>{b.competitionName || comp.name || '-'}</td>
                       <td className="td-name">
@@ -2553,7 +2575,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     {allLoading && <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
                     {!allLoading && filteredEntries.map(b => (
                       <tr key={b.id}>
-                        <td className="td-ref">{b.id.slice(0, 10)}</td>
+                        <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
                         <td>{b.competitionName || comp.name || '-'}</td>
                         <td className="td-name">
                           {b.userName}
@@ -2662,7 +2684,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="checkin-result">
                     <div className="checkin-result-header"><h3>✓ Tempahan Dijumpai</h3><span className={`badge badge-${checkinResult.status === 'confirmed' ? 'approved' : checkinResult.status}`}>{checkinResult.status}</span></div>
                     <div className="checkin-result-body">
-                      <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.id}</span></div>
+                      <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.bookingRef || checkinResult.id}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{checkinResult.pondName}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingSeatList(checkinResult)}</span></div>
@@ -3099,6 +3121,65 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                   <div className="form-actions" style={{ marginTop: '12px' }}>
                     <button className="btn btn-primary" disabled={saving} onClick={handleContactSettingsSave}>{saving ? 'Menyimpan...' : 'Simpan Contact Us'}</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Maklumat Bank &amp; QR Pembayaran</div></div>
+                <div className="card-body">
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
+                    Dipaparkan kepada pelanggan di borang tempahan, antara jumlah bayaran dan muat naik resit.
+                  </div>
+                  <div className="form-grid">
+                    <div className="form-group"><label className="form-label">Bank</label><input className="form-input" value={settingsEdit.qrBank || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, qrBank: e.target.value })} placeholder="Maybank / DuitNow" /></div>
+                    <div className="form-group"><label className="form-label">Nama Akaun</label><input className="form-input" value={settingsEdit.qrName || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, qrName: e.target.value })} placeholder="Kolam Keli Sayang Sdn Bhd" /></div>
+                    <div className="form-group form-span"><label className="form-label">Nombor Akaun</label><input className="form-input" value={settingsEdit.qrAccNo || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, qrAccNo: e.target.value })} placeholder="1234-5678-9012" /></div>
+                  </div>
+                  <div className="form-actions" style={{ marginTop: '12px' }}>
+                    <button className="btn btn-primary" disabled={saving} onClick={handleContactSettingsSave}>{saving ? 'Menyimpan...' : 'Simpan Maklumat Bank'}</button>
+                  </div>
+
+                  <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: '1px solid var(--line, #e8edf2)' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                      Gambar QR Kod Pembayaran (DuitNow/bank transfer)
+                    </div>
+                    {settingsEdit.qrImg && (
+                      <img
+                        src={settingsEdit.qrImg}
+                        alt="QR Pembayaran"
+                        style={{ width: 160, height: 160, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--line, #e8edf2)', marginBottom: 10, display: 'block' }}
+                      />
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <label
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '8px',
+                          padding: '8px 16px', borderRadius: '8px', cursor: qrImgUploading ? 'not-allowed' : 'pointer',
+                          background: 'var(--green)', color: '#fff', fontSize: '0.85rem', fontWeight: 600,
+                          opacity: qrImgUploading ? 0.65 : 1,
+                        }}
+                      >
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          disabled={qrImgUploading}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) handleQrImgUpload(f); e.target.value = ''; }}
+                        />
+                        {qrImgUploading ? 'Memuat naik...' : (settingsEdit.qrImg ? '🔄 Tukar Gambar' : '⬆ Muat Naik Gambar')}
+                      </label>
+                      {settingsEdit.qrImg && (
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={async () => {
+                            setSettingsEdit(s => ({ ...s, qrImg: '' }));
+                            await updateSettingsFirestore({ qrImg: '' });
+                            await reloadDB();
+                          }}
+                        >Padam Gambar</button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3871,7 +3952,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             </div>
             <div className="modal-body">
               <p style={{ color: 'var(--text-muted)', marginBottom: '12px', fontSize: '0.85rem' }}>
-                Untuk membatalkan tempahan <strong>{forceCancelTarget.id.slice(0, 10)}</strong> ({forceCancelTarget.userName}),
+                Untuk membatalkan tempahan <strong>{forceCancelTarget.bookingRef || forceCancelTarget.id.slice(0, 10)}</strong> ({forceCancelTarget.userName}),
                 taip <strong style={{ color: 'var(--red)' }}>DELETE BOOKING</strong> di bawah.
                 <br /><br />
                 <em>To cancel this confirmed booking, type <strong style={{ color: 'var(--red)' }}>DELETE BOOKING</strong> below. This cannot be undone easily.</em>
