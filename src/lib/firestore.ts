@@ -390,8 +390,6 @@ export interface BookingsPageOptions {
   /** Raw Firestore status values, e.g. ['PENDING_APPROVAL'] or ['APPROVED','CONFIRMED','REJECTED']. */
   statuses: string[];
   balanceStage?: 'review-balance' | 'pending-balance' | 'fully-paid';
-  competitionId?: string;
-  paymentType?: 'deposit' | 'full' | 'baki';
   sortField?: 'createdAt' | 'userName' | 'totalAmount';
   sortDir?: 'asc' | 'desc';
   pageSize?: number;
@@ -413,16 +411,23 @@ export interface BookingsPageResult {
  * bookings blob), this only ever pulls one page's worth of documents that
  * match the given status/filter combo, so these two admin pages stay fast
  * even once the bookings collection grows into the thousands.
+ *
+ * Deliberately does NOT take competitionId/paymentType as server-side
+ * filters — every additional equality clause combined with orderBy needs
+ * its own Firestore composite index, and that combinatorial explosion (3
+ * sort fields x every filter combo) isn't worth it for what are secondary
+ * refinement filters. Callers apply those two client-side over the loaded
+ * page instead. balanceStage stays server-side since it's Semua Tempahan's
+ * primary lens — see firestore.indexes.json for the small, fixed set of
+ * composite indexes this function actually needs.
  */
 export const getBookingsPage = async (opts: BookingsPageOptions): Promise<BookingsPageResult> => {
   const pageSize = opts.pageSize ?? 50;
   const sortField = opts.sortField ?? 'createdAt';
   const sortDir = opts.sortDir ?? 'desc';
 
-  const clauses = [where('status', 'in', opts.statuses)];
+  const clauses: ReturnType<typeof where>[] = [where('status', 'in', opts.statuses)];
   if (opts.balanceStage) clauses.push(where('balanceStage', '==', opts.balanceStage));
-  if (opts.competitionId) clauses.push(where('competitionId', '==', opts.competitionId));
-  if (opts.paymentType) clauses.push(where('paymentType', '==', opts.paymentType));
 
   let q = query(collection(db, 'bookings'), ...clauses, orderBy(sortField, sortDir), limit(pageSize + 1));
   if (opts.cursor) q = query(q, startAfter(opts.cursor));

@@ -36,6 +36,7 @@ import { asset } from './config/landingAssets';
 const AppContent: React.FC = () => {
   const {
     db,
+    dbLoading,
     selectedPond,
     selectedCompetitionId,
     selectedSeats,
@@ -44,6 +45,7 @@ const AppContent: React.FC = () => {
     user,
     adminProxyName,
     adminProxyEmail,
+    adminProxyPhone,
     setPond,
     setSelectedCompetitionId,
     toggleSeat,
@@ -52,6 +54,7 @@ const AppContent: React.FC = () => {
     setReceiptData,
     setAdminProxyName,
     setAdminProxyEmail,
+    setAdminProxyPhone,
     submitBooking,
     updateDB,
     reloadDB
@@ -284,10 +287,13 @@ const AppContent: React.FC = () => {
     goToBook();
   };
 
-  // Booking entry CTAs open the Website/WhatsApp choice popup. If no WhatsApp
-  // number is configured, proceed straight to the chosen website action.
+  // Booking entry CTAs open the Website/WhatsApp choice popup. Only skip it
+  // once the DB has actually loaded and confirmed there's no WhatsApp number
+  // configured — while still loading, db.settings is emptyDB's blank
+  // placeholder, so bailing out on that would silently skip the popup on a
+  // fast first click after page load.
   const openBookingChoice = (proceed: () => void) => {
-    if (!db.settings.whatsapp) { proceed(); return; }
+    if (!dbLoading && !db.settings.whatsapp) { proceed(); return; }
     choiceProceedRef.current = proceed;
     setChoiceOpen(true);
   };
@@ -1350,6 +1356,7 @@ const AppContent: React.FC = () => {
                           receiptData={receiptData}
                           adminProxyName={adminProxyName}
                           adminProxyEmail={adminProxyEmail}
+                          adminProxyPhone={adminProxyPhone}
                           onSetPayType={setPayType}
                           onHandleReceiptChange={handleReceiptChange}
                           onClearReceipt={() => setReceiptData(null, null)}
@@ -1357,6 +1364,7 @@ const AppContent: React.FC = () => {
                           onOpenAuth={() => setAuthModalOpen(true)}
                           onAdminProxyNameChange={setAdminProxyName}
                           onAdminProxyEmailChange={setAdminProxyEmail}
+                          onAdminProxyPhoneChange={setAdminProxyPhone}
                           onResendVerification={resendVerification}
                           onRefreshVerification={refreshUser}
                           onOpenRulesPdf={openRulesPdf}

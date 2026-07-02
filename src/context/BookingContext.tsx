@@ -11,6 +11,8 @@ import { auth } from '../../lib/firebase';
 
 interface BookingContextType {
   db: DB;
+  /** True until the first Firestore DB load resolves. See dbLoading state below. */
+  dbLoading: boolean;
   user: User | null;
   selectedCompetitionId: string | null;
   selectedPond: number | null;
@@ -21,7 +23,8 @@ interface BookingContextType {
   bookingNotes: string;
   adminProxyName: string;
   adminProxyEmail: string;
-  
+  adminProxyPhone: string;
+
   setPond: (id: number | null) => void;
   setSelectedCompetitionId: (id: string | null) => void;
   toggleSeat: (num: number) => void;
@@ -31,6 +34,7 @@ interface BookingContextType {
   setBookingNotes: (notes: string) => void;
   setAdminProxyName: (name: string) => void;
   setAdminProxyEmail: (email: string) => void;
+  setAdminProxyPhone: (phone: string) => void;
   setUser: (user: User | null) => void;
   submitBooking: (pond: Pond) => Promise<Booking | null>;
   clearBooking: () => void;
@@ -60,6 +64,11 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [bookingNotes, setBookingNotes] = useState('');
   const [adminProxyName, setAdminProxyName] = useState('');
   const [adminProxyEmail, setAdminProxyEmail] = useState('');
+  const [adminProxyPhone, setAdminProxyPhone] = useState('');
+  // True until the first Firestore load resolves — db.settings is emptyDB's
+  // blank placeholder until then, so callers checking e.g. db.settings.whatsapp
+  // right after mount must not treat "still loading" as "genuinely unset".
+  const [dbLoading, setDbLoading] = useState(true);
 
   useEffect(() => {
     let canceled = false;
@@ -68,9 +77,10 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (!canceled) {
         setDbState(remoteDb);
         setDB(remoteDb);
+        setDbLoading(false);
       }
     };
-    load().catch(() => {});
+    load().catch(() => { if (!canceled) setDbLoading(false); });
     return () => { canceled = true; };
   }, []);
 
@@ -156,6 +166,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     setBookingNotes('');
     setAdminProxyName('');
     setAdminProxyEmail('');
+    setAdminProxyPhone('');
     setPayType('full');
   }, []);
 
@@ -186,7 +197,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const isAdminProxy = isStaff && adminProxyName.trim() !== '';
     const effectiveName = isAdminProxy ? adminProxyName.trim() : user.name;
     const effectiveEmail = isAdminProxy ? adminProxyEmail.trim() : (user.uid || user.email);
-    const effectivePhone = isAdminProxy ? '' : (user.phone || '');
+    const effectivePhone = isAdminProxy ? adminProxyPhone.trim() : (user.phone || '');
     // Real email address for notifications: proxy form when staff books on behalf of a guest,
     // Firebase auth email for self-service. Stored on the booking so approval flow doesn't need a lookup.
     const notifyEmail = isAdminProxy
@@ -270,12 +281,13 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     updateDB(newDb);
     clearBooking();
     return booking;
-  }, [user, selectedSeats, receiptData, receiptFile, payType, bookingNotes, adminProxyName, adminProxyEmail, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
+  }, [user, selectedSeats, receiptData, receiptFile, payType, bookingNotes, adminProxyName, adminProxyEmail, adminProxyPhone, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
 
   return (
     <BookingContext.Provider
       value={{
         db,
+        dbLoading,
         user,
         selectedCompetitionId,
         selectedPond,
@@ -286,6 +298,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         bookingNotes,
         adminProxyName,
         adminProxyEmail,
+        adminProxyPhone,
         setPond,
         setSelectedCompetitionId,
         toggleSeat,
@@ -295,6 +308,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         setBookingNotes,
         setAdminProxyName,
         setAdminProxyEmail,
+        setAdminProxyPhone,
         setUser,
         submitBooking,
         clearBooking,

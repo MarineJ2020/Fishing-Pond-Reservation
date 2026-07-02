@@ -222,6 +222,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [kelulusanCursors, setKelulusanCursors] = useState<any[]>([null]); // stack of startAfter cursors, index 0 = first page
   const [kelulusanPage, setKelulusanPage] = useState(0);
   const [kelulusanHasMore, setKelulusanHasMore] = useState(false);
+  const [kelulusanError, setKelulusanError] = useState<string | null>(null);
 
   // Semua Tempahan — everything already decided (confirmed/rejected).
   const [bookingSearch, setBookingSearch] = useState('');
@@ -236,6 +237,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [allCursors, setAllCursors] = useState<any[]>([null]);
   const [allPage, setAllPage] = useState(0);
   const [allHasMore, setAllHasMore] = useState(false);
+  const [allError, setAllError] = useState<string | null>(null);
 
   // Shared receipt-review popup (Kelulusan's first receipt, Semua Tempahan's balance receipt).
   const [reviewTarget, setReviewTarget] = useState<Booking | null>(null);
@@ -275,6 +277,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // paginated so it stays fast once weigh-ins number in the thousands.
   const [allWeighEntries, setAllWeighEntries] = useState<ScoreEntry[]>([]);
   const [allWeighLoading, setAllWeighLoading] = useState(false);
+  const [allWeighError, setAllWeighError] = useState<string | null>(null);
   const [allWeighCursors, setAllWeighCursors] = useState<any[]>([null]);
   const [allWeighPage, setAllWeighPage] = useState(0);
   const [allWeighHasMore, setAllWeighHasMore] = useState(false);
@@ -839,13 +842,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   // ── Kelulusan (pending-only) paginated fetch ────────────────────────────
+  // competitionId/paymentType are applied client-side over the loaded page
+  // (see filteredEntries below) — only status/balanceStage are server
+  // where-clauses, matching the fixed set of composite indexes in
+  // firestore.indexes.json.
   const fetchKelulusanPage = async (cursor: any, pageIndex: number) => {
     setKelulusanLoading(true);
+    setKelulusanError(null);
     try {
       const result = await getBookingsPage({
         statuses: ['PENDING_APPROVAL'],
-        competitionId: approvalCompFilter || undefined,
-        paymentType: approvalPayFilter || undefined,
         sortField: approvalSortField,
         sortDir: approvalsSortOrder,
         pageSize: 50,
@@ -861,6 +867,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
     } catch (err) {
       console.error('Failed to load Kelulusan page:', err);
+      setKelulusanError(err instanceof Error ? err.message : 'Gagal memuatkan senarai Kelulusan.');
     }
     setKelulusanLoading(false);
   };
@@ -889,11 +896,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setKelulusanCursors([null]);
     fetchKelulusanPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, approvalCompFilter, approvalPayFilter, approvalSortField, approvalsSortOrder]);
+  }, [page, approvalSortField, approvalsSortOrder]);
 
   // ── Semua Tempahan (decided: confirmed/rejected) paginated fetch ────────
+  // Same competitionId/paymentType-stay-client-side reasoning as Kelulusan.
   const fetchAllTempahanPage = async (cursor: any, pageIndex: number) => {
     setAllLoading(true);
+    setAllError(null);
     try {
       const statuses = allStatus === 'cancelled'
         ? ['REJECTED']
@@ -904,8 +913,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const result = await getBookingsPage({
         statuses,
         balanceStage,
-        competitionId: allCompFilter || undefined,
-        paymentType: allPayFilter || undefined,
         sortField: allSortField,
         sortDir: allSortOrder,
         pageSize: 50,
@@ -921,6 +928,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
     } catch (err) {
       console.error('Failed to load Semua Tempahan page:', err);
+      setAllError(err instanceof Error ? err.message : 'Gagal memuatkan senarai Semua Tempahan.');
     }
     setAllLoading(false);
   };
@@ -949,7 +957,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setAllCursors([null]);
     fetchAllTempahanPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, allStatus, allCompFilter, allPayFilter, allPondFilter, allSortField, allSortOrder]);
+  }, [page, allStatus, allSortField, allSortOrder]);
 
   // Refetch whichever list is currently on-screen after a mutation — the
   // OTHER list (if the booking just moved between them) picks up the change
@@ -1622,6 +1630,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const fetchWeighPage = async (cursor: any, pageIndex: number) => {
     setAllWeighLoading(true);
+    setAllWeighError(null);
     try {
       const result = await getScoreEntriesPage({
         competitionId: allWeighCompId || undefined,
@@ -1638,6 +1647,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
     } catch (err) {
       console.error('Failed to load Semua Timbangan Rekod page:', err);
+      setAllWeighError(err instanceof Error ? err.message : 'Gagal memuatkan Semua Timbangan Rekod.');
     }
     setAllWeighLoading(false);
   };
@@ -2328,13 +2338,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           })()}
           {page === 'approvals' && (() => {
             const aq = approvalSearch.trim().toLowerCase();
-            // Server query already scopes to status===pending + competition/payment
-            // filters; search narrows the currently-loaded page client-side.
-            const filteredEntries = kelulusanEntries.filter((b) => {
-              if (!aq) return true;
-              const hay = [b.id, b.bookingRef, b.userName, b.userEmail, b.userPhone, b.pondName, b.competitionName].filter(Boolean).join(' ').toLowerCase();
-              return hay.includes(aq);
-            });
+            // Server query only scopes status===pending; competition/payment
+            // filters and search narrow the currently-loaded page client-side.
+            const filteredEntries = kelulusanEntries
+              .filter((b) => !approvalCompFilter || (b.competitionId || '') === approvalCompFilter)
+              .filter((b) => !approvalPayFilter || (approvalPayFilter === 'deposit' ? b.paymentType === 'deposit' : b.paymentType !== 'deposit'))
+              .filter((b) => {
+                if (!aq) return true;
+                const hay = [b.id, b.bookingRef, b.userName, b.userEmail, b.userPhone, b.pondName, b.competitionName].filter(Boolean).join(' ').toLowerCase();
+                return hay.includes(aq);
+              });
             return (
             <div className="page active">
               <div className="page-header">
@@ -2343,6 +2356,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="page-sub">Semakan tempahan baru &amp; pembayaran pertama — belum dibuat keputusan</div>
                 </div>
               </div>
+
+              {kelulusanError && (
+                <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--red, #c0152a)', fontSize: '0.85rem' }}>
+                  ⚠ {kelulusanError}
+                </div>
+              )}
 
               <div className="cms-notice-bar">
                 <div>
@@ -2460,10 +2479,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           )}
           {page === 'all-bookings' && (() => {
             const q = bookingSearch.trim().toLowerCase();
-            // Server query already scopes to status confirmed/rejected + the
-            // selected balance bucket/competition/payment filters; pond filter
-            // and search narrow the currently-loaded page client-side.
+            // Server query scopes status confirmed/rejected + the selected
+            // balance bucket; competition/payment/pond filters and search
+            // narrow the currently-loaded page client-side.
             const filteredEntries = allEntries
+              .filter(b => !allCompFilter || (b.competitionId || '') === allCompFilter)
+              .filter(b => !allPayFilter || (allPayFilter === 'deposit' ? b.paymentType === 'deposit' : b.paymentType !== 'deposit'))
               .filter(b => !allPondFilter || ((ponds.find(p => p.id === b.pondId)?.code || '').toUpperCase() === allPondFilter.toUpperCase()))
               .filter(b => {
                 if (!q) return true;
@@ -2478,6 +2499,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Semua Tempahan</div><div className="page-sub">Tempahan yang telah dibuat keputusan — disahkan atau ditolak</div></div></div>
+
+              {allError && (
+                <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--red, #c0152a)', fontSize: '0.85rem' }}>
+                  ⚠ {allError}
+                </div>
+              )}
 
               <div className="cms-notice-bar">
                 <div>
@@ -2973,6 +3000,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Semua Timbangan Rekod</div><div className="page-sub">Sejarah timbangan merentas semua pertandingan</div></div></div>
+
+              {allWeighError && (
+                <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--red, #c0152a)', fontSize: '0.85rem' }}>
+                  ⚠ {allWeighError}
+                </div>
+              )}
 
               <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>

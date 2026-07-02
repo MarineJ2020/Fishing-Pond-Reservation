@@ -11,6 +11,7 @@ interface BookingFormProps {
   receiptData: string | null;
   adminProxyName: string;
   adminProxyEmail: string;
+  adminProxyPhone: string;
   onSetPayType: (type: 'full' | 'deposit') => void;
   onHandleReceiptChange: (file: File) => void;
   onClearReceipt: () => void;
@@ -18,6 +19,7 @@ interface BookingFormProps {
   onOpenAuth: () => void;
   onAdminProxyNameChange: (v: string) => void;
   onAdminProxyEmailChange: (v: string) => void;
+  onAdminProxyPhoneChange: (v: string) => void;
   onResendVerification: () => Promise<boolean>;
   onRefreshVerification: () => Promise<boolean>;
   onOpenRulesPdf: () => void;
@@ -33,6 +35,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   receiptData,
   adminProxyName,
   adminProxyEmail,
+  adminProxyPhone,
   onSetPayType,
   onHandleReceiptChange,
   onClearReceipt,
@@ -40,6 +43,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   onOpenAuth,
   onAdminProxyNameChange,
   onAdminProxyEmailChange,
+  onAdminProxyPhoneChange,
   onResendVerification,
   onRefreshVerification,
   onOpenRulesPdf,
@@ -133,8 +137,18 @@ const BookingForm: React.FC<BookingFormProps> = ({
                 onChange={e => onAdminProxyEmailChange(e.target.value)}
               />
             </div>
+            <div>
+              <label className="form-label" style={{ marginBottom: '4px', display: 'block' }}>Nombor Telefon Pelanggan <span style={{ color: 'var(--red)' }}>*</span></label>
+              <input
+                className="form-input"
+                type="tel"
+                placeholder="+60 12-345 6789"
+                value={adminProxyPhone}
+                onChange={e => onAdminProxyPhoneChange(e.target.value)}
+              />
+            </div>
           </div>
-          <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '8px' }}>Isi nama untuk tempahan atas nama pelanggan. Kosongkan untuk tempahan atas nama sendiri.</div>
+          <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '8px' }}>Isi nama &amp; telefon untuk tempahan atas nama pelanggan. Kosongkan untuk tempahan atas nama sendiri.</div>
         </div>
       )}
 
@@ -244,7 +258,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
         id="btn-submit"
         className="btn btn-primary w-full btn-lg mt-4"
         onClick={onSubmitBooking}
-        disabled={isSubmitting || !selectedSeats.length || !receiptData || !termsConfirmed || (isAdmin && !adminProxyName.trim()) || needsVerification}
+        disabled={isSubmitting || !selectedSeats.length || !receiptData || !termsConfirmed || (isAdmin && !adminProxyName.trim()) || (isAdminProxyMode && !adminProxyPhone.trim()) || needsVerification}
       >
         {isSubmitting ? 'Menghantar...' : (isAdminProxyMode ? `Tempah untuk ${adminProxyName.trim()}` : 'Hantar Tempahan')}
       </button>
