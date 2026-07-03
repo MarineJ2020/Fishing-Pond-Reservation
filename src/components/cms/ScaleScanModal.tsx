@@ -241,6 +241,12 @@ const ScaleScanModal: React.FC<Props> = ({
   const liveQrCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const liveQrStreamRef = useRef<MediaStream | null>(null);
   const liveQrRafRef = useRef<number | null>(null);
+  // Mirrors liveQrActive synchronously — the rAF loop reads this instead of
+  // the state, since a state read inside a callback scheduled the instant
+  // setLiveQrActive(true) is called closes over the PRE-update value (the
+  // render carrying `true` hasn't happened yet), which made every frame bail
+  // out immediately and silently stop scanning forever.
+  const liveQrActiveRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -271,6 +277,7 @@ const ScaleScanModal: React.FC<Props> = ({
       setPendingFullBooking(null);
       setManualSearch('');
       lastInvalidQrRef.current = null;
+      liveQrActiveRef.current = false;
       setLiveQrActive(false);
       setLiveQrBusy(false);
     } else {
@@ -306,6 +313,7 @@ const ScaleScanModal: React.FC<Props> = ({
     if (liveQrStreamRef.current) {
       liveQrStreamRef.current.getTracks().forEach((t) => t.stop());
       liveQrStreamRef.current = null;
+      liveQrActiveRef.current = false;
       setLiveQrActive(false);
     }
   }, [step]);
@@ -363,13 +371,14 @@ const ScaleScanModal: React.FC<Props> = ({
     }
     const video = liveQrVideoRef.current;
     if (video) video.srcObject = null;
+    liveQrActiveRef.current = false;
     setLiveQrActive(false);
   };
 
   const runLiveQrFrame = () => {
     const video = liveQrVideoRef.current;
     const canvas = liveQrCanvasRef.current;
-    if (!video || !canvas || !liveQrActive) return;
+    if (!video || !canvas || !liveQrActiveRef.current) return;
     if (video.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) {
       liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
       return;
@@ -425,6 +434,7 @@ const ScaleScanModal: React.FC<Props> = ({
       if (!video) throw new Error('Elemen video tidak tersedia.');
       video.srcObject = stream;
       await video.play();
+      liveQrActiveRef.current = true;
       setLiveQrActive(true);
       liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
     } catch (err: any) {

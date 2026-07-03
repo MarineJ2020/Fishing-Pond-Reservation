@@ -13,6 +13,7 @@ import app, { auth, db as firestoreDb, googleProvider } from '../../lib/firebase
 import { useBooking } from '../context/BookingContext';
 import { useUI } from '../context/UIContext';
 import { queueWelcomeEmail } from '../lib/email';
+import { trackEvent } from '../utils/analytics';
 import { User } from '../types';
 
 // Our verification email is sent via the Zoho-backed Trigger Email extension,
@@ -65,6 +66,7 @@ export const useAuth = () => {
 
     try {
       await signInWithEmailAndPassword(auth, email, pass);
+      trackEvent('login', { method: 'password' });
       addToast('Logged in successfully', 'success');
       return true;
     } catch (error) {
@@ -96,9 +98,11 @@ export const useAuth = () => {
         // The account is created regardless; only the email send failed.
         console.error('Failed to send verification email:', verErr);
         addToast('Akaun dibuat, tetapi email pengesahan gagal dihantar. Cuba "Hantar semula".', 'info');
+        trackEvent('sign_up', { method: 'password' });
         return true;
       }
       addToast(`Akaun dibuat! Semak email anda untuk pengesahan.`, 'success');
+      trackEvent('sign_up', { method: 'password' });
       return true;
     } catch (error) {
       console.error(error);
@@ -135,6 +139,7 @@ export const useAuth = () => {
           });
         }
       }
+      trackEvent(needsPhone ? 'sign_up' : 'login', { method: 'google' });
       addToast('Log masuk berjaya!', 'success');
       return { success: true, needsPhone };
     } catch (error) {

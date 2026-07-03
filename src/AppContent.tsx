@@ -28,6 +28,7 @@ import { useCountdown } from './hooks/useCountdown';
 import { fmt } from './utils';
 import { formatSeatList, pondDisplayName } from './utils/seatLabel';
 import { countOutstanding, hasOutstandingBalance } from './utils/booking';
+import { trackEvent } from './utils/analytics';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindowState } from './utils/competition';
 import { normalizePdfUrl } from './utils/pdfStorage';
 import { Booking } from './types';
@@ -101,6 +102,9 @@ const AppContent: React.FC = () => {
   const choiceProceedRef = useRef<() => void>(() => {});
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
   const [myBookingsSort, setMyBookingsSort] = useState<'latest' | 'oldest'>('latest');
+  // Set directly from submitBooking()'s return value — db.bookings[0] isn't
+  // guaranteed to be the just-created booking (Firestore listener ordering).
+  const [lastSubmittedBooking, setLastSubmittedBooking] = useState<Booking | null>(null);
 
   const competitions = useMemo(() => {
     if (db.competitions?.length) return db.competitions;
@@ -336,7 +340,7 @@ const AppContent: React.FC = () => {
     const pond = bookablePonds.find(p => p.id === selectedPond);
     if (!pond) return;
 
-    let booking = null;
+    let booking: Booking | null = null;
     setBookingSubmitting(true);
     try {
       booking = await submitBooking(pond);
@@ -347,6 +351,13 @@ const AppContent: React.FC = () => {
     }
     setBookingSubmitting(false);
     if (booking) {
+      setLastSubmittedBooking(booking);
+      trackEvent('purchase', {
+        transaction_id: booking.bookingRef || booking.id,
+        value: booking.amount,
+        currency: 'MYR',
+        items: [{ item_name: booking.pondName, item_category: booking.competitionName }],
+      });
       addToast('Booking submitted! Staff will confirm via email.', 'success');
       goToConfirmed();
     }
@@ -1630,7 +1641,7 @@ const AppContent: React.FC = () => {
         }
         return <ProfileContent user={user} onSave={updateUserProfile} />;
       case 'confirmed': {
-        const lastBooking = db.bookings[0];
+        const lastBooking = lastSubmittedBooking || db.bookings[0];
         return (
           <div className="confirm-page">
             <div className="confirm-icon">🎣</div>
@@ -1649,7 +1660,7 @@ const AppContent: React.FC = () => {
                   ) : (
                     <>
                       Booking is <strong>pending verification</strong>.<br />
-                      Staff will confirm via email to <strong>{lastBooking.userId}</strong>.
+                      Staff will confirm via email to <strong>{lastBooking.userEmail || 'your registered email'}</strong>.
                     </>
                   )}
                 </>
