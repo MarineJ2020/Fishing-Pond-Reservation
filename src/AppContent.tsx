@@ -100,6 +100,7 @@ const AppContent: React.FC = () => {
   const [rulesPdfPreview, setRulesPdfPreview] = useState<string | null>(null);
   const choiceProceedRef = useRef<() => void>(() => {});
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
+  const [myBookingsSort, setMyBookingsSort] = useState<'latest' | 'oldest'>('latest');
 
   const competitions = useMemo(() => {
     if (db.competitions?.length) return db.competitions;
@@ -431,6 +432,10 @@ const AppContent: React.FC = () => {
 
   const userBookings = user ? db.bookings.filter(b => b.userId === user.uid || b.userId === user.email) : [];
   const outstandingCount = countOutstanding(userBookings);
+  const sortedUserBookings = [...userBookings].sort((a, b) => {
+    const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    return myBookingsSort === 'latest' ? -diff : diff;
+  });
 
   const openRulesPdf = () => {
     const pdfUrl = normalizePdfUrl(db.settings.rulesPdfUrl || '');
@@ -1300,15 +1305,12 @@ const AppContent: React.FC = () => {
 
                           {/* Step 3 — Pilih Tempat */}
                           <section className="bk-panel booking-stage-enter">
-                            <div className="bk-panel-head bk-panel-head-row">
+                            <div className="bk-panel-head">
                               <div>
                                 <div className="bk-eyebrow">Langkah 03</div>
                                 <h2>Pilih Tempat</h2>
                                 <p>Seat map dibuka dalam popup supaya page kekal ringkas.</p>
                               </div>
-                              <button className="btn btn-navy btn-sm" type="button" disabled={!hasPond} onClick={() => setSeatModalOpen(true)}>
-                                <i className="fa-solid fa-chair"></i> Buka Seat Map
-                              </button>
                             </div>
                             <div className="bk-panel-body">
                               <div className="bk-seatprev">
@@ -1437,29 +1439,35 @@ const AppContent: React.FC = () => {
                       <div className="bk-eyebrow">Seat Selection</div>
                       <h2>{pondDisplayName(bookedPond)}</h2>
                     </div>
-                    {competitionScopedPonds.length > 1 && (
-                      <select
-                        className="form-input bk-seat-modal-pond-switch"
-                        value={String(bookedPond.id)}
-                        onChange={(e) => setPond(Number(e.target.value))}
-                        aria-label="Tukar kolam"
-                      >
-                        {competitionScopedPonds.map((p) => {
-                          const avail = p.seats.filter((s) => s.status === 'available').length;
-                          const closed = !p.open;
-                          const full = avail === 0;
-                          return (
-                            <option key={p._docId || p.id} value={p.id} disabled={closed || full}>
-                              {pondDisplayName(p)}{closed ? ' (Ditutup)' : full ? ' (Penuh)' : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    )}
                     <button className="bk-icon-btn" type="button" onClick={() => setSeatModalOpen(false)} aria-label="Tutup popup">
                       <i className="fa-solid fa-xmark"></i>
                     </button>
                   </div>
+                  {competitionScopedPonds.length > 1 && (
+                    <div className="bk-seat-modal-pond-grid">
+                      <div className="bk-pond-grid">
+                        {competitionScopedPonds.map((pond) => {
+                          const avail = pond.seats.filter((s) => s.status === 'available').length;
+                          const closed = !pond.open;
+                          const full = avail === 0;
+                          const disabled = closed || full;
+                          const active = bookedPond.id === pond.id;
+                          return (
+                            <button
+                              key={pond._docId || pond.id}
+                              type="button"
+                              className={`bk-pond ${active ? 'active' : ''}`}
+                              disabled={disabled}
+                              onClick={() => { if (!disabled) setPond(pond.id); }}
+                            >
+                              <strong>{pondDisplayName(pond)}</strong>
+                              <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} slot tersedia`}</small>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div className="bk-seat-modal-body">
                     <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} useLegacyView={!!db.settings.useLegacyPondView} />
                   </div>
@@ -1537,11 +1545,25 @@ const AppContent: React.FC = () => {
                   {user.name} · {user.email}
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={() => goToBook()} style={{ borderRadius: '12px' }}>
-                <i className="fa-solid fa-plus"></i> New Booking
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {userBookings.length > 1 && (
+                  <select
+                    className="form-input"
+                    style={{ width: 'auto' }}
+                    value={myBookingsSort}
+                    onChange={(e) => setMyBookingsSort(e.target.value as 'latest' | 'oldest')}
+                    aria-label="Susun tempahan"
+                  >
+                    <option value="latest">Terkini Dahulu</option>
+                    <option value="oldest">Terlama Dahulu</option>
+                  </select>
+                )}
+                <button className="btn btn-primary" onClick={() => goToBook()} style={{ borderRadius: '12px' }}>
+                  <i className="fa-solid fa-plus"></i> New Booking
+                </button>
+              </div>
             </div>
-            {userBookings.length ? userBookings.map(b => (
+            {sortedUserBookings.length ? sortedUserBookings.map(b => (
               <div key={b.id} className="card booking-row" onClick={() => goToBookingDetail(b.id)}>
                 <div>
                   <div className="booking-id" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1622,8 +1644,14 @@ const AppContent: React.FC = () => {
                   Pegs: {lastBooking.seats.join(', ')}<br />
                   Amount: RM {lastBooking.amount} ({lastBooking.paymentType === 'deposit' ? '50% deposit' : 'full payment'})<br />
                   <br />
-                  Booking is <strong>pending verification</strong>.<br />
-                  Staff will confirm via email to <strong>{lastBooking.userId}</strong>.
+                  {lastBooking.status === 'confirmed' ? (
+                    <>Booking is <strong>completed</strong>.</>
+                  ) : (
+                    <>
+                      Booking is <strong>pending verification</strong>.<br />
+                      Staff will confirm via email to <strong>{lastBooking.userId}</strong>.
+                    </>
+                  )}
                 </>
               ) : (
                 <>

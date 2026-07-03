@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import PhoneNumberField from './PhoneNumberField';
+import PhoneConfirmModal from './PhoneConfirmModal';
+import { formatMyPhone, isValidMyPhoneRest } from '../utils/phone';
 
 interface CompleteProfileModalProps {
   isOpen: boolean;
@@ -11,16 +14,28 @@ interface CompleteProfileModalProps {
  * signup path gets one — no close button, phone is required to proceed.
  */
 const CompleteProfileModal: React.FC<CompleteProfileModalProps> = ({ isOpen, onSubmit }) => {
-  const [phone, setPhone] = useState('');
+  const [phonePrefix, setPhonePrefix] = useState('012');
+  const [phoneRest, setPhoneRest] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [phoneToConfirm, setPhoneToConfirm] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleSubmit = async () => {
-    if (!phone.trim()) return;
+  const handleContinue = () => {
+    if (!isValidMyPhoneRest(phonePrefix, phoneRest)) {
+      setError('Sila masukkan nombor telefon Malaysia yang sah.');
+      return;
+    }
+    setError('');
+    setPhoneToConfirm(formatMyPhone(phonePrefix, phoneRest));
+  };
+
+  const handleConfirmed = async () => {
     setLoading(true);
-    await onSubmit(phone.trim());
+    await onSubmit(formatMyPhone(phonePrefix, phoneRest));
     setLoading(false);
+    setPhoneToConfirm(null);
   };
 
   return (
@@ -33,22 +48,25 @@ const CompleteProfileModal: React.FC<CompleteProfileModalProps> = ({ isOpen, onS
           <p style={{ marginBottom: '16px', color: 'var(--text-muted, #667085)', fontSize: '14px', lineHeight: 1.5 }}>
             Google tidak berkongsi nombor telefon anda. Sila masukkan nombor telefon untuk lengkapkan pendaftaran.
           </p>
-          <label className="form-label">Telefon *</label>
-          <input
-            type="tel"
+          <PhoneNumberField
+            prefix={phonePrefix}
+            rest={phoneRest}
+            onPrefixChange={setPhonePrefix}
+            onRestChange={setPhoneRest}
             required
-            autoFocus
-            className="form-input"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+60 12-345 6789"
-            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
           />
-          <button className="form-submit" style={{ marginTop: '14px' }} onClick={handleSubmit} disabled={loading || !phone.trim()}>
+          {error && <div style={{ color: 'var(--red, #c0152a)', fontSize: '13px', marginTop: '8px' }}>{error}</div>}
+          <button className="form-submit" style={{ marginTop: '14px' }} onClick={handleContinue} disabled={loading}>
             {loading ? 'Menyimpan...' : 'Simpan & Teruskan'}
           </button>
         </div>
       </div>
+      <PhoneConfirmModal
+        phone={phoneToConfirm}
+        loading={loading}
+        onConfirm={handleConfirmed}
+        onCancel={() => setPhoneToConfirm(null)}
+      />
     </div>
   );
 };

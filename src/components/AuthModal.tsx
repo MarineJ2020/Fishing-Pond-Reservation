@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import PhoneNumberField from './PhoneNumberField';
+import PhoneConfirmModal from './PhoneConfirmModal';
+import { formatMyPhone, isValidMyPhoneRest } from '../utils/phone';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -25,11 +28,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
   const [loginPass, setLoginPass] = useState('');
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
-  const [regPhone, setRegPhone] = useState('');
+  const [regPhonePrefix, setRegPhonePrefix] = useState('012');
+  const [regPhoneRest, setRegPhoneRest] = useState('');
   const [regPass, setRegPass] = useState('');
   const [regError, setRegError] = useState('');
   const [verificationEmail, setVerificationEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const [phoneToConfirm, setPhoneToConfirm] = useState<string | null>(null);
 
   const handleLogin = async () => {
     setLoading(true);
@@ -37,15 +42,24 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
     setLoading(false);
   };
 
-  const handleRegister = async () => {
-    if (!regName.trim() || !regEmail.trim() || !regPhone.trim() || !regPass) {
+  const handleRegisterClick = () => {
+    if (!regName.trim() || !regEmail.trim() || !regPass) {
       setRegError('Sila lengkapkan semua medan, termasuk nombor telefon.');
       return;
     }
+    if (!isValidMyPhoneRest(regPhonePrefix, regPhoneRest)) {
+      setRegError('Sila masukkan nombor telefon Malaysia yang sah.');
+      return;
+    }
     setRegError('');
+    setPhoneToConfirm(formatMyPhone(regPhonePrefix, regPhoneRest));
+  };
+
+  const handleRegisterConfirmed = async () => {
     setLoading(true);
-    const success = await onRegister(regName, regEmail, regPhone, regPass);
+    const success = await onRegister(regName, regEmail, formatMyPhone(regPhonePrefix, regPhoneRest), regPass);
     setLoading(false);
+    setPhoneToConfirm(null);
     if (success) {
       setVerificationEmail(regEmail);
     }
@@ -131,16 +145,27 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
             <input type="text" className="form-input" value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="Ahmad bin Abdullah" />
             <label className="form-label">Email</label>
             <input type="email" className="form-input" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="you@example.com" />
-            <label className="form-label">Telefon *</label>
-            <input type="tel" required className="form-input" value={regPhone} onChange={(e) => setRegPhone(e.target.value)} placeholder="+60 12-345 6789" />
-            <label className="form-label">Password</label>
+            <PhoneNumberField
+              prefix={regPhonePrefix}
+              rest={regPhoneRest}
+              onPrefixChange={setRegPhonePrefix}
+              onRestChange={setRegPhoneRest}
+              required
+            />
+            <label className="form-label" style={{ marginTop: '14px' }}>Password</label>
             <input type="password" className="form-input" value={regPass} onChange={(e) => setRegPass(e.target.value)} placeholder="Cipta kata laluan" />
             {regError && <div style={{ color: 'var(--red, #c0152a)', fontSize: '13px', marginBottom: '10px' }}>{regError}</div>}
-            <button className="form-submit" onClick={handleRegister} disabled={loading}>Daftar Akaun</button>
+            <button className="form-submit" onClick={handleRegisterClick} disabled={loading}>Daftar Akaun</button>
             <div className="modal-switch">Sudah ada akaun? <a onClick={() => setTab('login')}>Log masuk</a></div>
           </div>
         </div>
       </div>
+      <PhoneConfirmModal
+        phone={phoneToConfirm}
+        loading={loading}
+        onConfirm={handleRegisterConfirmed}
+        onCancel={() => setPhoneToConfirm(null)}
+      />
     </div>
   );
 };

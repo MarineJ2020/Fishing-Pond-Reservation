@@ -239,21 +239,26 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
         </div>
       </section>
 
-      {/* Competition selector */}
-      {competitions.length > 1 && (
-        <div className="kl-comp-tabs">
-          {competitions.map(c => (
-            <button
-              key={c.id || c.name}
-              type="button"
-              className={`kl-comp-tab ${selectedCompId === c.id ? 'active' : ''}`}
-              onClick={() => { setSelectedCompId(c.id || ''); setTopN(c.topN || 20); }}
-            >
-              {c.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Competition selector — only currently active competitions, and only
+          shown at all when there's more than one to choose between. */}
+      {(() => {
+        const activeComps = competitions.filter(c => !isCompetitionEnded(c));
+        if (activeComps.length <= 1) return null;
+        return (
+          <div className="kl-comp-tabs">
+            {activeComps.map(c => (
+              <button
+                key={c.id || c.name}
+                type="button"
+                className={`kl-comp-tab ${selectedCompId === c.id ? 'active' : ''}`}
+                onClick={() => { setSelectedCompId(c.id || ''); setTopN(c.topN || 20); }}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* DASHBOARD */}
       <section className="kl-dash">

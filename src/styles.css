@@ -35,7 +35,7 @@
 /* Reset */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
-body { font-family: var(--font-body); background: #fff; color: var(--text); font-size: clamp(14px, 2.5vw, 16px); line-height: 1.6; overflow-x: hidden; }
+body { font-family: var(--font-body); background: #fff; color: var(--text); font-size: clamp(14px, 2.5vw, 16px); line-height: 1.6; overflow-x: clip; }
 img { max-width: 100%; display: block; }
 button { cursor: pointer; font-family: var(--font-body); }
 a { text-decoration: none; color: inherit; }
@@ -1604,7 +1604,7 @@ body {
     radial-gradient(ellipse 90% 90% at 98% 98%, rgba(22,183,220,0.04) 0%, transparent 55%),
     var(--cream);
   color: var(--text);
-  overflow-x: hidden;
+  overflow-x: clip;
   line-height: 1.6;
 }
 img { max-width: 100%; display: block; }
@@ -2767,9 +2767,15 @@ textarea.form-input { resize: vertical; }
    =================================================================== */
 
 /* 1. Root overflow containment — html is the true scroll container on most
-      browsers; body overflow-x: hidden alone is not enough */
+      browsers; body overflow-x: hidden alone is not enough.
+      Uses `clip` not `hidden`: overflow-x:hidden with the default
+      overflow-y:visible causes browsers to compute overflow-y as `auto`
+      (CSS overflow spec quirk), silently turning html/body into their own
+      scroll containers and breaking position:sticky children elsewhere on
+      the page (e.g. the booking cart) since they'd stick relative to that
+      box instead of the real page scroll. `clip` avoids the quirk. */
 html {
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* 2. Nav hamburger: visible on all screen sizes (shows auth/user-action menu) */
