@@ -2939,8 +2939,8 @@ html {
 /* ===== GENERAL SECTION PADDING ===== */
 @media (max-width: 480px) {
   section {
-    padding-left: 1.25rem !important;
-    padding-right: 1.25rem !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
   }
 }
 
@@ -3581,6 +3581,8 @@ nav.kks-legacy-v3-nav::before {
   .kks-footer-grid > .kks-footer-cta { align-items: flex-start; }
 }
 @media (max-width: 768px) {
+  section { padding-left: 12px; padding-right: 12px; }
+  .kks-container { width: min(100% - 24px, 1120px); }
   .kks-section { padding: 62px 0; }
   .kks-eyebrow { font-size: 12px; letter-spacing: .38em; }
   .kks-headline { font-size: clamp(40px, 12vw, 58px); line-height: .88; }
@@ -3640,7 +3642,6 @@ nav.kks-legacy-v3-nav::before {
   .kks-footer .btn { width: 100%; }
 }
 @media (max-width: 420px) {
-  .kks-container { width: min(100% - 24px, 1120px); }
   .kks-hero { min-height: 680px; }
   .kks-hero-title { font-size: 68px; }
   .kks-hero-sub { font-size: 20px; }

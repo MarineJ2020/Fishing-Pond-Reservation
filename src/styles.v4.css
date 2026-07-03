@@ -132,6 +132,7 @@
 .bk-seat-dialog { position: relative; width: min(960px, 100%); max-height: min(880px, calc(100svh - 44px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border-radius: 20px; overflow: hidden; background: #fff; box-shadow: 0 30px 100px rgba(0,0,0,.36); animation: slideUp .22s cubic-bezier(0.34,1.56,0.64,1); }
 .bk-seat-modal-head { padding: 18px 22px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); }
 .bk-seat-modal-head h2 { margin: 4px 0 0; font-family: var(--font-heading); font-size: 32px; font-style: italic; line-height: .95; text-transform: uppercase; }
+.bk-seat-modal-pond-switch { flex: 0 0 auto; width: auto; max-width: 220px; align-self: center; }
 .bk-icon-btn { flex: 0 0 auto; width: 44px; height: 44px; border: 0; border-radius: 10px; color: var(--navy); background: #eef3f7; cursor: pointer; font-size: 16px; }
 .bk-seat-modal-body { overflow: auto; padding: 18px; background: #f4f7fa; }
 .bk-seat-modal-body .seat-map-card { border: 0; box-shadow: none; }
@@ -206,7 +207,8 @@
 }
 @media (max-width: 768px) {
   .bk-hero { padding: 28px 0 26px; }
-  .bk-shell { padding: 16px 0 92px; }
+  .bk-hero-inner { width: min(100% - 24px, 1180px); }
+  .bk-shell { width: min(100% - 24px, 1180px); padding: 16px 0 92px; }
   .bk-progress { position: static; display: flex; overflow-x: auto; scrollbar-width: none; }
   .bk-progress::-webkit-scrollbar { display: none; }
   .bk-progress .progress-step { flex: 0 0 200px; }
@@ -367,6 +369,7 @@
   .kl-past-left { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 768px) {
+  .kl-hero-inner, .kl-comp-tabs, .kl-dash-grid, .kl-past-head, .kl-past-layout { width: min(100% - 24px, 1120px); }
   .kl-hero { padding: 40px 0; }
   .kl-live-head { flex-direction: column; align-items: flex-start; gap: 14px; }
   .kl-live-head strong { font-size: 30px; }

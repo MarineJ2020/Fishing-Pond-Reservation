@@ -455,7 +455,7 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
                     return (
                       <button key={n} type="button" className="pond-expand-seat-chip"
                         onClick={() => onToggleSeat(n)} title="Klik untuk nyahpilih">
-                        Peg #{n}{s ? ` · RM${s.price}` : ''} ✕
+                        {formatSeat(pond.code, n)}{s ? ` · RM${s.price}` : ''} ✕
                       </button>
                     );
                   })}

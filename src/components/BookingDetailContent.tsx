@@ -71,58 +71,67 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
       </div>
 
       {/* One QR per seat — each is valid for that peg only, so a group booking's
-          participants can be checked in / weighed independently. */}
+          participants can be checked in / weighed independently. Only shown once
+          the booking is approved; pending bookings get a placeholder instead. */}
       <div style={{ background: '#fff', border: '2px solid var(--red)', padding: '18px', borderRadius: '14px' }}>
         <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 700 }}>
           QR Tempahan
         </div>
-        <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
-          Tunjukkan QR peg anda kepada petugas semasa check-in / proses timbang ikan. Setiap QR sah untuk satu peg sahaja.
-        </div>
-        <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--navy)', textAlign: 'center', marginBottom: '12px' }}>
-          {booking.pondName}
-        </div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: '14px',
-          }}
-        >
-          {booking.seats.map((s) => {
-            const checkedIn = !!booking.checkedInSeats?.includes(s);
-            return (
-              <div
-                key={s}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '8px',
-                  background: '#fff',
-                  padding: '14px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--line)',
-                }}
-              >
-                <QRCodeSVG
-                  value={buildSeatQrValue(booking.id, s)}
-                  size={160}
-                  level="M"
-                  marginSize={2}
-                  bgColor="#ffffff"
-                  fgColor="#112a41"
-                />
-                <span className="seat-pill">{formatSeat(booking.pondCode, s)}</span>
-                {checkedIn && (
-                  <span style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--green-bright, #16a34a)' }}>
-                    ✓ Sudah Check-In
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        {booking.status === 'pending' ? (
+          <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '18px 0' }}>
+            ⏳ QR akan tersedia selepas tempahan diluluskan.
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
+              Tunjukkan QR peg anda kepada petugas semasa check-in / proses timbang ikan. Setiap QR sah untuk satu peg sahaja.
+            </div>
+            <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--navy)', textAlign: 'center', marginBottom: '12px' }}>
+              {booking.pondName}
+            </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: '14px',
+              }}
+            >
+              {booking.seats.map((s) => {
+                const checkedIn = !!booking.checkedInSeats?.includes(s);
+                return (
+                  <div
+                    key={s}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '8px',
+                      background: '#fff',
+                      padding: '14px',
+                      borderRadius: '10px',
+                      border: '1px solid var(--line)',
+                    }}
+                  >
+                    <QRCodeSVG
+                      value={buildSeatQrValue(booking.id, s)}
+                      size={160}
+                      level="M"
+                      marginSize={2}
+                      bgColor="#ffffff"
+                      fgColor="#112a41"
+                    />
+                    <span className="seat-pill">{formatSeat(booking.pondCode, s)}</span>
+                    {checkedIn && (
+                      <span style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--green-bright, #16a34a)' }}>
+                        ✓ Sudah Check-In
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Angler Info */}
@@ -131,7 +140,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
           <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700 }}>Pemancing</div>
           {booking.createdByStaff && (
             <span style={{ fontSize: '.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--red)', border: '1px solid rgba(250,204,21,0.35)', borderRadius: '5px', padding: '2px 7px', fontWeight: 700, letterSpacing: '0.5px' }}>
-              🛠 Dibuat oleh Admin
+              (Ditempah oleh Admin)
             </span>
           )}
         </div>

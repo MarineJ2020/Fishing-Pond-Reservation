@@ -198,53 +198,6 @@
 @media (max-width: 900px) { .bk-hero-grid { grid-template-columns: 1fr; } .bk-hero-card { max-width: 420px; } }
 
 /* -------------------------------------------------------------------------
-   4. Booking — Semak Layout (pond sitemap) popup
-   ------------------------------------------------------------------------- */
-.v5-layout-modal {
-  position: fixed; inset: 0; z-index: 9997;
-  display: flex; align-items: center; justify-content: center;
-  padding: 18px;
-  background: rgba(7, 24, 39, .62); backdrop-filter: blur(8px);
-  animation: fadeIn .18s ease;
-}
-.v5-layout-dialog {
-  width: min(860px, 100%); max-height: 90vh; overflow: auto;
-  background: #fff; border-radius: 22px;
-  box-shadow: 0 30px 80px rgba(7, 24, 39, .4);
-  animation: slideUp .24s cubic-bezier(.34, 1.56, .64, 1);
-}
-.v5-layout-head {
-  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
-  padding: 22px 24px; border-bottom: 1px solid var(--line);
-}
-.v5-layout-head h2 { font-family: var(--font-heading); font-style: italic; text-transform: uppercase; font-size: 28px; line-height: .95; margin: 4px 0 6px; color: var(--navy); }
-.v5-layout-head p { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0; max-width: 52ch; }
-.v5-layout-body { padding: 22px 24px; }
-.v5-layout-map {
-  display: grid; grid-template-columns: 1fr 64px 1fr; gap: 16px;
-  align-items: stretch; min-height: 360px;
-  background: var(--cream); border-radius: 18px; padding: 18px;
-}
-.v5-layout-bank { display: grid; gap: 10px; align-content: start; }
-.v5-layout-pond {
-  background: #fff; border: 1px solid var(--line); border-radius: 14px;
-  padding: 12px 14px; text-align: center;
-}
-.v5-layout-pond strong { display: block; font-family: var(--font-heading); font-style: italic; text-transform: uppercase; font-size: 18px; color: var(--navy); }
-.v5-layout-pond small { color: var(--muted); font-size: 12px; }
-.v5-layout-path {
-  position: relative; border-radius: 999px;
-  background: linear-gradient(180deg, #112a41, #0b2135);
-  box-shadow: inset 0 0 18px rgba(255, 255, 255, .1);
-}
-.v5-layout-path span {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%) rotate(-90deg);
-  color: rgba(255, 255, 255, .72); font-weight: 900; letter-spacing: .3em; font-size: 12px;
-}
-@media (max-width: 640px) { .v5-layout-map { grid-template-columns: 1fr 44px 1fr; gap: 10px; padding: 12px; } }
-
-/* -------------------------------------------------------------------------
    5. CMS — V5 theme, scoped under .cms-v5 so it never touches public pages
    ------------------------------------------------------------------------- */
 .cms-v5 {

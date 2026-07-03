@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { User, Pond, Settings } from '../types';
+import { formatSeat } from '../utils/seatLabel';
 
 interface BookingFormProps {
   user: User | null;
@@ -24,6 +25,7 @@ interface BookingFormProps {
   onResendVerification: () => Promise<boolean>;
   onRefreshVerification: () => Promise<boolean>;
   onOpenRulesPdf: () => void;
+  onGoToProfile: () => void;
 }
 
 const BookingForm: React.FC<BookingFormProps> = ({
@@ -49,6 +51,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   onResendVerification,
   onRefreshVerification,
   onOpenRulesPdf,
+  onGoToProfile,
 }) => {
   const [notes, setNotes] = useState('');
   const [verifyBusy, setVerifyBusy] = useState(false);
@@ -115,6 +118,28 @@ const BookingForm: React.FC<BookingFormProps> = ({
       <div className="panel-title">Maklumat & Bayaran</div>
       <div className="panel-subtitle">Lengkapkan butiran di bawah untuk menempah tempat anda</div>
 
+      {/* ── Account details reminder (self-service booking only) ── */}
+      {!isAdminProxyMode && (
+        <div style={{ background: 'var(--cream)', border: '1px solid var(--line)', borderRadius: '10px', padding: '14px 16px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '.72rem', color: 'var(--navy)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700, marginBottom: '8px' }}>Maklumat Akaun Anda</div>
+          <div style={{ fontSize: '.85rem', display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '8px' }}>
+            <span>👤 {user.name}</span>
+            <span>📧 {user.email}</span>
+            <span>📱 {user.phone || 'Tiada nombor telefon'}</span>
+          </div>
+          <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Sila pastikan maklumat di atas betul. Jika ada kesilapan, kemaskini di{' '}
+            <button
+              type="button"
+              onClick={onGoToProfile}
+              style={{ background: 'none', border: 'none', padding: 0, color: 'var(--red)', fontWeight: 700, textDecoration: 'underline', cursor: 'pointer', fontSize: 'inherit' }}
+            >
+              Profil Anda
+            </button>.
+          </div>
+        </div>
+      )}
+
       {/* ── Admin: book on behalf of customer ── */}
       {isAdmin && (
         <div style={{ background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.25)', borderRadius: '10px', padding: '14px 16px', marginBottom: '16px' }}>
@@ -157,7 +182,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
       <label className="form-label">Selected Pegs</label>
       <div className="selected-pills">
         {selectedSeats.length ? (
-          selectedSeats.map(n => <span key={n} className="seat-pill">#{n}</span>)
+          selectedSeats.map(n => <span key={n} className="seat-pill">{formatSeat(pond?.code, n)}</span>)
         ) : (
           <div style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>No pegs selected yet</div>
         )}

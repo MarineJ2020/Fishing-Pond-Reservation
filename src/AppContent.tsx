@@ -97,7 +97,6 @@ const AppContent: React.FC = () => {
   const [pondMapOpen, setPondMapOpen] = useState(false);
   const [seatModalOpen, setSeatModalOpen] = useState(false);
   const [choiceOpen, setChoiceOpen] = useState(false);
-  const [semakLayoutOpen, setSemakLayoutOpen] = useState(false);
   const [rulesPdfPreview, setRulesPdfPreview] = useState<string | null>(null);
   const choiceProceedRef = useRef<() => void>(() => {});
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
@@ -1267,9 +1266,6 @@ const AppContent: React.FC = () => {
                                 <p>Setiap kolam ada susunan tempat duduk tersendiri.</p>
                               </div>
                               <div className="bk-head-actions">
-                                <button className="btn btn-light btn-sm" type="button" onClick={() => setSemakLayoutOpen(true)}>
-                                  <i className="fa-solid fa-map"></i> Semak Layout Kolam
-                                </button>
                                 {db.settings.pondMapImg && (
                                   <button className="btn btn-light btn-sm" type="button" onClick={() => setPondMapOpen(true)}>
                                     <i className="fa-solid fa-image"></i> Peta Kolam
@@ -1291,7 +1287,7 @@ const AppContent: React.FC = () => {
                                       type="button"
                                       className={`bk-pond ${active ? 'active' : ''}`}
                                       disabled={disabled}
-                                      onClick={() => { if (!disabled) setPond(pond.id); }}
+                                      onClick={() => { if (!disabled) { setPond(pond.id); setSeatModalOpen(true); } }}
                                     >
                                       <strong>{pondDisplayName(pond)}</strong>
                                       <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} slot tersedia`}</small>
@@ -1329,8 +1325,8 @@ const AppContent: React.FC = () => {
                                     </div>
                                   </div>
                                 </div>
-                                <button className="btn btn-red" type="button" disabled={!hasSeats} onClick={goToDetails}>
-                                  <i className="fa-solid fa-arrow-right"></i> Teruskan
+                                <button className="btn btn-red" type="button" disabled={!hasPond} onClick={() => setSeatModalOpen(true)}>
+                                  <i className="fa-solid fa-chair"></i> Buka Seat Map
                                 </button>
                               </div>
                             </div>
@@ -1369,6 +1365,7 @@ const AppContent: React.FC = () => {
                           onResendVerification={resendVerification}
                           onRefreshVerification={refreshUser}
                           onOpenRulesPdf={openRulesPdf}
+                          onGoToProfile={goToProfile}
                         />
                       </div>
                     </>
@@ -1440,6 +1437,25 @@ const AppContent: React.FC = () => {
                       <div className="bk-eyebrow">Seat Selection</div>
                       <h2>{pondDisplayName(bookedPond)}</h2>
                     </div>
+                    {competitionScopedPonds.length > 1 && (
+                      <select
+                        className="form-input bk-seat-modal-pond-switch"
+                        value={String(bookedPond.id)}
+                        onChange={(e) => setPond(Number(e.target.value))}
+                        aria-label="Tukar kolam"
+                      >
+                        {competitionScopedPonds.map((p) => {
+                          const avail = p.seats.filter((s) => s.status === 'available').length;
+                          const closed = !p.open;
+                          const full = avail === 0;
+                          return (
+                            <option key={p._docId || p.id} value={p.id} disabled={closed || full}>
+                              {pondDisplayName(p)}{closed ? ' (Ditutup)' : full ? ' (Penuh)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    )}
                     <button className="bk-icon-btn" type="button" onClick={() => setSeatModalOpen(false)} aria-label="Tutup popup">
                       <i className="fa-solid fa-xmark"></i>
                     </button>
@@ -1597,7 +1613,7 @@ const AppContent: React.FC = () => {
           <div className="confirm-page">
             <div className="confirm-icon">🎣</div>
             <div style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '6px' }}>BOOKING SUBMITTED</div>
-            <div className="confirm-id">{lastBooking?.id || 'CB1234567'}</div>
+            <div className="confirm-id">{lastBooking?.bookingRef || lastBooking?.id || 'CB1234567'}</div>
             <div className="confirm-detail">
               {lastBooking ? (
                 <>
@@ -1812,52 +1828,6 @@ const AppContent: React.FC = () => {
         whatsapp={db.settings.whatsapp}
         message="Hi KKS, saya berminat untuk menempah slot pertandingan."
       />
-
-      {/* Semak Layout — V5 pond sitemap (real ponds, two banks + centre path) */}
-      {semakLayoutOpen && (() => {
-        const layoutPonds = (competitionScopedPonds.length ? competitionScopedPonds : db.ponds);
-        return (
-          <div className="v5-layout-modal" onClick={() => setSemakLayoutOpen(false)}>
-            <div className="v5-layout-dialog" role="dialog" aria-modal="true" aria-label="Layout kolam" onClick={(e) => e.stopPropagation()}>
-              <div className="v5-layout-head">
-                <div>
-                  <div className="bk-eyebrow">Layout Kolam</div>
-                  <h2>Sitemap KKS</h2>
-                  <p>Gambaran ringkas kedudukan kolam. Seat sebenar dipilih melalui popup seat map.</p>
-                </div>
-                <button className="bk-icon-btn" type="button" aria-label="Tutup popup" onClick={() => setSemakLayoutOpen(false)}>
-                  <i className="fa-solid fa-xmark"></i>
-                </button>
-              </div>
-              <div className="v5-layout-body">
-                {layoutPonds.length === 0 ? (
-                  <p style={{ color: 'var(--muted)', textAlign: 'center', padding: '12px' }}>Tiada kolam dikonfigur lagi.</p>
-                ) : (
-                  <div className="v5-layout-map">
-                    <div className="v5-layout-bank">
-                      {layoutPonds.filter((_, i) => i % 2 === 0).map((p) => (
-                        <div key={p._docId || p.id} className="v5-layout-pond">
-                          <strong>{pondDisplayName(p)}</strong>
-                          <small>{p.seats.length} seat</small>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="v5-layout-path"><span>KKS</span></div>
-                    <div className="v5-layout-bank">
-                      {layoutPonds.filter((_, i) => i % 2 === 1).map((p) => (
-                        <div key={p._docId || p.id} className="v5-layout-pond">
-                          <strong>{pondDisplayName(p)}</strong>
-                          <small>{p.seats.length} seat</small>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Seat conflict error dialog */}
       {bookingError && (

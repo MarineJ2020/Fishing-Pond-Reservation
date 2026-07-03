@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import jsQR from 'jsqr';
+import { QRCodeSVG } from 'qrcode.react';
 import { useSearchParams } from 'react-router-dom';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry } from '../types';
 import { gs } from '../data';
@@ -34,7 +35,7 @@ import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/ema
 import { balanceReminderInfo } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getBookingWindowState } from '../utils/competition';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
-import { parseQrPayload } from '../utils/qr';
+import { parseQrPayload, buildSeatQrValue } from '../utils/qr';
 import { prizeRange } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 import DocPreviewModal from './DocPreviewModal';
@@ -355,6 +356,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Dimensions (from <img> onLoad) + byte size (from a HEAD request / data-URL) of
   // the receipt currently shown in the lightbox.
   const [receiptViewerMeta, setReceiptViewerMeta] = useState<{ width: number; height: number; bytes: number | null }>({ width: 0, height: 0, bytes: null });
+  // QR viewer for Semua Tempahan: grid of per-seat QR codes for one booking, plus
+  // a second, higher-stacked overlay for the single enlarged QR the admin clicked.
+  const [qrPreviewBooking, setQrPreviewBooking] = useState<Booking | null>(null);
+  const [enlargedQrSeat, setEnlargedQrSeat] = useState<number | null>(null);
+  const closeQrPreview = () => { setQrPreviewBooking(null); setEnlargedQrSeat(null); };
   // Reusable confirmation dialog for decision actions (accept/reject/check-in/remind).
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
@@ -2425,7 +2431,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <td>{b.competitionName || comp.name || '-'}</td>
                       <td className="td-name">
                         {b.userName}
-                        {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>ADMIN</span>}
+                        {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>(Ditempah oleh Admin)</span>}
                       </td>
                       <td>{b.userPhone || '—'}</td>
                       <td>{b.pondName}</td>
@@ -2579,7 +2585,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <td>{b.competitionName || comp.name || '-'}</td>
                         <td className="td-name">
                           {b.userName}
-                          {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>ADMIN</span>}
+                          {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>(Ditempah oleh Admin)</span>}
                           {/* Participant email — for admin-proxy bookings userEmail/userId already
                               hold the participant's address, not the admin's, so this is correct. */}
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 400 }}>{b.userEmail || b.userId || '-'}</div>
@@ -2613,6 +2619,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               return receiptBtns.length ? <span className="receipt-group">{receiptBtns}</span> : null;
                             })()}
                             <button className="btn btn-sm btn-primary" onClick={() => setReviewTarget(b)}>Review</button>
+                            {b.status === 'confirmed' && (<button className="btn btn-sm btn-ghost" onClick={() => setQrPreviewBooking(b)}>QR</button>)}
                             {b.status === 'confirmed' && (<button className="btn btn-sm btn-danger" disabled={saving} title="Batal paksa tempahan disahkan" onClick={() => askForceCancel(b)}>Batal Paksa</button>)}
                             {(b.staffRemarks?.length ?? 0) > 0 && (<span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>📝 {b.staffRemarks!.length}</span>)}
                           </div>
@@ -3976,6 +3983,48 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </button>
               </div>
             </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* QR viewer grid for one booking (Semua Tempahan) */}
+      {qrPreviewBooking && createPortal(
+        <div className="modal-overlay open" style={{ zIndex: 1300 }} onClick={closeQrPreview}>
+          <div className="modal" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">QR Tempahan — {qrPreviewBooking.bookingRef || qrPreviewBooking.id.slice(0, 10)}</div>
+              <button className="modal-close" onClick={closeQrPreview}>×</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '14px' }}>
+                {qrPreviewBooking.seats.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setEnlargedQrSeat(s)}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', background: '#fff', padding: '12px', borderRadius: '10px', border: '1px solid var(--line)', cursor: 'zoom-in' }}
+                  >
+                    <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, s)} size={120} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
+                    <span className="seat-pill">{formatSeat(qrPreviewBooking.pondCode, s)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Enlarged single QR — stacks above the grid, click anywhere to close back to the grid */}
+      {qrPreviewBooking && enlargedQrSeat != null && createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(6px)', cursor: 'zoom-out' }}
+          onClick={() => setEnlargedQrSeat(null)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', background: '#fff', padding: '28px', borderRadius: '18px' }}>
+            <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, enlargedQrSeat)} size={280} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
+            <span className="seat-pill">{formatSeat(qrPreviewBooking.pondCode, enlargedQrSeat)}</span>
           </div>
         </div>,
         document.body,
