@@ -245,7 +245,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Force-cancel-a-confirmed-booking flow: typed confirmation guard.
   const [forceCancelTarget, setForceCancelTarget] = useState<Booking | null>(null);
   const [forceCancelText, setForceCancelText] = useState('');
-  const [checkinRef, setCheckinRef] = useState('');
   const [checkinResult, setCheckinResult] = useState<any>(null);
   const [checkinLoading, setCheckinLoading] = useState(false);
   // Seat number decoded from a scanned per-seat QR (highlights that row); null
@@ -254,9 +253,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [checkinActiveSeat, setCheckinActiveSeat] = useState<number | null>(null);
   const [checkinLiveScanOn, setCheckinLiveScanOn] = useState(false);
   const [checkinLiveScanBusy, setCheckinLiveScanBusy] = useState(false);
-  // Live-scan invalid-QR hint, throttled per distinct payload via the ref.
-  const [checkinScanMsg, setCheckinScanMsg] = useState<string | null>(null);
-  const lastCheckinQrRef = useRef<string | null>(null);
+  // Raw text of a scanned QR that didn't match any booking — shown so staff know
+  // the scan registered (and can read what it actually contained).
+  const [checkinScannedRaw, setCheckinScannedRaw] = useState<string | null>(null);
+  // Gates the rAF scan loop synchronously — reading checkinLiveScanOn from state
+  // inside the loop closure would see the pre-update value and stop it dead.
+  const checkinLiveActiveRef = useRef(false);
   const checkinLiveVideoRef = useRef<HTMLVideoElement | null>(null);
   const checkinLiveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const checkinLiveStreamRef = useRef<MediaStream | null>(null);
@@ -387,6 +389,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
     const video = checkinLiveVideoRef.current;
     if (video) video.srcObject = null;
+    checkinLiveActiveRef.current = false;
     setCheckinLiveScanOn(false);
   }, [isOpen, page]);
 
@@ -1025,21 +1028,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const handleCheckin = () => {
-    const q = checkinRef.trim().toLowerCase();
-    const found = bookings.find(b => {
-      if (!q) return false;
-      const bookingId = b.id.toLowerCase();
-      const bookingRef = (b.bookingRef || '').toLowerCase();
-      const userName = (b.userName || '').toLowerCase();
-      return bookingId === q || bookingRef === q || bookingId.includes(q) || bookingRef.includes(q) || userName.includes(q);
-    });
-    setCheckinResult(found || null);
-    setCheckinScannedSeat(null);
-  };
-
-
   const stopCheckinLiveScan = () => {
+    checkinLiveActiveRef.current = false;
     if (checkinLiveRafRef.current) {
       window.cancelAnimationFrame(checkinLiveRafRef.current);
       checkinLiveRafRef.current = null;
@@ -1050,15 +1040,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
     const video = checkinLiveVideoRef.current;
     if (video) video.srcObject = null;
-    lastCheckinQrRef.current = null;
-    setCheckinScanMsg(null);
     setCheckinLiveScanOn(false);
   };
 
   const runCheckinLiveFrame = () => {
     const video = checkinLiveVideoRef.current;
     const canvas = checkinLiveCanvasRef.current;
-    if (!video || !canvas || !checkinLiveScanOn) return;
+    if (!video || !canvas || !checkinLiveActiveRef.current) return;
     if (video.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA) {
       checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
       return;
@@ -1080,29 +1068,28 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const imageData = ctx.getImageData(0, 0, w, h);
     const decoded = decodeQr(imageData.data, imageData.width, imageData.height);
     if (decoded) {
+      // Stop the camera the instant ANY QR is read, then show the result — a
+      // matching booking, or the raw scanned text when nothing matches.
+      stopCheckinLiveScan();
       const parsed = parseQrPayload(decoded);
       const found = parsed ? bookings.find(b => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId) : null;
       if (found) {
-        // Valid booking QR → auto-close the camera and show the booking.
-        stopCheckinLiveScan();
-        setCheckinRef(found.bookingRef || found.id);
         setCheckinResult(found);
         setCheckinScannedSeat(parsed?.seatNum ?? null);
-        return;
+        setCheckinScannedRaw(null);
+      } else {
+        setCheckinResult(null);
+        setCheckinScannedSeat(null);
+        setCheckinScannedRaw(decoded);
       }
-      // Decoded a QR, but it isn't one of our bookings — flag it once and keep scanning.
-      if (lastCheckinQrRef.current !== decoded) {
-        lastCheckinQrRef.current = decoded;
-        setCheckinScanMsg('QR tidak sah / tempahan tidak dijumpai. Cuba QR tempahan yang betul.');
-      }
+      return;
     }
     checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
   };
 
   const startCheckinLiveScan = async () => {
     setCheckinLiveScanBusy(true);
-    setCheckinScanMsg(null);
-    lastCheckinQrRef.current = null;
+    setCheckinScannedRaw(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
@@ -1113,6 +1100,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       if (!video) throw new Error('Elemen video tidak tersedia.');
       video.srcObject = stream;
       await video.play();
+      checkinLiveActiveRef.current = true;
       setCheckinLiveScanOn(true);
       checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
     } catch (err) {
@@ -1137,12 +1125,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const parsed = decoded ? parseQrPayload(decoded) : null;
       const found = parsed ? bookings.find(b => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId) : null;
       if (!found) {
-        window.alert('QR tidak sah / tempahan tidak dijumpai. Sila cuba QR tempahan yang betul.');
+        // Show what was scanned (if anything) rather than a disappearing alert.
+        setCheckinResult(null);
+        setCheckinScannedSeat(null);
+        setCheckinScannedRaw(decoded || '(tiada QR dikesan dalam imej)');
         return;
       }
-      setCheckinRef(found.bookingRef || found.id);
       setCheckinResult(found);
       setCheckinScannedSeat(parsed?.seatNum ?? null);
+      setCheckinScannedRaw(null);
     } catch (err) {
       console.error('Failed to scan check-in QR:', err);
       window.alert('Imbas QR gagal. Sila cuba lagi.');
@@ -2657,11 +2648,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           })()}
           {page === 'checkin' && (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Check-In Peserta</div><div className="page-sub">Cari dan sahkan kehadiran</div></div></div>
+              <div className="page-header"><div><div className="page-title">Check-In Peserta</div><div className="page-sub">Imbas QR tempahan untuk sahkan kehadiran</div></div></div>
               <div className="checkin-search">
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📲</div>
-                <h3 style={{ marginBottom: '0.25rem' }}>Carian Tempahan</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Cari guna nama peserta / booking ID / booking ref atau imbas QR</p>
+                <h3 style={{ marginBottom: '0.25rem' }}>Imbas QR Tempahan</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>Imbas QR secara live dengan kamera, atau muat naik gambar QR tempahan.</p>
                 <div style={{ margin: '0 auto 10px', maxWidth: 420, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)', background: '#0f172a', display: checkinLiveScanOn ? 'block' : 'none' }}>
                   <video ref={checkinLiveVideoRef} playsInline muted style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block' }} />
                   <canvas ref={checkinLiveCanvasRef} style={{ display: 'none' }} />
@@ -2669,20 +2660,23 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <span>Arahkan kamera ke QR tempahan</span>
                     <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }} onClick={stopCheckinLiveScan}>Tutup Kamera</button>
                   </div>
-                  {checkinScanMsg && (
-                    <div style={{ padding: '6px 10px', background: '#7f1d1d', color: '#fff', fontSize: 12, fontWeight: 600 }}>
-                      ⚠️ {checkinScanMsg}
-                    </div>
-                  )}
                 </div>
-                <div className="checkin-input-wrap"><input className="checkin-input" value={checkinRef} onChange={e => setCheckinRef(e.target.value)} placeholder="Cth: BKG-12345 / nama peserta" onKeyDown={e => e.key === 'Enter' && handleCheckin()} /><button className="btn btn-primary" onClick={handleCheckin}>Cari</button></div>
-                <button className="btn btn-ghost" style={{ marginTop: '10px' }} disabled={checkinLiveScanBusy || checkinLiveScanOn} onClick={startCheckinLiveScan}>
-                  {checkinLiveScanBusy ? 'Membuka Kamera...' : (checkinLiveScanOn ? 'Kamera Aktif' : '🎥 Imbas QR Secara Live')}
-                </button>
-                <label className="btn btn-ghost" style={{ marginTop: '10px', display: 'inline-flex', cursor: 'pointer' }}>
-                  📷 Imbas QR Tempahan
-                  <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleCheckinQrFile(f); e.target.value = ''; }} />
-                </label>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary" disabled={checkinLiveScanBusy || checkinLiveScanOn} onClick={startCheckinLiveScan}>
+                    {checkinLiveScanBusy ? 'Membuka Kamera...' : (checkinLiveScanOn ? 'Kamera Aktif' : '🎥 Imbas QR Secara Live')}
+                  </button>
+                  <label className="btn btn-ghost" style={{ display: 'inline-flex', cursor: 'pointer' }}>
+                    📷 Muat Naik QR
+                    <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleCheckinQrFile(f); e.target.value = ''; }} />
+                  </label>
+                </div>
+                {checkinScannedRaw && !checkinResult && (
+                  <div style={{ marginTop: '14px', padding: '12px 14px', borderRadius: 10, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)', textAlign: 'left' }}>
+                    <div style={{ fontWeight: 700, color: 'var(--red, #c0152a)', marginBottom: 4 }}>⚠️ Tempahan tidak dijumpai</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>QR diimbas tetapi tidak sepadan dengan mana-mana tempahan.</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 6, wordBreak: 'break-all', fontFamily: 'var(--fm, monospace)' }}>Kandungan QR: {checkinScannedRaw}</div>
+                  </div>
+                )}
               </div>
               {checkinResult && (() => {
                 const allSeats: number[] = checkinResult.seats || [];
@@ -2750,7 +2744,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                 );
               })()}
-              {checkinRef && !checkinResult && <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Tempahan tidak dijumpai.</div>}
             </div>
           )}
           {page === 'results' && (() => {

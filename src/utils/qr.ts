@@ -8,7 +8,6 @@
  * just get back `seatNum: undefined` for those, meaning "no seat known yet".
  */
 
-import jsQR from 'jsqr';
 import {
   BarcodeFormat,
   BinaryBitmap,
@@ -33,8 +32,11 @@ function getZxingReader(): MultiFormatReader {
   return zxingReader;
 }
 
-/** Second-pass QR decode via ZXing. Returns decoded text or null (never throws). */
-function decodeWithZxing(data: Uint8ClampedArray, width: number, height: number): string | null {
+/**
+ * Decode a QR code from raw RGBA pixel data using ZXing (the only decoder used
+ * site-wide). Returns the decoded text, or null if no code was found.
+ */
+export function decodeQr(data: Uint8ClampedArray, width: number, height: number): string | null {
   try {
     // ZXing's RGBLuminanceSource wants a precomputed grayscale buffer
     // (length = width*height), not raw RGBA — convert with standard luma weights.
@@ -59,18 +61,6 @@ function decodeWithZxing(data: Uint8ClampedArray, width: number, height: number)
     // NotFoundException / ChecksumException / FormatException → nothing decoded.
     return null;
   }
-}
-
-/**
- * Decode a QR code from raw RGBA pixel data. Tries jsQR first (fast, reliable on
- * clean screen-rendered QR), then falls back to ZXing which tends to succeed on
- * harder real-world camera frames. Returns the decoded text, or null if neither
- * engine found a code.
- */
-export function decodeQr(data: Uint8ClampedArray, width: number, height: number): string | null {
-  const js = jsQR(data, width, height, { inversionAttempts: 'attemptBoth' });
-  if (js?.data) return js.data;
-  return decodeWithZxing(data, width, height);
 }
 
 /** Convenience wrapper around {@link decodeQr} for a canvas `ImageData`. */
