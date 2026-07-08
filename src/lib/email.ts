@@ -1,8 +1,12 @@
 import { addDoc, collection } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { buildBookingUrl, buildSeatQrValue } from '../utils/qr';
+import { formatDate } from '../utils';
 
 const STAFF_CC = 'hello@kolamkelisayang.com.my';
+
+/** Bookings carry pond.date as an ISO string; render it as dd/mm/yyyy for email. */
+const fmtPondDate = (raw: string): string => formatDate(raw) || raw;
 const BRAND_RED = '#b91c1c';
 const BRAND_NAVY = '#112a41';
 
@@ -95,7 +99,7 @@ export const queueBookingReceivedEmail = async (args: ReceivedArgs): Promise<voi
        <table style="width:100%;border-collapse:collapse;margin:14px 0;">
          <tr><td style="padding:6px 0;color:#666;width:40%;">No. Rujukan</td><td style="padding:6px 0;font-weight:700;">${esc(args.bookingRef) || '-'}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Kolam</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondName)}</td></tr>
-         <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondDate)}</td></tr>
+         <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(fmtPondDate(args.pondDate))}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats, args.pondCode)}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Jumlah Bayaran</td><td style="padding:6px 0;font-weight:700;color:${BRAND_RED};">RM ${Number(args.amount || 0).toFixed(2)}</td></tr>
        </table>
@@ -139,7 +143,7 @@ export const queueBalanceReminderEmail = async (args: BalanceReminderArgs): Prom
      <table style="width:100%;border-collapse:collapse;margin:14px 0;">
        <tr><td style="padding:6px 0;color:#666;width:40%;">No. Rujukan</td><td style="padding:6px 0;font-weight:700;">${esc(args.bookingRef) || '-'}</td></tr>
        <tr><td style="padding:6px 0;color:#666;">Kolam</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondName)}</td></tr>
-       <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondDate)}</td></tr>
+       <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(fmtPondDate(args.pondDate))}</td></tr>
        <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats, args.pondCode)}</td></tr>
        <tr><td style="padding:6px 0;color:#666;">Baki Tertunggak</td><td style="padding:6px 0;font-weight:700;color:${BRAND_RED};">RM ${Number(args.balanceDue || 0).toFixed(2)}</td></tr>
      </table>
@@ -184,7 +188,7 @@ export const queueBookingApprovedEmail = async (args: ApprovedArgs): Promise<voi
        <table style="width:100%;border-collapse:collapse;margin:14px 0;">
          <tr><td style="padding:6px 0;color:#666;width:40%;">No. Rujukan</td><td style="padding:6px 0;font-weight:700;">${esc(args.bookingRef) || '-'}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Kolam</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondName)}</td></tr>
-         <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(args.pondDate)}</td></tr>
+         <tr><td style="padding:6px 0;color:#666;">Tarikh</td><td style="padding:6px 0;font-weight:700;">${esc(fmtPondDate(args.pondDate))}</td></tr>
          <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${fmtSeats(args.seats, args.pondCode)}</td></tr>
        </table>
        <div style="text-align:center;margin:22px 0;">

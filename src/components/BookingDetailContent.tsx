@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Booking } from '../types';
 import { outstandingBalance } from '../utils/booking';
+import { formatDate } from '../utils';
 import { buildSeatQrValue } from '../utils/qr';
 import { formatSeat } from '../utils/seatLabel';
 import BalanceReceiptUpload from './BalanceReceiptUpload';
@@ -252,7 +253,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
 
       {/* Booking Date */}
       <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-        Dihantar: {new Date(booking.createdAt).toLocaleString('en-MY')}
+        Dihantar: {formatDate(booking.createdAt, { time: true })}
       </div>
 
       {/* Close button (modal mode only) */}

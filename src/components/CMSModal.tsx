@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import jsQR from 'jsqr';
 import { QRCodeSVG } from 'qrcode.react';
 import { useSearchParams } from 'react-router-dom';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry } from '../types';
@@ -35,8 +34,8 @@ import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/ema
 import { balanceReminderInfo } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getBookingWindowState } from '../utils/competition';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
-import { parseQrPayload, buildSeatQrValue } from '../utils/qr';
-import { prizeRange } from '../utils';
+import { parseQrPayload, buildSeatQrValue, decodeQr } from '../utils/qr';
+import { prizeRange, formatDate } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 import DocPreviewModal from './DocPreviewModal';
 import ReceiptReviewModal from './cms/ReceiptReviewModal';
@@ -1068,9 +1067,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
-    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-    if (code?.data) {
-      const parsed = parseQrPayload(code.data);
+    const decoded = decodeQr(imageData.data, imageData.width, imageData.height);
+    if (decoded) {
+      const parsed = parseQrPayload(decoded);
       const found = parsed ? bookings.find(b => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId) : null;
       if (found) {
         // Valid booking QR → auto-close the camera and show the booking.
@@ -1081,8 +1080,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         return;
       }
       // Decoded a QR, but it isn't one of our bookings — flag it once and keep scanning.
-      if (lastCheckinQrRef.current !== code.data) {
-        lastCheckinQrRef.current = code.data;
+      if (lastCheckinQrRef.current !== decoded) {
+        lastCheckinQrRef.current = decoded;
         setCheckinScanMsg('QR tidak sah / tempahan tidak dijumpai. Cuba QR tempahan yang betul.');
       }
     }
@@ -1123,8 +1122,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       if (!ctx) return;
       ctx.drawImage(bitmap, 0, 0);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-      const parsed = code?.data ? parseQrPayload(code.data) : null;
+      const decoded = decodeQr(imageData.data, imageData.width, imageData.height);
+      const parsed = decoded ? parseQrPayload(decoded) : null;
       const found = parsed ? bookings.find(b => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId) : null;
       if (!found) {
         window.alert('QR tidak sah / tempahan tidak dijumpai. Sila cuba QR tempahan yang betul.');
@@ -1974,7 +1973,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {dashboardStatus && <span className={`badge ${dashboardStatus.badgeClass}`}>{dashboardStatus.label}</span>}
                         </div>
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                          📅 {new Date(competitionForDashboard.startDate).toLocaleDateString('ms-MY')}<br />
+                          📅 {formatDate(competitionForDashboard.startDate)}<br />
                           👥 {ponds.reduce((s, p) => s + p.seats.filter(se => se.status === 'available').length, 0)} tempat tersedia
                         </div>
                       </div>
@@ -1994,16 +1993,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               const names = ponds.filter(p => ids.includes(pondKeyOf(p))).map(p => pondDisplayName(p));
               return names.length ? names.join(', ') : 'Semua kolam';
             };
-            const fmtDateTime = (iso?: string) => {
-              if (!iso) return '-';
-              const d = new Date(iso);
-              return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('ms-MY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-            };
-            const fmtDate = (iso?: string) => {
-              if (!iso) return '—';
-              const d = new Date(iso);
-              return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('ms-MY');
-            };
+            const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
+            const fmtDate = (iso?: string) => formatDate(iso) || '—';
             const activeComps = competitionsForCms.filter(c => c.status !== 'INACTIVE' && !isCompetitionEnded(c));
             const statAktif = activeComps.length;
             const statJualan = activeComps.filter(c => isBookingOpen(c)).length;
@@ -2254,7 +2245,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     </select>
                     {compEdit.startDate && (
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        📅 {new Date(compEdit.startDate).toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        📅 {formatDate(compEdit.startDate)}
                       </span>
                     )}
                   </div>
@@ -2427,7 +2418,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     return (
                     <tr key={b.id}>
                       <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
-                      <td style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{b.createdAt ? new Date(b.createdAt).toLocaleString('ms-MY') : '-'}</td>
+                      <td style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{b.createdAt ? formatDate(b.createdAt, { time: true }) : '-'}</td>
                       <td>{b.competitionName || comp.name || '-'}</td>
                       <td className="td-name">
                         {b.userName}
@@ -2602,7 +2593,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             ? <span className="badge badge-rejected">Ditolak</span>
                             : <span className={`badge badge-${deriveBalanceStage(b) === 'fully-paid' ? 'approved' : 'pending'}`}>{stageLabel[deriveBalanceStage(b)]}</span>}
                         </td>
-                        <td style={{ fontSize: '0.82rem' }}>{b.createdAt ? new Date(b.createdAt).toLocaleDateString('ms-MY') : '-'}</td>
+                        <td style={{ fontSize: '0.82rem' }}>{b.createdAt ? formatDate(b.createdAt) : '-'}</td>
                         <td>
                           <div className="action-cell">
                             {(() => {
@@ -3005,11 +2996,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             );
           })()}
           {page === 'all-weigh-ins' && (() => {
-            const fmtDateTime = (iso?: string) => {
-              if (!iso) return '-';
-              const d = new Date(iso);
-              return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('ms-MY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-            };
+            const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
             const compNameById = new Map(competitionsForCms.map((c) => [c.id || '', c.name]));
             const methodBadge = (m?: string) => {
               const meta = m === 'onnx' ? { label: 'ONNX (AI)', bg: '#374151' }
@@ -3448,11 +3435,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             );
           })()}
           {page === 'audit-log' && (() => {
-            const fmtDateTime = (iso?: string) => {
-              if (!iso) return '-';
-              const d = new Date(iso);
-              return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('ms-MY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-            };
+            const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
             const q = auditLogSearch.trim().toLowerCase();
             const filtered = auditLogEntries.filter(e => !q
               || e.actionLabel.toLowerCase().includes(q)

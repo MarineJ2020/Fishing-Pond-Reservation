@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import jsQR from 'jsqr';
 import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 import { sevenSegmentScan } from '../../utils/sevenSegmentFallback';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
-import { parseQrPayload } from '../../utils/qr';
+import { parseQrPayload, decodeQr } from '../../utils/qr';
 
 /**
  * A booking as the CMS sees it during the weigh-in scan flow. Carries the
@@ -164,8 +163,8 @@ async function decodeQrFromFile(file: Blob): Promise<string | null> {
   if (!ctx) return null;
   ctx.drawImage(bitmap, 0, 0, w, h);
   const imageData = ctx.getImageData(0, 0, w, h);
-  let code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-  if (code?.data) return code.data;
+  const decoded = decodeQr(imageData.data, imageData.width, imageData.height);
+  if (decoded) return decoded;
   if (scale < 1) {
     const fc = document.createElement('canvas');
     fc.width = bitmap.width;
@@ -174,8 +173,8 @@ async function decodeQrFromFile(file: Blob): Promise<string | null> {
     if (fctx) {
       fctx.drawImage(bitmap, 0, 0);
       const big = fctx.getImageData(0, 0, fc.width, fc.height);
-      code = jsQR(big.data, big.width, big.height, { inversionAttempts: 'attemptBoth' });
-      if (code?.data) return code.data;
+      const decodedBig = decodeQr(big.data, big.width, big.height);
+      if (decodedBig) return decodedBig;
     }
   }
   return null;
@@ -400,9 +399,9 @@ const ScaleScanModal: React.FC<Props> = ({
     canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
-    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-    if (code?.data) {
-      const parsed = parseQrPayload(code.data);
+    const decoded = decodeQr(imageData.data, imageData.width, imageData.height);
+    if (decoded) {
+      const parsed = parseQrPayload(decoded);
       const booking = parsed ? lookupBookingFull(parsed.bookingId) : null;
       if (booking) {
         // Valid booking QR → auto-close the camera and proceed.
@@ -413,8 +412,8 @@ const ScaleScanModal: React.FC<Props> = ({
       }
       // A QR was decoded but it isn't a booking for this competition. Surface a
       // "tidak sah" hint once per distinct payload and keep scanning.
-      if (lastInvalidQrRef.current !== code.data) {
-        lastInvalidQrRef.current = code.data;
+      if (lastInvalidQrRef.current !== decoded) {
+        lastInvalidQrRef.current = decoded;
         setError('QR tidak sah / tidak dijumpai untuk pertandingan ini. Cuba QR tempahan yang betul.');
       }
     }

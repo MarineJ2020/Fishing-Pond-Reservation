@@ -25,7 +25,7 @@ import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
 import { useScrollReveal } from './hooks/useScrollReveal';
 import { useCountdown } from './hooks/useCountdown';
-import { fmt } from './utils';
+import { fmt, formatDate } from './utils';
 import { formatSeatList, pondDisplayName } from './utils/seatLabel';
 import { countOutstanding, hasOutstandingBalance } from './utils/booking';
 import { trackEvent } from './utils/analytics';
@@ -802,12 +802,7 @@ const AppContent: React.FC = () => {
     const mapEmbedSrc = settings.mapEmbedUrl
       || (settings.location ? `https://www.google.com/maps?q=${encodeURIComponent(settings.location)}&output=embed` : '');
 
-    const formatEventDate = (iso?: string) => {
-      if (!iso) return 'Tarikh akan diumumkan';
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return 'Tarikh akan diumumkan';
-      return d.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long' });
-    };
+    const formatEventDate = (iso?: string) => formatDate(iso, { weekday: true }) || 'Tarikh akan diumumkan';
     const formatEventTime = (iso?: string) => {
       if (!iso) return '—';
       const d = new Date(iso);
@@ -1143,12 +1138,7 @@ const AppContent: React.FC = () => {
         const heroFeeVal = selectedCompetition?.pricePerPeg ?? samplePrice;
         const heroFee = heroFeeVal ? `RM${heroFeeVal} / Joran` : 'Hubungi kami';
         const heroSlots = competitionScopedPonds.reduce((sum, p) => sum + p.seats.filter((s) => s.status === 'available').length, 0);
-        const heroDate = (() => {
-          const iso = selectedCompetition?.startDate;
-          if (!iso) return 'Akan diumumkan';
-          const d = new Date(iso);
-          return Number.isNaN(d.getTime()) ? 'Akan diumumkan' : d.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long' });
-        })();
+        const heroDate = formatDate(selectedCompetition?.startDate, { weekday: true }) || 'Akan diumumkan';
         // The details phase is only meaningful once seats are picked; if seats get
         // reset (e.g. pond/competition change) we fall back to the seat phase.
         const detailsPhase = bookingPhase === 'details' && hasSeats && hasCompetition;

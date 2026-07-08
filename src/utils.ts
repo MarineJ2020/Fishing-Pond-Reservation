@@ -1,11 +1,34 @@
 import { DB, Score, Prize } from './types';
 
-export const fmt = (iso: string): string => {
-  if (!iso) return '';
+/**
+ * Site-wide date formatting. All displayed dates use numeric dd/mm/yyyy so the
+ * day/month order is never ambiguous. `weekday` keeps the spelled-out day name
+ * as a prefix (e.g. "Rabu, 08/07/2026"); `time` appends 24h HH:mm.
+ *
+ * Malay (`ms-MY`) locale is used for the weekday name to match the rest of the
+ * UI; the numeric date is built by hand from the parts so it is always
+ * dd/mm/yyyy regardless of what a given browser's locale default would produce.
+ */
+export const formatDate = (
+  iso: string | number | Date | null | undefined,
+  opts: { weekday?: boolean; time?: boolean } = {},
+): string => {
+  if (iso == null || iso === '') return '';
   const d = new Date(iso);
-  return d.toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' }) +
-         ' ' + d.toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' });
+  if (Number.isNaN(d.getTime())) return '';
+  const date = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`;
+  let out = date;
+  if (opts.weekday) {
+    const wd = d.toLocaleDateString('ms-MY', { weekday: 'long' });
+    out = `${wd}, ${date}`;
+  }
+  if (opts.time) {
+    out += ` ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  }
+  return out;
 };
+
+export const fmt = (iso: string): string => formatDate(iso, { time: true });
 
 export const p2 = (n: number): string => String(n).padStart(2, '0');
 

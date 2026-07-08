@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Booking } from '../../types';
+import { formatDate } from '../../utils';
 
 interface ReceiptReviewModalProps {
   /** null closes the modal. */
@@ -71,7 +72,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
                 {pendingReceipt.url && <button className="btn btn-sm btn-ghost" onClick={() => onViewReceipt(pendingReceipt.url)}>Lihat Resit</button>}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                Dihantar: {pendingReceipt.submittedAt ? new Date(pendingReceipt.submittedAt).toLocaleString('ms-MY') : '-'}
+                Dihantar: {pendingReceipt.submittedAt ? formatDate(pendingReceipt.submittedAt, { time: true }) : '-'}
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button className="btn btn-green" disabled={saving} onClick={() => onApprove(booking.id, pendingIndex)}>✓ Sahkan</button>
@@ -118,7 +119,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
                   <div key={i} style={{ fontSize: '0.8rem', background: 'var(--cream, #f7f7f5)', borderRadius: 8, padding: '8px 10px' }}>
                     <div>{r.text}</div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '3px' }}>
-                      {r.byName || 'Staf'} · {new Date(r.at).toLocaleString('ms-MY')}
+                      {r.byName || 'Staf'} · {formatDate(r.at, { time: true })}
                     </div>
                   </div>
                 ))}

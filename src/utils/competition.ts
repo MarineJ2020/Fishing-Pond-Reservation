@@ -1,4 +1,5 @@
 import { Competition } from '../types';
+import { formatDate } from '../utils';
 
 export type CompetitionPhase = 'upcoming' | 'live' | 'ended';
 
@@ -65,14 +66,7 @@ export function bookingWindowLabel(
   now: number = Date.now(),
 ): string {
   const state = getBookingWindowState(competition, now);
-  const fmt = (iso?: string) => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime())
-      ? ''
-      : d.toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' });
-  };
-  if (state === 'before') return `Tempahan dibuka pada ${fmt(competition?.bookingOpenAt)}`;
+  if (state === 'before') return `Tempahan dibuka pada ${formatDate(competition?.bookingOpenAt)}`;
   if (state === 'after') return 'Tempahan telah ditutup';
   return '';
 }

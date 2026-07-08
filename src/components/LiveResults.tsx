@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Competition, Score, ScoreEntry, Pond, Booking, User } from '../types';
-import { getLB, getPrize, p2 } from '../utils';
+import { getLB, getPrize, p2, formatDate } from '../utils';
 import { isCompetitionEnded } from '../utils/competition';
 import { formatSeat } from '../utils/seatLabel';
 import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
@@ -15,12 +15,7 @@ interface LiveResultsProps {
   user: User | null;
 }
 
-const fmtLongDate = (iso?: string): string => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-};
+const fmtLongDate = (iso?: string): string => formatDate(iso, { weekday: true });
 
 // Format a Firestore Timestamp / ISO string into a short Malay time, e.g. "9:45 malam".
 const fmtTime = (value: any): string => {
