@@ -21,6 +21,7 @@ interface BookingContextType {
   receiptData: string | null;
   receiptFile: File | null;
   bookingNotes: string;
+  contactPhone: string;
   adminProxyName: string;
   adminProxyEmail: string;
   adminProxyPhone: string;
@@ -32,6 +33,7 @@ interface BookingContextType {
   setPayType: (type: 'full' | 'deposit') => void;
   setReceiptData: (data: string | null, file: File | null) => void;
   setBookingNotes: (notes: string) => void;
+  setContactPhone: (phone: string) => void;
   setAdminProxyName: (name: string) => void;
   setAdminProxyEmail: (email: string) => void;
   setAdminProxyPhone: (phone: string) => void;
@@ -62,6 +64,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [receiptData, setReceiptDataState] = useState<string | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [bookingNotes, setBookingNotes] = useState('');
+  // Per-booking contact phone the customer keys in each time (self-service).
+  const [contactPhone, setContactPhone] = useState('');
   const [adminProxyName, setAdminProxyName] = useState('');
   const [adminProxyEmail, setAdminProxyEmail] = useState('');
   const [adminProxyPhone, setAdminProxyPhone] = useState('');
@@ -164,6 +168,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     setReceiptDataState(null);
     setReceiptFile(null);
     setBookingNotes('');
+    setContactPhone('');
     setAdminProxyName('');
     setAdminProxyEmail('');
     setAdminProxyPhone('');
@@ -198,6 +203,12 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const effectiveName = isAdminProxy ? adminProxyName.trim() : user.name;
     const effectiveEmail = isAdminProxy ? adminProxyEmail.trim() : (user.uid || user.email);
     const effectivePhone = isAdminProxy ? adminProxyPhone.trim() : (user.phone || '');
+    // Phone the customer keys in for THIS booking. Admin proxy already types it in
+    // the proxy form; self-service customers must enter it fresh every booking.
+    const perBookingPhone = isAdminProxy ? adminProxyPhone.trim() : contactPhone.trim();
+    if (!isAdminProxy && !perBookingPhone) {
+      throw new Error('Sila masukkan nombor telefon untuk tempahan ini. / Please enter a phone number for this booking.');
+    }
     // Real email address for notifications: proxy form when staff books on behalf of a guest,
     // Firebase auth email for self-service. Stored on the booking so approval flow doesn't need a lookup.
     const notifyEmail = isAdminProxy
@@ -225,6 +236,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       userEmail: notifyEmail,
       userName: effectiveName,
       userPhone: effectivePhone,
+      bookingPhone: perBookingPhone,
       seatIds,
       seatNumbers: selectedSeats,
       paymentType: payType,
@@ -260,6 +272,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       userEmail: notifyEmail,
       userName: effectiveName,
       userPhone: effectivePhone,
+      bookingPhone: perBookingPhone,
       pondId: pond.id,
       pondName: pond.name,
       pondCode: pond.code || '',
@@ -281,7 +294,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     updateDB(newDb);
     clearBooking();
     return booking;
-  }, [user, selectedSeats, receiptData, receiptFile, payType, bookingNotes, adminProxyName, adminProxyEmail, adminProxyPhone, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
+  }, [user, selectedSeats, receiptData, receiptFile, payType, bookingNotes, contactPhone, adminProxyName, adminProxyEmail, adminProxyPhone, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
 
   return (
     <BookingContext.Provider
@@ -296,6 +309,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         receiptData,
         receiptFile,
         bookingNotes,
+        contactPhone,
         adminProxyName,
         adminProxyEmail,
         adminProxyPhone,
@@ -306,6 +320,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         setPayType,
         setReceiptData,
         setBookingNotes,
+        setContactPhone,
         setAdminProxyName,
         setAdminProxyEmail,
         setAdminProxyPhone,

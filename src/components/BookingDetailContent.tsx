@@ -149,6 +149,9 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
         <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '3px' }}>
           <span>📧 {booking.userEmail || booking.userId}</span>
           <span>📱 {booking.userPhone || 'Tidak disediakan'}</span>
+          {booking.bookingPhone && booking.bookingPhone !== booking.userPhone && (
+            <span>📞 {booking.bookingPhone} <span style={{ fontSize: '.72rem' }}>(telefon untuk tempahan ini)</span></span>
+          )}
         </div>
       </div>
 

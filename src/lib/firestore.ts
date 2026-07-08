@@ -189,6 +189,7 @@ const buildBooking = (
     userEmail: data.userEmail || '',
     userName: data.userName || data.guestName || 'Guest',
     userPhone: data.userPhone || data.phone || '',
+    bookingPhone: data.bookingPhone || '',
     pondId: pond?.id ?? 0,
     pondName: pond?.name || 'Unknown',
     pondCode: pond?.code || data.pondCode || undefined,

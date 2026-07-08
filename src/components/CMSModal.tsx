@@ -2365,7 +2365,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               .filter((b) => !approvalPayFilter || (approvalPayFilter === 'deposit' ? b.paymentType === 'deposit' : b.paymentType !== 'deposit'))
               .filter((b) => {
                 if (!aq) return true;
-                const hay = [b.id, b.bookingRef, b.userName, b.userEmail, b.userPhone, b.pondName, b.competitionName].filter(Boolean).join(' ').toLowerCase();
+                const hay = [b.id, b.bookingRef, b.userName, b.userEmail, b.userPhone, b.bookingPhone, b.pondName, b.competitionName].filter(Boolean).join(' ').toLowerCase();
                 return hay.includes(aq);
               });
             return (
@@ -2425,7 +2425,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         {b.userName}
                         {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>(Ditempah oleh Admin)</span>}
                       </td>
-                      <td>{b.userPhone || '—'}</td>
+                      <td>
+                        {b.userPhone || '—'}
+                        {b.bookingPhone && b.bookingPhone !== b.userPhone && (
+                          <div style={{ fontSize: '0.7rem', color: '#b45309', marginTop: '2px' }} title="Nombor telefon dimasukkan untuk tempahan ini">📱 {b.bookingPhone}</div>
+                        )}
+                      </td>
                       <td>{b.pondName}</td>
                       <td>{bookingSeatList(b)}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
                       <td>
@@ -2509,7 +2514,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               .filter(b => {
                 if (!q) return true;
                 const haystack = [
-                  b.id, b.bookingRef, b.userName, b.userId, b.userEmail, b.userPhone,
+                  b.id, b.bookingRef, b.userName, b.userId, b.userEmail, b.userPhone, b.bookingPhone,
                   b.pondName, b.competitionName, bookingSeatList(b),
                 ].filter(Boolean).join(' ').toLowerCase();
                 return haystack.includes(q);
@@ -2582,7 +2587,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               hold the participant's address, not the admin's, so this is correct. */}
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 400 }}>{b.userEmail || b.userId || '-'}</div>
                         </td>
-                        <td>{b.userPhone || '—'}</td>
+                        <td>
+                          {b.userPhone || '—'}
+                          {b.bookingPhone && b.bookingPhone !== b.userPhone && (
+                            <div style={{ fontSize: '0.7rem', color: '#b45309', marginTop: '2px' }} title="Nombor telefon dimasukkan untuk tempahan ini">📱 {b.bookingPhone}</div>
+                          )}
+                        </td>
                         <td>{b.pondName}</td>
                         <td>{bookingSeatList(b)}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
                         <td>

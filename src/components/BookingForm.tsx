@@ -1,6 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { User, Pond, Settings } from '../types';
 import { formatSeat } from '../utils/seatLabel';
+import PhoneNumberField from './PhoneNumberField';
+import { formatMyPhone, isValidMyPhoneRest } from '../utils/phone';
 
 interface BookingFormProps {
   user: User | null;
@@ -14,6 +16,7 @@ interface BookingFormProps {
   adminProxyName: string;
   adminProxyEmail: string;
   adminProxyPhone: string;
+  onContactPhoneChange: (v: string) => void;
   onSetPayType: (type: 'full' | 'deposit') => void;
   onHandleReceiptChange: (file: File) => void;
   onClearReceipt: () => void;
@@ -40,6 +43,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   adminProxyName,
   adminProxyEmail,
   adminProxyPhone,
+  onContactPhoneChange,
   onSetPayType,
   onHandleReceiptChange,
   onClearReceipt,
@@ -56,7 +60,21 @@ const BookingForm: React.FC<BookingFormProps> = ({
   const [notes, setNotes] = useState('');
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [termsConfirmed, setTermsConfirmed] = useState(false);
+  // Per-booking contact phone — entered fresh each booking so staff can
+  // cross-check it against the profile phone. Not prefilled on purpose.
+  const [phonePrefix, setPhonePrefix] = useState('012');
+  const [phoneRest, setPhoneRest] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const contactPhoneValid = isValidMyPhoneRest(phonePrefix, phoneRest);
+  const handlePhonePrefixChange = (v: string) => {
+    setPhonePrefix(v);
+    onContactPhoneChange(formatMyPhone(v, phoneRest));
+  };
+  const handlePhoneRestChange = (v: string) => {
+    setPhoneRest(v);
+    onContactPhoneChange(formatMyPhone(phonePrefix, v));
+  };
 
   const calcAmt = () => {
     const tot = selectedSeats.length * Math.max(0, pricePerPeg || 0);
@@ -101,6 +119,15 @@ const BookingForm: React.FC<BookingFormProps> = ({
   // Email/password users must verify before booking (Google accounts are pre-verified).
   const needsVerification = !!user && !isAdmin && user.emailVerified === false;
 
+  const canSubmit =
+    !isSubmitting &&
+    selectedSeats.length > 0 &&
+    !!receiptData &&
+    termsConfirmed &&
+    !needsVerification &&
+    (isAdmin ? adminProxyName.trim() !== '' : true) &&
+    (isAdminProxyMode ? adminProxyPhone.trim() !== '' : contactPhoneValid);
+
   const handleResend = async () => {
     setVerifyBusy(true);
     await onResendVerification();
@@ -136,6 +163,23 @@ const BookingForm: React.FC<BookingFormProps> = ({
             >
               Profil Anda
             </button>.
+          </div>
+        </div>
+      )}
+
+      {/* ── Per-booking contact phone (self-service) ── */}
+      {!isAdminProxyMode && (
+        <div style={{ marginBottom: '16px' }}>
+          <PhoneNumberField
+            prefix={phonePrefix}
+            rest={phoneRest}
+            onPrefixChange={handlePhonePrefixChange}
+            onRestChange={handlePhoneRestChange}
+            label="Nombor Telefon untuk Tempahan Ini"
+            required
+          />
+          <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: 1.5 }}>
+            Masukkan nombor telefon yang boleh dihubungi untuk tempahan ini. Ini membantu staf menghubungi anda pada hari pertandingan.
           </div>
         </div>
       )}
@@ -232,7 +276,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
 
       <label className="form-label">Muat Naik Resit <span style={{ color: 'var(--red)' }}>*</span></label>
       <div
-        className="upload-zone"
+        className={`upload-zone${!receiptData ? ' bk-hint' : ''}`}
         onClick={() => fileInputRef.current?.click()}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
@@ -302,9 +346,9 @@ const BookingForm: React.FC<BookingFormProps> = ({
       )}
       <button
         id="btn-submit"
-        className="btn btn-primary w-full btn-lg mt-4"
+        className={`btn btn-primary w-full btn-lg mt-4${canSubmit ? ' bk-hint' : ''}`}
         onClick={onSubmitBooking}
-        disabled={isSubmitting || !selectedSeats.length || !receiptData || !termsConfirmed || (isAdmin && !adminProxyName.trim()) || (isAdminProxyMode && !adminProxyPhone.trim()) || needsVerification}
+        disabled={!canSubmit}
       >
         {isSubmitting ? 'Menghantar...' : (isAdminProxyMode ? `Tempah untuk ${adminProxyName.trim()}` : 'Hantar Tempahan')}
       </button>

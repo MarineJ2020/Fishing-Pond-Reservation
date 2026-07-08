@@ -56,7 +56,15 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
           <div style={{ marginBottom: '16px' }}>
             <div style={{ fontWeight: 700 }}>{booking.userName}</div>
             <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{booking.pondName} · {booking.competitionName || '-'}</div>
-            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Ref: {booking.bookingRef || booking.id} · {booking.userPhone || 'Tiada no. telefon'}</div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Ref: {booking.bookingRef || booking.id}</div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+              📱 Profil: {booking.userPhone || '—'}
+              {' · '}
+              Tempahan: {booking.bookingPhone || '—'}
+              {booking.bookingPhone && booking.userPhone && booking.bookingPhone !== booking.userPhone && (
+                <span style={{ color: '#b45309', fontWeight: 700 }}> ⚠ berbeza</span>
+              )}
+            </div>
           </div>
 
           {hasConflict && (

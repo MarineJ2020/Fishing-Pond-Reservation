@@ -53,6 +53,7 @@ const AppContent: React.FC = () => {
     setSeats,
     setPayType,
     setReceiptData,
+    setContactPhone,
     setAdminProxyName,
     setAdminProxyEmail,
     setAdminProxyPhone,
@@ -1162,6 +1163,18 @@ const AppContent: React.FC = () => {
         const step3 = !hasPond ? '' : hasSeats ? 'done' : 'active';
         const step4 = detailsPhase ? 'active' : '';
 
+        // Which action button should gently pulse to hint the next step. The form
+        // (details) phase manages its own hint inside BookingForm. When no bookable
+        // competition is active (none picked, or the picked one is ended/closed) the
+        // competition choices pulse so the user knows to pick a valid one first.
+        const nextHint: 'competition' | 'pond' | 'seat' | 'continue' | null =
+          detailsPhase ? null
+          : !hasCompetition ? 'competition'
+          : !hasPond ? 'pond'
+          : !hasSeats ? 'seat'
+          : 'continue';
+        const hintCls = (target: typeof nextHint) => (nextHint === target ? ' bk-hint' : '');
+
         return (
           <div className="bk-page">
             <section className="bk-hero">
@@ -1223,7 +1236,7 @@ const AppContent: React.FC = () => {
                                 <button
                                   key={competition.id || competition.name}
                                   type="button"
-                                  className={`bk-choice ${active ? 'active' : ''}`}
+                                  className={`bk-choice ${active ? 'active' : ''}${hintCls('competition')}`}
                                   onClick={() => handleSelectCompetitionForBooking(competition.id)}
                                 >
                                   <small>{cardLabel}</small>
@@ -1299,7 +1312,7 @@ const AppContent: React.FC = () => {
                                     <button
                                       key={pond._docId || pond.id}
                                       type="button"
-                                      className={`bk-pond ${active ? 'active' : ''}`}
+                                      className={`bk-pond ${active ? 'active' : ''}${!active ? hintCls('pond') : ''}`}
                                       disabled={disabled}
                                       onClick={() => { if (!disabled) { setPond(pond.id); setSeatModalOpen(true); } }}
                                     >
@@ -1336,7 +1349,7 @@ const AppContent: React.FC = () => {
                                     </div>
                                   </div>
                                 </div>
-                                <button className="btn btn-red" type="button" disabled={!hasPond} onClick={() => setSeatModalOpen(true)}>
+                                <button className={`btn btn-red${hintCls('seat')}`} type="button" disabled={!hasPond} onClick={() => setSeatModalOpen(true)}>
                                   <i className="fa-solid fa-chair"></i> Buka Seat Map
                                 </button>
                               </div>
@@ -1365,6 +1378,7 @@ const AppContent: React.FC = () => {
                           adminProxyName={adminProxyName}
                           adminProxyEmail={adminProxyEmail}
                           adminProxyPhone={adminProxyPhone}
+                          onContactPhoneChange={setContactPhone}
                           onSetPayType={setPayType}
                           onHandleReceiptChange={handleReceiptChange}
                           onClearReceipt={() => setReceiptData(null, null)}
@@ -1408,7 +1422,7 @@ const AppContent: React.FC = () => {
                   </div>
                   <div className="bk-summary-actions">
                     {!detailsPhase ? (
-                      <button className="btn btn-red w-full" type="button" disabled={!hasSeats} onClick={goToDetails}>
+                      <button className={`btn btn-red w-full${hintCls('continue')}`} type="button" disabled={!hasSeats} onClick={goToDetails}>
                         <i className="fa-solid fa-arrow-right"></i> Teruskan
                       </button>
                     ) : (
@@ -1417,7 +1431,7 @@ const AppContent: React.FC = () => {
                       </button>
                     )}
                     {hasPond && !detailsPhase && (
-                      <button className="btn btn-light w-full" type="button" onClick={() => setSeatModalOpen(true)}>
+                      <button className={`btn btn-light w-full${!hasSeats ? hintCls('seat') : ''}`} type="button" onClick={() => setSeatModalOpen(true)}>
                         <i className="fa-solid fa-chair"></i> {hasSeats ? 'Tukar Seat' : 'Buka Seat Map'}
                       </button>
                     )}
@@ -1433,7 +1447,7 @@ const AppContent: React.FC = () => {
                   <small>Seat Dipilih</small>
                   <strong>{pondDisplayName(bookedPond)} · {selectedSeats.length} seat · RM{payableNow}</strong>
                 </div>
-                <button className="btn btn-red" type="button" onClick={goToDetails}>
+                <button className={`btn btn-red${hintCls('continue')}`} type="button" onClick={goToDetails}>
                   <i className="fa-solid fa-arrow-right"></i> Teruskan
                 </button>
               </div>
@@ -1485,7 +1499,7 @@ const AppContent: React.FC = () => {
                       <small>Pilihan Semasa</small>
                       <strong>{selectedSeats.length ? `${selectedSeats.length} seat · RM${subtotal}` : 'Belum pilih seat'}</strong>
                     </div>
-                    <button className="btn btn-red" type="button" disabled={!hasSeats} onClick={() => setSeatModalOpen(false)}>
+                    <button className={`btn btn-red${hasSeats ? ' bk-hint' : ''}`} type="button" disabled={!hasSeats} onClick={() => setSeatModalOpen(false)}>
                       <i className="fa-solid fa-check"></i> Sahkan Seat
                     </button>
                   </div>

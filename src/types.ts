@@ -45,6 +45,12 @@ export interface Booking {
   userEmail?: string;
   userName: string;
   userPhone: string;
+  /**
+   * Phone number the customer keys in fresh for THIS booking (self-service) or
+   * that staff enter for the customer (admin proxy). Kept separate from the
+   * profile `userPhone` so staff can cross-check the two if one can't be reached.
+   */
+  bookingPhone?: string;
   pondId: number;
   pondName: string;
   /** Pond alphabet code captured at booking time, used to prefix seat labels (e.g. "A-23"). */

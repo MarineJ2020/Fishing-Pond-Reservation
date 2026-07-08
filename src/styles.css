@@ -1120,6 +1120,21 @@ footer {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Subtle recurring "press this next" hint on the current step's action button.
+   Mostly at rest, with a brief double-nudge once per cycle so it guides the eye
+   without being noisy. */
+.bk-hint { animation: bkHintPulse 3.6s ease-in-out infinite; will-change: transform; }
+@keyframes bkHintPulse {
+  0%, 60% { transform: translateY(0) scale(1); box-shadow: 0 0 0 0 rgba(231,25,45,0); }
+  68% { transform: translateY(-2px) scale(1.015); box-shadow: 0 8px 22px rgba(231,25,45,.26); }
+  76% { transform: translateY(0) scale(1); box-shadow: 0 0 0 0 rgba(231,25,45,0); }
+  84% { transform: translateY(-1px) scale(1.008); box-shadow: 0 5px 15px rgba(231,25,45,.16); }
+  100% { transform: translateY(0) scale(1); box-shadow: 0 0 0 0 rgba(231,25,45,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bk-hint { animation: none; }
+}
 .summary-title { font-family: var(--font-heading); font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
 .timer-chip {
   display: inline-flex; align-items: center; gap: 6px;
