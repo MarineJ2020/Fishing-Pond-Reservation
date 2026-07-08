@@ -1849,7 +1849,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65, color: 'var(--cv-text, inherit)' }}>
                   <ol style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <li>Halaman ini memaparkan <strong>hanya tempahan yang belum dibuat sebarang keputusan</strong> — sebaik sahaja resit pertama disahkan atau ditolak, tempahan itu berpindah ke tab <strong>Semua Tempahan</strong> dan hilang dari sini.</li>
-                    <li>Klik <strong>Review</strong> pada mana-mana baris untuk buka tetingkap semakan. Tetingkap ini memaparkan resit yang dimuat naik (jika ada), <strong>No. Telefon</strong> pelanggan, dan amaran jika peg yang sama dituntut oleh tempahan lain.</li>
+                    <li>Klik <strong>Review</strong> pada mana-mana baris untuk buka tetingkap semakan. Tetingkap ini memaparkan resit yang dimuat naik (jika ada), <strong>No. Telefon</strong> pelanggan — kedua-dua nombor <strong>profil</strong> dan nombor yang dimasukkan khas untuk tempahan itu (dengan amaran <strong>berbeza</strong> untuk semakan silang jika keduanya tak sama) — dan amaran jika peg yang sama dituntut oleh tempahan lain.</li>
                     <li>Dalam tetingkap Review: <strong>Sahkan</strong> atau <strong>Tolak</strong> resit yang sedang menunggu.
                       <ul style={{ paddingLeft: 18, marginTop: 4 }}>
                         <li>Tempahan <strong>disahkan serta-merta</strong> (tempat dikunci &amp; e-mel makluman dihantar) sebaik sahaja resit <strong>pertama</strong> disahkan — walaupun untuk pembayaran deposit. Jika masih ada baki, tempahan berpindah ke Semua Tempahan dengan status baki belum selesai.</li>
@@ -1873,6 +1873,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <li><strong>Hantar Peringatan</strong> — hantar e-mel peringatan baki kepada pelanggan yang masih ada baki tertunggak. Ini <strong>menetapkan semula</strong> kiraan auto-peringat (~7 hari).</li>
                     <li><strong>Batal Paksa</strong> — hanya untuk tempahan yang <strong>telah DISAHKAN</strong>. Perlu pengesahan dua peringkat (dialog + menaip <code>DELETE BOOKING</code>). Tempat akan dilepaskan.</li>
                     <li>Klik tajuk lajur <strong>Nama / Jumlah / Tarikh</strong> untuk menyusun senarai; guna Sebelum/Seterus untuk pusing muka surat apabila senarai panjang.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-header"><div className="card-title">✅ Check-In Peserta</div></div>
+                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
+                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li>Tab ini <strong>hanya</strong> untuk imbas QR tempahan — tiada lagi carian manual ikut nama/ref. Dua pilihan: <strong>Imbas QR Secara Live</strong> (kamera) atau <strong>Muat Naik QR</strong> (ambil/pilih gambar QR).</li>
+                    <li>Imbasan live <strong>berhenti serta-merta</strong> sebaik sahaja sebarang QR dikesan dan terus papar hasilnya. QR sah → butiran tempahan; QR tidak sepadan → kandungan QR yang diimbas ditunjukkan supaya staf boleh semak.</li>
+                    <li>Setiap peg di-check-in <strong>berasingan</strong> — tekan <strong>Check-In</strong> pada peg berkenaan (peg dari QR per-peg akan diserlahkan). Tempahan mesti <strong>telah disahkan</strong> dahulu sebelum boleh check-in.</li>
                   </ul>
                 </div>
               </div>
