@@ -3,7 +3,7 @@ import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 import { sevenSegmentScan } from '../../utils/sevenSegmentFallback';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
-import { parseQrPayload, decodeQr } from '../../utils/qr';
+import { parseQrPayload, decodeQr, openQrCameraStream } from '../../utils/qr';
 
 /**
  * A booking as the CMS sees it during the weigh-in scan flow. Carries the
@@ -246,6 +246,9 @@ const ScaleScanModal: React.FC<Props> = ({
   // render carrying `true` hasn't happened yet), which made every frame bail
   // out immediately and silently stop scanning forever.
   const liveQrActiveRef = useRef(false);
+  // Camera-open timestamp — decode attempts are skipped for a brief warm-up
+  // window so a scan can't latch onto the first (still-focusing) frames.
+  const liveQrStartedAtRef = useRef(0);
 
   useEffect(() => {
     if (!isOpen) {
@@ -395,6 +398,13 @@ const ScaleScanModal: React.FC<Props> = ({
       return;
     }
 
+    // Skip decoding during the warm-up window right after the camera opens —
+    // autofocus/auto-exposure haven't settled yet, so these frames are soft.
+    if (performance.now() - liveQrStartedAtRef.current < 350) {
+      liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
+      return;
+    }
+
     canvas.width = w;
     canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
@@ -424,16 +434,14 @@ const ScaleScanModal: React.FC<Props> = ({
     setError(null);
     setLiveQrBusy(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
-      });
+      const stream = await openQrCameraStream();
       liveQrStreamRef.current = stream;
       const video = liveQrVideoRef.current;
       if (!video) throw new Error('Elemen video tidak tersedia.');
       video.srcObject = stream;
       await video.play();
       liveQrActiveRef.current = true;
+      liveQrStartedAtRef.current = performance.now();
       setLiveQrActive(true);
       liveQrRafRef.current = window.requestAnimationFrame(runLiveQrFrame);
     } catch (err: any) {

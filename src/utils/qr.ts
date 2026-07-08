@@ -68,6 +68,39 @@ export function decodeQrFromImageData(imageData: ImageData): string | null {
   return decodeQr(imageData.data, imageData.width, imageData.height);
 }
 
+/**
+ * Open the rear camera for live QR scanning, requesting continuous autofocus
+ * and a resolution that gives ZXing enough detail to resolve a QR quickly.
+ *
+ * Without `focusMode: 'continuous'`, some Android browsers start the stream
+ * with a fixed/slow-settling focus, so the first second of frames are soft —
+ * the scan loop keeps retrying and eventually succeeds once focus locks, which
+ * looks like "the first scan always fails, only the second attempt works."
+ * `focusMode` isn't accepted by every browser as a top-level constraint (it'll
+ * throw OverconstrainedError on some), so it's requested via `applyConstraints`
+ * after the stream opens instead, and failures there are silently ignored —
+ * degrading to whatever autofocus behavior the browser defaults to.
+ */
+export async function openQrCameraStream(): Promise<MediaStream> {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    },
+    audio: false,
+  });
+  const [track] = stream.getVideoTracks();
+  if (track && typeof track.applyConstraints === 'function') {
+    try {
+      await track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] });
+    } catch {
+      // Not supported on this browser/camera — fall back to default autofocus.
+    }
+  }
+  return stream;
+}
+
 /** Build the booking-detail URL (origin + /bookings/:id), no seat info. */
 export function buildBookingUrl(bookingId: string): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';

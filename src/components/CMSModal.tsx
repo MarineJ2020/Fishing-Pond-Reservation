@@ -34,7 +34,7 @@ import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/ema
 import { balanceReminderInfo } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta } from '../utils/competition';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
-import { parseQrPayload, buildSeatQrValue, decodeQr } from '../utils/qr';
+import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { prizeRange, formatDate } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 import DocPreviewModal from './DocPreviewModal';
@@ -263,6 +263,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const checkinLiveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const checkinLiveStreamRef = useRef<MediaStream | null>(null);
   const checkinLiveRafRef = useRef<number | null>(null);
+  // Camera-open timestamp — decode attempts are skipped for a brief warm-up
+  // window so a scan can't latch onto the first (still-focusing) frames.
+  const checkinLiveStartedAtRef = useRef(0);
 
   // Competition: per-pond seat active/inactive edits (pondKey -> seatNum -> active)
   const [pondSeatEdits, setPondSeatEdits] = useState<Record<string, Record<number, boolean>>>({});
@@ -1062,6 +1065,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
       return;
     }
+    // Skip decoding during the warm-up window right after the camera opens —
+    // autofocus/auto-exposure haven't settled yet, so these frames are soft.
+    if (performance.now() - checkinLiveStartedAtRef.current < 350) {
+      checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
+      return;
+    }
     canvas.width = w;
     canvas.height = h;
     ctx.drawImage(video, 0, 0, w, h);
@@ -1091,16 +1100,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setCheckinLiveScanBusy(true);
     setCheckinScannedRaw(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
-      });
+      const stream = await openQrCameraStream();
       checkinLiveStreamRef.current = stream;
       const video = checkinLiveVideoRef.current;
       if (!video) throw new Error('Elemen video tidak tersedia.');
       video.srcObject = stream;
       await video.play();
       checkinLiveActiveRef.current = true;
+      checkinLiveStartedAtRef.current = performance.now();
       setCheckinLiveScanOn(true);
       checkinLiveRafRef.current = window.requestAnimationFrame(runCheckinLiveFrame);
     } catch (err) {

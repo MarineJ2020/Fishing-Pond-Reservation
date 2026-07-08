@@ -1234,20 +1234,6 @@ footer {
 .last-upd { font-size: .72rem; color: var(--text-muted); }
 .no-data { text-align: center; padding: 60px 24px; color: var(--text-muted); font-size: .88rem; }
 
-/* ===== SCROLL-REVEAL (public site sections) ===== */
-/* Attach `.reveal` + useScrollReveal() to a list wrapper; children fade/slide
-   in with a staggered delay once the wrapper enters the viewport. Capped at
-   6 explicit delays so it never scales unbounded on longer lists. */
-@keyframes revealItem { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-.reveal > * { opacity: 0; }
-.reveal.reveal-visible > * { animation: revealItem .5s cubic-bezier(.22,.68,0,1.15) both; }
-.reveal.reveal-visible > *:nth-child(1) { animation-delay: 0s; }
-.reveal.reveal-visible > *:nth-child(2) { animation-delay: .08s; }
-.reveal.reveal-visible > *:nth-child(3) { animation-delay: .16s; }
-.reveal.reveal-visible > *:nth-child(4) { animation-delay: .24s; }
-.reveal.reveal-visible > *:nth-child(5) { animation-delay: .32s; }
-.reveal.reveal-visible > *:nth-child(6) { animation-delay: .4s; }
-
 /* Competition nav arrows */
 .comp-nav-wrap { display: flex; align-items: stretch; gap: 10px; margin-bottom: 28px; }
 .comp-nav-wrap .countdown-wrap { margin-bottom: 0; flex: 1; }
@@ -3523,7 +3509,15 @@ nav.kks-legacy-v3-nav::before {
   gap: 22px; padding: 0 0 24px;
   border-bottom: 1px solid #dde3e8; margin-bottom: 24px;
 }
-.kks-rule-num { font-family: "Barlow Condensed"; font-size: 44px; color: rgba(17,42,65,.12); font-weight: 900; }
+.kks-rule-num {
+  font-family: "Barlow Condensed"; font-size: 44px; color: rgba(17,42,65,.12); font-weight: 900;
+  display: inline-block; animation: ruleNumBreathe 6s ease-in-out infinite; will-change: opacity;
+}
+@keyframes ruleNumBreathe { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+.kks-rule:nth-child(2) .kks-rule-num { animation-delay: .6s; }
+.kks-rule:nth-child(3) .kks-rule-num { animation-delay: 1.2s; }
+.kks-rule:nth-child(4) .kks-rule-num { animation-delay: 1.8s; }
+.kks-rule:nth-child(5) .kks-rule-num { animation-delay: 2.4s; }
 .kks-rule h3 { margin: 0 0 8px; font-size: 14px; color: var(--red); text-transform: uppercase; font-family: var(--font-body); font-weight: 800; letter-spacing: .05em; }
 .kks-rule p { margin: 0; color: #4d5a67; font-size: 13px; line-height: 1.65; }
 

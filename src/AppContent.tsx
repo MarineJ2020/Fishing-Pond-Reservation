@@ -23,7 +23,6 @@ import { useBooking } from './context/BookingContext';
 import { useUI } from './context/UIContext';
 import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
-import { useScrollReveal } from './hooks/useScrollReveal';
 import { useCountdown } from './hooks/useCountdown';
 import { fmt, formatDate } from './utils';
 import { formatSeatList, pondDisplayName } from './utils/seatLabel';
@@ -70,9 +69,6 @@ const AppContent: React.FC = () => {
   const [homeScrollTarget, setHomeScrollTarget] = useState<string | null>(null);
   const [pondPickerOpen, setPondPickerOpen] = useState(false);
   const competitionScrollerRef = useRef<HTMLDivElement | null>(null);
-  const featuresRevealRef = useScrollReveal<HTMLDivElement>();
-  const stepsRevealRef = useScrollReveal<HTMLDivElement>();
-  const rulesRevealRef = useScrollReveal<HTMLDivElement>();
   const competitionInteractionRef = useRef({ isDragging: false, startX: 0, startScrollLeft: 0, blockClick: false });
   const competitionSnapTimeoutRef = useRef<number | null>(null);
   const competitionSnapResumeTimeoutRef = useRef<number | null>(null);
@@ -859,7 +855,7 @@ const AppContent: React.FC = () => {
           <div className="kks-eyebrow">Kolam Keli Sayang</div>
           <h2 className="kks-headline">Bukan <span>Kolam</span> Biasa</h2>
           <p className="kks-intro-copy">{introCopy}</p>
-          <div className="kks-features reveal" ref={featuresRevealRef}>
+          <div className="kks-features">
             <article className="kks-feature">
               <div className="kks-feature-icon"><i className="fa-solid fa-flag-checkered"></i></div>
               <h3>Event Pertandingan Sahaja</h3>
@@ -1027,7 +1023,7 @@ const AppContent: React.FC = () => {
             </div>
             <button className="btn btn-navy" onClick={() => openBookingChoice(() => goToBook())}>Pilih Pertandingan</button>
           </div>
-          <div className="kks-steps reveal" ref={stepsRevealRef}>
+          <div className="kks-steps">
             <article className="kks-step" data-step="01">
               <div className="kks-step-icon"><i className="fa-solid fa-trophy"></i></div>
               <h3>Pilih Pertandingan</h3>
@@ -1060,7 +1056,7 @@ const AppContent: React.FC = () => {
             <h2 className="kks-headline">Macam Mana <span>Ia Berjalan?</span></h2>
             <button className="btn btn-navy" onClick={openRulesPdf}>SEMAK SYARAT &amp; PERATURAN</button>
           </div>
-          <div className="kks-rule-list reveal" ref={rulesRevealRef}>
+          <div className="kks-rule-list">
             {rules.map((r, i) => (
               <article key={i} className="kks-rule">
                 <div className="kks-rule-num">{(i + 1).toString().padStart(2, '0')}</div>
