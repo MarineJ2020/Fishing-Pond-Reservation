@@ -3371,6 +3371,15 @@ nav.kks-legacy-v3-nav::before {
   display: grid; grid-template-columns: 1.05fr .95fr;
   gap: 24px; align-items: stretch;
 }
+.kks-empty-state {
+  text-align: center; color: #fff;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 26px; padding: 48px 24px;
+}
+.kks-empty-state p {
+  font-family: "Barlow Condensed"; font-size: 22px; font-style: italic;
+  opacity: .9; margin: 0;
+}
 .kks-event-main {
   position: relative; background: #fff; color: var(--navy);
   border-radius: 26px; overflow: hidden;

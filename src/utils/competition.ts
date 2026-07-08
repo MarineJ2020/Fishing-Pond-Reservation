@@ -60,6 +60,42 @@ export function isBookingOpen(
   return state === 'open' || state === 'none';
 }
 
+export type CompetitionCmsStatus = 'tamat' | 'active' | 'coming-soon' | 'inactive';
+
+/**
+ * CMS "Pertandingan" table status — fully date-derived, no manual toggle.
+ * - `tamat`       — competition has ended.
+ * - `active`      — booking is open, or the event is currently live/in-game.
+ * - `coming-soon` — created, but the booking-open date hasn't arrived yet.
+ * - `inactive`    — booking window has closed but the event hasn't started/ended yet.
+ */
+export function getCompetitionCmsStatus(
+  competition: Partial<Competition> | null | undefined,
+  now: number = Date.now(),
+): CompetitionCmsStatus {
+  const phase = getCompetitionPhase(competition);
+  if (phase === 'ended') return 'tamat';
+  if (phase === 'live') return 'active';
+  const windowState = getBookingWindowState(competition, now);
+  if (windowState === 'open' || windowState === 'none') return 'active';
+  if (windowState === 'before') return 'coming-soon';
+  return 'inactive';
+}
+
+const CMS_STATUS_META: Record<CompetitionCmsStatus, { label: string; badgeClass: string }> = {
+  tamat: { label: 'Tamat', badgeClass: 'badge-completed' },
+  active: { label: 'Active', badgeClass: 'badge-open' },
+  'coming-soon': { label: 'Coming Soon', badgeClass: 'badge-draft' },
+  inactive: { label: 'Inactive', badgeClass: 'badge-draft' },
+};
+
+export function getCompetitionCmsStatusMeta(
+  competition: Partial<Competition> | null | undefined,
+  now: number = Date.now(),
+): { label: string; badgeClass: string } {
+  return CMS_STATUS_META[getCompetitionCmsStatus(competition, now)];
+}
+
 /** Malay message describing why booking is unavailable, or '' when it is open. */
 export function bookingWindowLabel(
   competition: Partial<Competition> | null | undefined,

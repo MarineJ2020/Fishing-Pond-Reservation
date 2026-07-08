@@ -32,7 +32,7 @@ import { compressBlobToWebp, uploadImageToFirebaseStorage } from '../utils/image
 import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
-import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getBookingWindowState } from '../utils/competition';
+import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta } from '../utils/competition';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr } from '../utils/qr';
 import { prizeRange, formatDate } from '../utils';
@@ -405,6 +405,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
   }, [prizesCompId, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Hadiah & Ranking hides ended competitions — if the selected one just ended
+  // (or isn't set), fall back to the first non-ended competition instead.
+  useEffect(() => {
+    if (page !== 'prizes') return;
+    const current = compList.find(c => c.id === prizesCompId);
+    if (current && getCompetitionPhase(current) !== 'ended') return;
+    const fallback = compList.find(c => getCompetitionPhase(c) !== 'ended');
+    if (fallback?.id) setPrizesCompId(fallback.id);
+  }, [page, prizesCompId, compList]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (page !== 'results' || !resultsCompId) return;
     getScoresForCompetition(resultsCompId).then(setScoreEntries);
@@ -489,7 +499,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setPondSaveError(null);
 
     // 1. Seat count enforcement for polygon view
-    const hasPolygon = !settingsEdit.useLegacyPondView && (pond.shape?.length ?? 0) > 2;
+    // Kolam always uses the legacy pond view now (toggle removed).
+    const hasPolygon = false && (pond.shape?.length ?? 0) > 2;
     const seatsWithPos = pond.seats.filter(s => s.px !== undefined && s.py !== undefined);
     const target = pond.maxSeats;
     if (hasPolygon && seatsWithPos.length > 0 && target !== undefined && seatsWithPos.length !== target) {
@@ -498,7 +509,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
 
     // 2. Booking conflict check: any seat being removed that has an active booking?
-    const newSeatNums = settingsEdit.useLegacyPondView && target !== undefined
+    const newSeatNums = target !== undefined
       ? new Set(Array.from({ length: target }, (_, i) => i + 1))  // legacy: 1..maxSeats
       : new Set(pond.seats.map(s => s.num));
     const conflicts = getConflictingRemovedSeats(pond.id, newSeatNums);
@@ -1336,22 +1347,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setQrImgUploading(false);
   };
 
-  const handlePondViewToggle = async () => {
-    const next = !settingsEdit.useLegacyPondView;
-    setSettingsEdit(s => ({ ...s, useLegacyPondView: next }));
-    try {
-      await updateSettingsFirestore({ useLegacyPondView: next });
-      await reloadDB();
-      await logAuditEvent({
-        action: 'settings.pond_view_toggle', actionLabel: 'Tukar Paparan Kolam', entityType: 'settings',
-        details: next ? 'Paparan lama' : 'Paparan baharu',
-        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
-      });
-    } catch (err) {
-      console.error('Failed to update pond view setting:', err);
-    }
-  };
-
   const handleSaveScore = async (booking: { id: string; userName: string; pondId: number; pondName: string; seats: number[] }) => {
     const weight = parseFloat(pendingWeights[booking.id] || '');
     if (isNaN(weight) || weight < 0) return;
@@ -1642,6 +1637,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   );
   const compOptionLabel = (c: Competition) =>
     `${c.name}${getCompetitionPhase(c) === 'ended' ? ' (tamat)' : ''}`;
+  // Hadiah & Ranking only deals with competitions that haven't ended yet.
+  const compsNotEnded = competitionsForCms.filter(c => getCompetitionPhase(c) !== 'ended');
 
   // Semua Timbangan Rekod: default to the live competition, or (since an
   // upcoming one has no weigh-ins yet) the most recently *ended* one instead.
@@ -1888,8 +1885,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <li><strong>Pertandingan</strong> — cipta atau edit pertandingan (nama, tarikh, harga peg, hadiah). Aktif/nyahaktif peg secara per-pertandingan dalam editor susun atur.</li>
                     <li>Peg yang sudah ditempah (tempahan aktif) <strong>tidak boleh dinyahaktifkan</strong> — batalkan tempahan dahulu jika perlu.</li>
-                    <li><strong>Kolam</strong> — cipta atau edit kolam: kod kolam (huruf A–Z), bilangan tempat, dan susun atur (capsule atau polygon). Tempat dijana automatik mengikut bilangan.</li>
-                    <li><strong>Hadiah & Ranking</strong> — tetapkan julat kedudukan dan jumlah hadiah; jadual di bawah menyemak julat tidak sah/bertindih. Setiap simpanan direkod dalam <strong>Log Audit</strong>.</li>
+                    <li>Status pertandingan dalam jadual (<strong>Coming Soon</strong> / <strong>Active</strong> / <strong>Inactive</strong> / <strong>Tamat</strong>) ditentukan <strong>automatik ikut tarikh</strong> — tiada lagi tetapan manual. Coming Soon = belum sampai tarikh buka tempahan; Active = tempahan dibuka atau pertandingan sedang berlangsung; Inactive = tempahan sudah ditutup tetapi pertandingan belum bermula; Tamat = pertandingan sudah selesai.</li>
+                    <li><strong>Kolam</strong> — cipta atau edit kolam: kod kolam (huruf A–Z), bilangan tempat, dan susun atur (capsule atau polygon). Tempat dijana automatik mengikut bilangan. Paparan kolam menggunakan format lama secara tetap.</li>
+                    <li><strong>Hadiah & Ranking</strong> — tetapkan julat kedudukan dan jumlah hadiah; jadual di bawah menyemak julat tidak sah/bertindih. Setiap simpanan direkod dalam <strong>Log Audit</strong>. Hanya pertandingan yang belum tamat dipaparkan di sini. Guna <strong>Duplicate Previous</strong> untuk pilih pertandingan lain (yang sudah ada hadiah) dan salin terus julat hadiahnya ke pertandingan semasa.</li>
                   </ul>
                 </div>
               </div>
@@ -1995,11 +1993,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             };
             const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
             const fmtDate = (iso?: string) => formatDate(iso) || '—';
-            const activeComps = competitionsForCms.filter(c => c.status !== 'INACTIVE' && !isCompetitionEnded(c));
-            const statAktif = activeComps.length;
-            const statJualan = activeComps.filter(c => isBookingOpen(c)).length;
-            const statSetup = activeComps.filter(c => getBookingWindowState(c) === 'before').length;
-            const statDitutup = competitionsForCms.filter(c => c.status === 'INACTIVE' || isCompetitionEnded(c)).length;
+            const statAktif = competitionsForCms.filter(c => getCompetitionCmsStatus(c) === 'active').length;
+            const statJualan = competitionsForCms.filter(c => isBookingOpen(c) && !isCompetitionEnded(c)).length;
+            const statSetup = competitionsForCms.filter(c => getCompetitionCmsStatus(c) === 'coming-soon').length;
+            const statDitutup = competitionsForCms.filter(c => {
+              const s = getCompetitionCmsStatus(c);
+              return s === 'tamat' || s === 'inactive';
+            }).length;
             const toggleCreatePond = (key: string) => setCompCreate(s => ({ ...s, activePondIds: s.activePondIds.includes(key) ? s.activePondIds.filter(k => k !== key) : [...s.activePondIds, key] }));
             return (
             <div className="page active">
@@ -2026,7 +2026,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="form-group"><label className="form-label">Tarikh & Masa Buka Tempahan</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.bookingOpenAt} onChange={e => setCompCreate({ ...compCreate, bookingOpenAt: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
                     <div className="form-group"><label className="form-label">Tarikh & Masa Tutup Tempahan</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.bookingCloseAt} onChange={e => setCompCreate({ ...compCreate, bookingCloseAt: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
                     <div className="form-group"><label className="form-label">Harga Per Seat (RM)</label><input className="form-input" type="number" min="0" value={compCreate.pricePerPeg} onChange={e => setCompCreate({ ...compCreate, pricePerPeg: Number(e.target.value) })} /></div>
-                    <div className="form-group"><label className="form-label">Status</label><select className="form-input" value={compCreate.status} onChange={e => setCompCreate({ ...compCreate, status: e.target.value as 'ACTIVE' | 'INACTIVE' })}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></div>
                   </div>
                   <div className="form-group" style={{ marginTop: 14 }}>
                     <label className="form-label">Kolam Open</label>
@@ -2044,7 +2043,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       })}
                     </div>
                   </div>
-                  <p style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.5 }}>Active = boleh dilihat di website. Inactive = tersembunyi. Untuk Kolam Open, tanda lebih daripada satu kolam jika perlu. Pengurusan peg &amp; tempat duduk terperinci ada di butang <strong>Manage</strong>.</p>
+                  <p style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.5 }}>Status pertandingan (Coming Soon / Active / Inactive / Tamat) ditentukan automatik ikut tarikh — tiada tetapan manual. Untuk Kolam Open, tanda lebih daripada satu kolam jika perlu. Pengurusan peg &amp; tempat duduk terperinci ada di butang <strong>Manage</strong>.</p>
                 </div>
               </div>
 
@@ -2061,7 +2060,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <td>{fmtDate(competition.bookingCloseAt)}</td>
                         <td>{pondNames(competition)}</td>
                         <td>{competition.pricePerPeg != null ? `RM ${competition.pricePerPeg}` : '-'}</td>
-                        <td><span className={`badge ${competition.status === 'INACTIVE' ? 'badge-draft' : 'badge-open'}`}>{competition.status === 'INACTIVE' ? 'Inactive' : 'Active'}</span></td>
+                        <td>{(() => { const meta = getCompetitionCmsStatusMeta(competition); return <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>; })()}</td>
                         <td>
                           <button className="btn btn-sm btn-ghost" onClick={() => { setCompEditIsNew(false); setCompPondsExpanded(false); setPondSeatEdits({}); setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Manage</button>
                         </td>
@@ -2079,15 +2078,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="page-header">
                 <div><div className="page-title">Kolam</div><div className="page-sub">Urus kolam dan tempat duduk</div></div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
-                    <input
-                      type="checkbox"
-                      checked={!!settingsEdit.useLegacyPondView}
-                      onChange={handlePondViewToggle}
-                      style={{ accentColor: 'var(--green)', width: '15px', height: '15px', cursor: 'pointer' }}
-                    />
-                    Paparan kolam lama
-                  </label>
                   <button className="btn btn-primary" onClick={openCreatePondModal}>+ Tambah Kolam</button>
                 </div>
               </div>
@@ -2208,14 +2198,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               const from = maxTo + 1;
               setPrizes([...prizes, { rank: from, rankFrom: from, rankTo: from, label: 'Hadiah ' + from, prize: '' }]);
             };
-            const duplicatePrevious = () => {
-              const last = prizes[prizes.length - 1];
-              if (!last) { addRange(); return; }
-              const [f, t] = prizeRange(last);
-              const span = t - f;
-              const nf = t + 1;
-              const nt = nf + span;
-              setPrizes([...prizes, { ...last, rank: nf, rankFrom: nf, rankTo: nt }]);
+            // Sources to duplicate a full prize table FROM: any other non-ended
+            // competition that already has prizes set up.
+            const duplicateSources = compsNotEnded.filter(c => (c.id || '') !== prizesCompId && (c.prizes || []).length > 0);
+            const duplicateFromCompetition = (srcId: string) => {
+              const src = compsNotEnded.find(c => (c.id || '') === srcId);
+              if (!src) return;
+              setPrizes((src.prizes || []).map(p => ({ ...p })));
             };
             return (
             <div className="page active">
@@ -2237,9 +2226,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       value={prizesCompId}
                       onChange={e => setPrizesCompId(e.target.value)}
                     >
-                      {compsEndedLast.map(c => (
-                        <option key={c.id || c.name} value={c.id || ''} style={{ color: getCompetitionPhase(c) === 'ended' ? '#9aa3ad' : undefined }}>
-                          {compOptionLabel(c)}
+                      {compsNotEnded.map(c => (
+                        <option key={c.id || c.name} value={c.id || ''}>
+                          {c.name}
                         </option>
                       ))}
                     </select>
@@ -2266,7 +2255,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         if (target) setCompEdit({ ...target });
                         setPrizesEditMode(false);
                       }}>Batal</button>
-                      <button className="btn btn-sm btn-ghost" onClick={duplicatePrevious}>Duplicate Previous</button>
+                      <select
+                        className="btn btn-sm btn-ghost"
+                        style={{ maxWidth: 220 }}
+                        value=""
+                        disabled={duplicateSources.length === 0}
+                        title={duplicateSources.length === 0 ? 'Tiada pertandingan lain dengan hadiah untuk diduplikasi' : 'Duplikasi hadiah dari pertandingan lain'}
+                        onChange={e => { if (e.target.value) duplicateFromCompetition(e.target.value); }}
+                      >
+                        <option value="">Duplicate Previous...</option>
+                        {duplicateSources.map(c => (
+                          <option key={c.id || c.name} value={c.id || ''}>{c.name}</option>
+                        ))}
+                      </select>
                       <button className="btn btn-sm btn-primary" onClick={addRange}>+ Add Range</button>
                     </div>
                   ) : (
@@ -3519,12 +3520,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                   <div className="form-group">
                     <label className="form-label">Status</label>
-                    <select className="form-input" value={compEdit.status || 'ACTIVE'} onChange={(e) => setCompEdit({ ...compEdit, status: e.target.value as 'ACTIVE' | 'INACTIVE' })}>
-                      <option value="ACTIVE">Active</option>
-                      <option value="INACTIVE">Inactive</option>
-                    </select>
+                    <div style={{ padding: '10px 0' }}>{(() => { const meta = getCompetitionCmsStatusMeta(compEdit); return <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>; })()}</div>
                     <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                      Inactive = tersembunyi dari website.
+                      Ditentukan automatik ikut tarikh — Coming Soon (belum buka tempahan), Active (tempahan dibuka / sedang berlangsung), Inactive (tempahan ditutup, event belum bermula), Tamat (event sudah selesai).
                     </div>
                   </div>
                 </div>
@@ -3617,7 +3615,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 <CMSPondSeatEditor
                                   pond={pond}
                                   seatEdits={edits}
-                                  useLegacyView={!!settingsEdit.useLegacyPondView}
+                                  useLegacyView={true}
                                   onToggle={(num, active) => {
                                     // Prevent deactivating a seat that is booked / pending approval.
                                     if (!active && heldSet.has(num)) return;
@@ -3674,7 +3672,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           const curMaxSeats = isEdit ? (editingPond.maxSeats ?? editingPond.seats.length ?? 30) : newPondMaxSeats;
           const curSeats = isEdit ? (editingPond.seats ?? []) : (newPond.seats ?? []);
           const curShape = isEdit ? (editingPond.shape ?? []) : ((newPond as any).shape ?? []);
-          const isLegacy = !!settingsEdit.useLegacyPondView;
+          // Kolam always uses the legacy pond view now (toggle removed).
+          const isLegacy = true;
           const seatsPlaced = curSeats.filter(s => s.px !== undefined).length;
           const hasPolygon = !isLegacy && curShape.length > 2;
           const seatCountOk = !hasPolygon || seatsPlaced === 0 || seatsPlaced === curMaxSeats;

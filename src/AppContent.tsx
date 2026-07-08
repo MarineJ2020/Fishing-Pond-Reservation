@@ -894,81 +894,89 @@ const AppContent: React.FC = () => {
             <h2 className="kks-headline">Sertai &amp; <span>Menang</span> Besar</h2>
           </div>
 
-          <div className="kks-countdown">
-            <div className="kks-countdown-label">
-              {showLive ? 'Live Now!' : showEnded ? 'Pertandingan Tamat' : 'Battle Starts In:'}
-            </div>
-            <div className="kks-time">
-              {isCountdownReady && !showEnded ? (
-                <>
-                  <div><strong>{padCD(featuredCountdown.days)}</strong><small>Hari</small></div>
-                  <div><strong>{padCD(featuredCountdown.hours)}</strong><small>Jam</small></div>
-                  <div><strong>{padCD(featuredCountdown.minutes)}</strong><small>Minit</small></div>
-                  <div><strong>{padCD(featuredCountdown.seconds)}</strong><small>Saat</small></div>
-                </>
-              ) : (
-                <div className="kks-countdown-empty">Pendaftaran akan dibuka tidak lama lagi</div>
-              )}
-            </div>
-          </div>
-
-          <div className="kks-event-showcase">
-            <article className="kks-event-main">
-              <div className="kks-event-top">
-                <div className="kks-event-title">
-                  <div className="kks-eyebrow">Event Pilihan</div>
-                  <h3>{featuredName}</h3>
+          {featuredCompetition ? (
+            <>
+              <div className="kks-countdown">
+                <div className="kks-countdown-label">
+                  {showLive ? 'Live Now!' : showEnded ? 'Pertandingan Tamat' : 'Battle Starts In:'}
                 </div>
-                <span className={`kks-badge${showLive ? ' is-live' : ''}`}>
-                  {showLive ? '🔴 Live' : showEnded ? 'Selesai' : 'Pendaftaran Dibuka'}
-                </span>
-              </div>
-              <div className="kks-event-body">
-                <div className="kks-event-grid">
-                  <div className="kks-event-metric"><small>Tarikh</small><strong>{featuredDate}</strong></div>
-                  <div className="kks-event-metric"><small>Masa</small><strong>{featuredTime}</strong></div>
-                  <div className="kks-event-metric"><small>Kolam Dibuka</small><strong>{featuredPondsCount}</strong></div>
-                  <div className="kks-event-metric"><small>Slot Tersedia</small><strong>{featuredSlots}</strong></div>
-                </div>
-                <div className="kks-event-prize">
-                  <div><small>Yuran</small><strong>{featuredFee}</strong></div>
-                  <div><small>Hadiah</small><strong>{featuredPrizeText}</strong></div>
-                </div>
-                <div className="kks-event-actions">
-                  <button
-                    className="btn btn-navy"
-                    onClick={() => openBookingChoice(() => {
-                      if (featuredCompetition?.id) selectCompetition(featuredCompetition.id);
-                      setPondPickerOpen(true);
-                    })}
-                  >
-                    Tempah Slot
-                  </button>
-                  <a className="btn btn-light" onClick={() => handleNavigation('rules')}>Syarat Event</a>
+                <div className="kks-time">
+                  {isCountdownReady && !showEnded ? (
+                    <>
+                      <div><strong>{padCD(featuredCountdown.days)}</strong><small>Hari</small></div>
+                      <div><strong>{padCD(featuredCountdown.hours)}</strong><small>Jam</small></div>
+                      <div><strong>{padCD(featuredCountdown.minutes)}</strong><small>Minit</small></div>
+                      <div><strong>{padCD(featuredCountdown.seconds)}</strong><small>Saat</small></div>
+                    </>
+                  ) : (
+                    <div className="kks-countdown-empty">Pendaftaran akan dibuka tidak lama lagi</div>
+                  )}
                 </div>
               </div>
-            </article>
 
-            <aside className="kks-event-side">
-              <article className="kks-mini-card kks-mini-featured">
-                <h4>Weekly Strike</h4>
-                <p>Format kompetitif mingguan dengan slot terhad dan susunan lubuk yang lebih kemas.</p>
-                <div className="kks-mini-meta"><span>Setiap Minggu</span><span>Slot Terhad</span></div>
-              </article>
-              <article className="kks-mini-card">
-                <h4>{secondCompetition?.name || 'Next Battle'}</h4>
-                <p>
-                  {secondCompetition
-                    ? `${formatEventDate(secondCompetition.startDate)} · ${formatEventTime(secondCompetition.startDate)}`
-                    : 'Paparan ringkas event akan datang supaya peserta boleh banding tarikh, yuran dan kapasiti sebelum tempah.'}
-                </p>
-                <div className="kks-mini-meta">
-                  <span>{(secondCompetition?.activePondIds?.length || totalPonds || 12) + ' Lubuk'}</span>
-                  <span>{(secondCompetition?.id ? competitionAvailableSeats.get(secondCompetition.id) : null) ?? availablePegs} Slot</span>
-                </div>
-              </article>
-            </aside>
-          </div>
+              <div className="kks-event-showcase">
+                <article className="kks-event-main">
+                  <div className="kks-event-top">
+                    <div className="kks-event-title">
+                      <div className="kks-eyebrow">Event Pilihan</div>
+                      <h3>{featuredName}</h3>
+                    </div>
+                    <span className={`kks-badge${showLive ? ' is-live' : ''}`}>
+                      {showLive ? '🔴 Live' : showEnded ? 'Selesai' : 'Pendaftaran Dibuka'}
+                    </span>
+                  </div>
+                  <div className="kks-event-body">
+                    <div className="kks-event-grid">
+                      <div className="kks-event-metric"><small>Tarikh</small><strong>{featuredDate}</strong></div>
+                      <div className="kks-event-metric"><small>Masa</small><strong>{featuredTime}</strong></div>
+                      <div className="kks-event-metric"><small>Kolam Dibuka</small><strong>{featuredPondsCount}</strong></div>
+                      <div className="kks-event-metric"><small>Slot Tersedia</small><strong>{featuredSlots}</strong></div>
+                    </div>
+                    <div className="kks-event-prize">
+                      <div><small>Yuran</small><strong>{featuredFee}</strong></div>
+                      <div><small>Hadiah</small><strong>{featuredPrizeText}</strong></div>
+                    </div>
+                    <div className="kks-event-actions">
+                      <button
+                        className="btn btn-navy"
+                        onClick={() => openBookingChoice(() => {
+                          if (featuredCompetition?.id) selectCompetition(featuredCompetition.id);
+                          setPondPickerOpen(true);
+                        })}
+                      >
+                        Tempah Slot
+                      </button>
+                      <a className="btn btn-light" onClick={() => handleNavigation('rules')}>Syarat Event</a>
+                    </div>
+                  </div>
+                </article>
+
+                <aside className="kks-event-side">
+                  <article className="kks-mini-card kks-mini-featured">
+                    <h4>Weekly Strike</h4>
+                    <p>Format kompetitif mingguan dengan slot terhad dan susunan lubuk yang lebih kemas.</p>
+                    <div className="kks-mini-meta"><span>Setiap Minggu</span><span>Slot Terhad</span></div>
+                  </article>
+                  <article className="kks-mini-card">
+                    <h4>{secondCompetition?.name || 'Next Battle'}</h4>
+                    <p>
+                      {secondCompetition
+                        ? `${formatEventDate(secondCompetition.startDate)} · ${formatEventTime(secondCompetition.startDate)}`
+                        : 'Paparan ringkas event akan datang supaya peserta boleh banding tarikh, yuran dan kapasiti sebelum tempah.'}
+                    </p>
+                    <div className="kks-mini-meta">
+                      <span>{(secondCompetition?.activePondIds?.length || totalPonds || 12) + ' Lubuk'}</span>
+                      <span>{(secondCompetition?.id ? competitionAvailableSeats.get(secondCompetition.id) : null) ?? availablePegs} Slot</span>
+                    </div>
+                  </article>
+                </aside>
+              </div>
+            </>
+          ) : (
+            <div className="kks-empty-state">
+              <p>Tiada pertandingan semasa atau akan datang buat masa ini. Nantikan pertandingan baru!</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -1470,7 +1478,7 @@ const AppContent: React.FC = () => {
                     </div>
                   )}
                   <div className="bk-seat-modal-body">
-                    <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} useLegacyView={!!db.settings.useLegacyPondView} />
+                    <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} useLegacyView={true} />
                   </div>
                   <div className="bk-seat-modal-foot">
                     <div>
