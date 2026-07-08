@@ -3242,7 +3242,7 @@ nav.kks-legacy-v3-nav::before {
 .kks-hero-title {
   margin: 6px 0 14px;
   font-family: "Barlow Condensed";
-  font-weight: 900; font-style: italic; text-transform: uppercase;
+  font-weight: 0; font-style: italic; text-transform: uppercase;
   font-size: clamp(86px, 11vw, 148px);
   line-height: .82; letter-spacing: -.04em;
   color: #fff;
