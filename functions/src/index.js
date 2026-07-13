@@ -610,6 +610,8 @@ app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
 
 export const api = functions.https.onRequest(app);
 
+export { seoRender } from './seo.js';
+
 // Keep Firebase Auth custom claims in sync with users/{uid}.role so Storage
 // rules that depend on request.auth.token.role stay accurate.
 export const syncUserRoleClaims = functions.firestore

@@ -28,8 +28,10 @@ import {
   addStaffRemark,
   deriveBalanceStage,
 } from '../lib/firestore';
-import { compressBlobToWebp, uploadImageToFirebaseStorage } from '../utils/imageStorage';
+import { compressBlobToWebp, compressBlobToJpeg, uploadImageToFirebaseStorage } from '../utils/imageStorage';
 import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
+import { asset, LANDING_ASSETS } from '../config/landingAssets';
+import { SeoSnippetPreview, SocialCardPreview } from './SeoPreview';
 import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta } from '../utils/competition';
@@ -60,9 +62,9 @@ function pondCodeError(code: string | undefined, ponds: Pond[], excludeDocId?: s
   return null;
 }
 
-type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'contact-settings' | 'landing-content' | 'users' | 'audit-log';
+type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'audit-log';
 
-const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'users', 'audit-log'];
+const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'seo', 'users', 'audit-log'];
 
 // Blank state for the inline "Tambah Pertandingan" form. Date fields are raw
 // datetime-local input strings, converted to ISO merged into a Competition on save.
@@ -304,6 +306,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [pondMapUploading, setPondMapUploading] = useState(false);
   const [qrImgUploading, setQrImgUploading] = useState(false);
   const [rulesPdfUploading, setRulesPdfUploading] = useState(false);
+  const [landingImageUploading, setLandingImageUploading] = useState<Partial<Record<keyof typeof LANDING_ASSETS, boolean>>>({});
+  const [ogImageUploading, setOgImageUploading] = useState<string | null>(null);
   // Users page search query (narrows the currently-loaded page only).
   const [userSearch, setUserSearch] = useState('');
   // Registered accounts (admin-only `users` collection), cursor-paginated so
@@ -1213,9 +1217,32 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         heroTitle: settingsEdit.heroTitle || '',
         heroSubtitle: settingsEdit.heroSubtitle || '',
         heroStats: settingsEdit.heroStats || [],
+        heroCtaLabel: settingsEdit.heroCtaLabel || '',
         introCopy: settingsEdit.introCopy || '',
+        aboutEyebrow: settingsEdit.aboutEyebrow || '',
+        aboutTitle: settingsEdit.aboutTitle || '',
+        aboutCtaLabel: settingsEdit.aboutCtaLabel || '',
+        features: settingsEdit.features || [],
+        competitionsEyebrow: settingsEdit.competitionsEyebrow || '',
+        competitionsTitle: settingsEdit.competitionsTitle || '',
+        weeklyCardTitle: settingsEdit.weeklyCardTitle || '',
+        weeklyCardBody: settingsEdit.weeklyCardBody || '',
+        weeklyCardTag1: settingsEdit.weeklyCardTag1 || '',
+        weeklyCardTag2: settingsEdit.weeklyCardTag2 || '',
+        stepsEyebrow: settingsEdit.stepsEyebrow || '',
+        stepsTitle: settingsEdit.stepsTitle || '',
+        stepsSubtitle: settingsEdit.stepsSubtitle || '',
+        stepsCtaLabel: settingsEdit.stepsCtaLabel || '',
+        steps: settingsEdit.steps || [],
+        rulesEyebrow: settingsEdit.rulesEyebrow || '',
+        rulesTitle: settingsEdit.rulesTitle || '',
+        rulesCtaLabel: settingsEdit.rulesCtaLabel || '',
         rules: settingsEdit.rules || [],
         rulesPdfUrl: settingsEdit.rulesPdfUrl || '',
+        lokasiEyebrow: settingsEdit.lokasiEyebrow || '',
+        lokasiTitle: settingsEdit.lokasiTitle || '',
+        contactName: settingsEdit.contactName || '',
+        footerTagline: settingsEdit.footerTagline || '',
         wazeUrl: settingsEdit.wazeUrl || '',
         googleMapsUrl: settingsEdit.googleMapsUrl || '',
         mapEmbedUrl: settingsEdit.mapEmbedUrl || '',
@@ -1272,6 +1299,106 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     while (stats.length <= idx) stats.push({ label: '', value: '' });
     stats[idx] = { ...stats[idx], [field]: val };
     setSettingsEdit({ ...settingsEdit, heroStats: stats });
+  };
+
+  const updateFeature = (idx: number, field: 'icon' | 'title' | 'body', val: string) => {
+    const features = [...(settingsEdit.features || [])];
+    while (features.length <= idx) features.push({ icon: '', title: '', body: '' });
+    features[idx] = { ...features[idx], [field]: val };
+    setSettingsEdit({ ...settingsEdit, features });
+  };
+
+  const updateStep = (idx: number, field: 'icon' | 'title' | 'body', val: string) => {
+    const steps = [...(settingsEdit.steps || [])];
+    while (steps.length <= idx) steps.push({ icon: '', title: '', body: '' });
+    steps[idx] = { ...steps[idx], [field]: val };
+    setSettingsEdit({ ...settingsEdit, steps });
+  };
+
+  const handleLandingImageUpload = async (key: keyof typeof LANDING_ASSETS, file: File) => {
+    setLandingImageUploading(s => ({ ...s, [key]: true }));
+    try {
+      const webp = await compressBlobToWebp(file, file.name);
+      const url = await uploadImageToFirebaseStorage(webp, 'fishing-pond-landing', webp.name);
+      const landingImages = { ...(settingsEdit.landingImages || {}), [key]: url };
+      setSettingsEdit(s => ({ ...s, landingImages }));
+      await updateSettingsFirestore({ landingImages });
+      await reloadDB();
+      await logAuditEvent({
+        action: 'settings.landing_image', actionLabel: `Muat Naik Imej Laman Utama (${key})`, entityType: 'settings',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    } catch (err) {
+      console.error('Failed to upload landing image:', err);
+    }
+    setLandingImageUploading(s => ({ ...s, [key]: false }));
+  };
+
+  const handleLandingImageReset = async (key: keyof typeof LANDING_ASSETS) => {
+    const landingImages = { ...(settingsEdit.landingImages || {}), [key]: '' };
+    setSettingsEdit(s => ({ ...s, landingImages }));
+    try {
+      await updateSettingsFirestore({ landingImages });
+      await reloadDB();
+    } catch (err) {
+      console.error('Failed to reset landing image:', err);
+    }
+  };
+
+  // ── SEO tab ──────────────────────────────────────────────────────────────
+  const updateSeoGeneral = (field: 'siteUrl' | 'siteName' | 'defaultOgImage', val: string) => {
+    setSettingsEdit(s => ({ ...s, seo: { ...(s.seo as any), [field]: val } }));
+  };
+
+  const updateSeoGeoCoord = (field: 'latitude' | 'longitude', val: string) => {
+    const num = val.trim() === '' ? undefined : Number(val);
+    setSettingsEdit(s => ({ ...s, seo: { ...(s.seo as any), [field]: Number.isFinite(num) ? num : undefined } }));
+  };
+
+  const updateSeoPage = (key: 'home' | 'book' | 'live' | 'confirmed', field: 'title' | 'description' | 'ogImage', val: string) => {
+    setSettingsEdit(s => ({
+      ...s,
+      seo: {
+        ...(s.seo as any),
+        pages: { ...(s.seo?.pages as any), [key]: { ...(s.seo?.pages?.[key] as any), [field]: val } },
+      },
+    }));
+  };
+
+  const handleSeoSave = async () => {
+    setSaving(true);
+    try {
+      await updateSettingsFirestore({ seo: settingsEdit.seo });
+      await reloadDB();
+      await logAuditEvent({
+        action: 'settings.seo', actionLabel: 'Kemaskini SEO', entityType: 'settings',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    } catch (err) {
+      console.error('Failed to update SEO settings:', err);
+    }
+    setSaving(false);
+  };
+
+  const handleOgImageUpload = async (target: 'default' | 'home' | 'book' | 'live' | 'confirmed', file: File) => {
+    setOgImageUploading(target);
+    try {
+      const jpeg = await compressBlobToJpeg(file, file.name);
+      const url = await uploadImageToFirebaseStorage(jpeg, 'fishing-pond-seo', jpeg.name);
+      const nextSeo = target === 'default'
+        ? { ...(settingsEdit.seo as any), defaultOgImage: url }
+        : { ...(settingsEdit.seo as any), pages: { ...settingsEdit.seo?.pages, [target]: { ...settingsEdit.seo?.pages?.[target], ogImage: url } } };
+      setSettingsEdit(s => ({ ...s, seo: nextSeo }));
+      await updateSettingsFirestore({ seo: nextSeo });
+      await reloadDB();
+      await logAuditEvent({
+        action: 'settings.seo_image', actionLabel: `Muat Naik Imej OG (${target})`, entityType: 'settings',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    } catch (err) {
+      console.error('Failed to upload OG image:', err);
+    }
+    setOgImageUploading(null);
   };
 
   const updateRule = (idx: number, field: 'title' | 'body', val: string) => {
@@ -1704,7 +1831,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const prizesDirty = page === 'prizes' && !!prizeSource
     && JSON.stringify(prizeSource.prizes || []) !== JSON.stringify(compEdit.prizes || []);
   const pageDirty =
-    ((page === 'contact-settings' || page === 'landing-content') && settingsDirty)
+    ((page === 'contact-settings' || page === 'landing-content' || page === 'seo') && settingsDirty)
     || prizesDirty;
   const guardLeave = (proceed: () => void) => {
     if (!pageDirty) { proceed(); return; }
@@ -1765,6 +1892,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     ]},
     { label: 'Admin', items: [
       { id: 'landing-content' as CMSPage, icon: '🏡', text: 'Laman Utama' },
+      { id: 'seo' as CMSPage, icon: '🔍', text: 'SEO' },
       { id: 'contact-settings' as CMSPage, icon: '☎️', text: 'Contact Us' },
       { id: 'users' as CMSPage, icon: '👥', text: 'Pengguna' },
       { id: 'audit-log' as CMSPage, icon: '🗒️', text: 'Log Audit' },
@@ -1924,7 +2052,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
               </div>
 
-              <div className="card" style={{ marginTop: 16 }}>
+              <div className="card" style={{ marginTop: 16, marginBottom: 16 }}>
                 <div className="card-header"><div className="card-title">📜 Semua Timbangan Rekod</div></div>
                 <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
                   <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1932,6 +2060,30 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <li>Tapis mengikut <strong>pertandingan</strong>, <strong>kolam</strong>, atau <strong>nama peserta</strong> untuk cari rekod tertentu dengan cepat.</li>
                     <li><strong>Bukti</strong> — lihat gambar paparan timbangan yang disimpan bersama setiap rekod (termasuk kemasukan manual).</li>
                     <li>Halaman ini hanya untuk semakan (papar sahaja) — sunting/padam rekod dibuat di tab Keputusan &amp; Live.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card-header"><div className="card-title">🏡 Laman Utama</div></div>
+                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
+                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li>Setiap seksyen halaman utama (Hero, Tentang Kami, Kad Kelebihan, Pertandingan, Cara Tempah, Syarat, Lokasi, Footer) kini boleh disunting sepenuhnya di sini — tajuk, penerangan, dan label butang.</li>
+                    <li>Guna <code>*perkataan*</code> dalam mana-mana medan "Tajuk" untuk menjadikan perkataan itu warna aksen (cth. <code>Bukan *Kolam* Biasa</code>).</li>
+                    <li><strong>Imej Laman Utama</strong> — muat naik logo/latar sendiri; jika tiada dimuat naik, laman guna imej asal secara automatik (tiada risiko halaman "rosak" tanpa imej).</li>
+                    <li>Kad Kelebihan dan Langkah Tempah adalah <strong>tetap 4 kad</strong> (ikut reka bentuk grid) — tidak boleh tambah/kurang. Syarat &amp; Peraturan pula boleh tambah/padam bilangan bebas.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header"><div className="card-title">🔍 SEO</div></div>
+                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
+                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <li>Tetapkan tajuk &amp; penerangan meta untuk setiap halaman awam (Laman Utama, Tempah, Live, Tempahan Disahkan) — ini yang muncul dalam hasil carian Google dan pratonton perkongsian WhatsApp/Facebook.</li>
+                    <li>Imej perkongsian (Open Graph) mesti <strong>JPEG</strong>, disyorkan 1200×630 — WhatsApp tidak memaparkan imej WebP dengan konsisten, jadi sistem tukar automatik ke JPEG semasa muat naik.</li>
+                    <li>Pratonton langsung (gaya Google &amp; gaya WhatsApp) dipaparkan sebelah medan input — semak sebelum simpan.</li>
+                    <li>Perubahan disiarkan melalui cache CDN dan boleh ambil masa <strong>~10 minit</strong> untuk kelihatan pada crawler/scraper selepas disimpan.</li>
                   </ul>
                 </div>
               </div>
@@ -3203,7 +3355,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           )}
           {page === 'landing-content' && (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Laman Utama</div><div className="page-sub">Edit teks hero, statistik, syarat pertandingan, dan pautan peta</div></div></div>
+              <div className="page-header"><div><div className="page-title">Laman Utama</div><div className="page-sub">Edit setiap seksyen halaman utama — teks, kad, imej dan pautan</div></div></div>
 
               <div className="card">
                 <div className="card-header"><div className="card-title">Hero</div></div>
@@ -3212,7 +3364,62 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="form-group"><label className="form-label">Kicker</label><input className="form-input" value={settingsEdit.heroKicker || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroKicker: e.target.value })} placeholder="Tempat Di Mana" /></div>
                     <div className="form-group"><label className="form-label">Tajuk Hero</label><input className="form-input" value={settingsEdit.heroTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroTitle: e.target.value })} placeholder="Juara Dilahirkan" /></div>
                     <div className="form-group form-span"><label className="form-label">Subtitle</label><input className="form-input" value={settingsEdit.heroSubtitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroSubtitle: e.target.value })} placeholder="Kolam Keli Sayang - Port Terbaik di Kedah" /></div>
+                    <div className="form-group form-span"><label className="form-label">Label Butang CTA</label><input className="form-input" value={settingsEdit.heroCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroCtaLabel: e.target.value })} placeholder="Book Slot Sekarang!" /></div>
                   </div>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Imej Laman Utama</div></div>
+                <div className="card-body">
+                  <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '14px', lineHeight: 1.5 }}>
+                    Muat naik imej untuk gantikan latar/logo lalai. Jika tiada imej dimuat naik, laman akan guna imej asal.
+                  </div>
+                  {([
+                    ['logo', 'Logo (Navigasi)'],
+                    ['footerLogo', 'Logo (Footer)'],
+                    ['heroBg', 'Latar Belakang Hero'],
+                    ['pondBg', 'Latar Belakang Kolam'],
+                    ['bookingBg', 'Latar Belakang Cara Tempah'],
+                  ] as [keyof typeof LANDING_ASSETS, string][]).map(([key, label]) => {
+                    const hasCustom = !!settingsEdit.landingImages?.[key];
+                    const uploading = !!landingImageUploading[key];
+                    return (
+                      <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '14px', paddingBottom: '14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                        <img
+                          src={asset(key, settingsEdit)}
+                          alt={label}
+                          style={{ width: '96px', height: '64px', objectFit: 'cover', borderRadius: '6px', background: 'rgba(0,0,0,0.15)' }}
+                        />
+                        <div style={{ flex: 1, minWidth: '160px' }}>
+                          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{label}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{hasCustom ? 'Imej CMS digunakan' : 'Imej asal digunakan (lalai)'}</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <label
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '8px',
+                              padding: '8px 14px', borderRadius: '8px', cursor: uploading ? 'not-allowed' : 'pointer',
+                              background: 'var(--green)', color: '#fff', fontSize: '0.82rem', fontWeight: 600,
+                              opacity: uploading ? 0.65 : 1,
+                            }}
+                          >
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: 'none' }}
+                              disabled={uploading}
+                              onChange={e => { const f = e.target.files?.[0]; if (f) handleLandingImageUpload(key, f); e.target.value = ''; }}
+                            />
+                            {uploading ? 'Memuat naik...' : (hasCustom ? '🔄 Tukar' : '⬆ Muat Naik')}
+                          </label>
+                          {hasCustom && (
+                            <button className="btn btn-sm btn-ghost" onClick={() => handleLandingImageReset(key)}>Guna imej asal</button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -3232,9 +3439,85 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
 
               <div className="card" style={{ marginTop: '12px' }}>
-                <div className="card-header"><div className="card-title">Penerangan Ringkas (Intro)</div></div>
+                <div className="card-header"><div className="card-title">Seksyen "Tentang Kami"</div></div>
                 <div className="card-body">
-                  <div className="form-group form-span"><textarea className="form-textarea" rows={4} value={settingsEdit.introCopy || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, introCopy: e.target.value })} placeholder="Kolam Keli Sayang dibuka untuk pertandingan sahaja..." /></div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                    Guna <code>*perkataan*</code> dalam tajuk untuk warna aksen — cth. <code>Bukan *Kolam* Biasa</code>.
+                  </div>
+                  <div className="form-grid">
+                    <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.aboutEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, aboutEyebrow: e.target.value })} placeholder="Kolam Keli Sayang" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.aboutTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, aboutTitle: e.target.value })} placeholder="Bukan *Kolam* Biasa" /></div>
+                    <div className="form-group form-span"><label className="form-label">Penerangan Ringkas (Intro)</label><textarea className="form-textarea" rows={4} value={settingsEdit.introCopy || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, introCopy: e.target.value })} placeholder="Kolam Keli Sayang dibuka untuk pertandingan sahaja..." /></div>
+                    <div className="form-group"><label className="form-label">Label Butang CTA</label><input className="form-input" value={settingsEdit.aboutCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, aboutCtaLabel: e.target.value })} placeholder="Semak Layout Kolam" /></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Kad Kelebihan (4)</div></div>
+                <div className="card-body">
+                  {[0, 1, 2, 3].map((i) => {
+                    const f = settingsEdit.features?.[i] || { icon: '', title: '', body: '' };
+                    return (
+                      <div key={i} className="form-grid" style={{ marginBottom: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '12px' }}>
+                        <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <i className={f.icon} style={{ width: '20px', textAlign: 'center', color: 'var(--text-muted)' }}></i>
+                          <input className="form-input" value={f.icon} onChange={(e) => updateFeature(i, 'icon', e.target.value)} placeholder="fa-solid fa-flag-checkered" style={{ flex: 1 }} />
+                        </div>
+                        <div className="form-group"><input className="form-input" value={f.title} onChange={(e) => updateFeature(i, 'title', e.target.value)} placeholder="Tajuk kad" /></div>
+                        <div className="form-group form-span"><textarea className="form-textarea" rows={2} value={f.body} onChange={(e) => updateFeature(i, 'body', e.target.value)} placeholder="Penerangan kad" /></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Seksyen "Pertandingan"</div></div>
+                <div className="card-body">
+                  <div className="form-grid">
+                    <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.competitionsEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, competitionsEyebrow: e.target.value })} placeholder="Pertandingan" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.competitionsTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, competitionsTitle: e.target.value })} placeholder="Sertai & *Menang* Besar" /></div>
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '14px 0 8px' }}>Kad mini "Weekly Strike"</div>
+                  <div className="form-grid">
+                    <div className="form-group"><label className="form-label">Tajuk Kad</label><input className="form-input" value={settingsEdit.weeklyCardTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardTitle: e.target.value })} placeholder="Weekly Strike" /></div>
+                    <div className="form-group form-span"><label className="form-label">Penerangan Kad</label><input className="form-input" value={settingsEdit.weeklyCardBody || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardBody: e.target.value })} placeholder="Format kompetitif mingguan..." /></div>
+                    <div className="form-group"><label className="form-label">Tag #1</label><input className="form-input" value={settingsEdit.weeklyCardTag1 || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardTag1: e.target.value })} placeholder="Setiap Minggu" /></div>
+                    <div className="form-group"><label className="form-label">Tag #2</label><input className="form-input" value={settingsEdit.weeklyCardTag2 || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardTag2: e.target.value })} placeholder="Slot Terhad" /></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Seksyen "Cara Tempah"</div></div>
+                <div className="card-body">
+                  <div className="form-grid">
+                    <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.stepsEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsEyebrow: e.target.value })} placeholder="Cara Tempah" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.stepsTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsTitle: e.target.value })} placeholder="Langkah Tempah *Yang Mudah*" /></div>
+                    <div className="form-group form-span"><label className="form-label">Subtitle</label><input className="form-input" value={settingsEdit.stepsSubtitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsSubtitle: e.target.value })} placeholder="Proses tempahan yang simple dan cepat..." /></div>
+                    <div className="form-group"><label className="form-label">Label Butang CTA</label><input className="form-input" value={settingsEdit.stepsCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsCtaLabel: e.target.value })} placeholder="Pilih Pertandingan" /></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Langkah Tempah (4)</div></div>
+                <div className="card-body">
+                  {[0, 1, 2, 3].map((i) => {
+                    const s = settingsEdit.steps?.[i] || { icon: '', title: '', body: '' };
+                    return (
+                      <div key={i} className="form-grid" style={{ marginBottom: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '12px' }}>
+                        <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <strong style={{ minWidth: '20px' }}>{String(i + 1).padStart(2, '0')}</strong>
+                          <i className={s.icon} style={{ width: '20px', textAlign: 'center', color: 'var(--text-muted)' }}></i>
+                          <input className="form-input" value={s.icon} onChange={(e) => updateStep(i, 'icon', e.target.value)} placeholder="fa-solid fa-trophy" style={{ flex: 1 }} />
+                        </div>
+                        <div className="form-group"><input className="form-input" value={s.title} onChange={(e) => updateStep(i, 'title', e.target.value)} placeholder="Tajuk langkah" /></div>
+                        <div className="form-group form-span"><textarea className="form-textarea" rows={2} value={s.body} onChange={(e) => updateStep(i, 'body', e.target.value)} placeholder="Penerangan langkah" /></div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -3244,6 +3527,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <button className="btn btn-sm" onClick={addRule}>+ Tambah Syarat</button>
                 </div>
                 <div className="card-body">
+                  <div className="form-grid" style={{ marginBottom: '14px', paddingBottom: '14px', borderBottom: '1px solid var(--line)' }}>
+                    <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.rulesEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, rulesEyebrow: e.target.value })} placeholder="Format Bertanding" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.rulesTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, rulesTitle: e.target.value })} placeholder="Macam Mana *Ia Berjalan?*" /></div>
+                    <div className="form-group form-span"><label className="form-label">Label Butang</label><input className="form-input" value={settingsEdit.rulesCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, rulesCtaLabel: e.target.value })} placeholder="SEMAK SYARAT & PERATURAN" /></div>
+                  </div>
                   {(settingsEdit.rules || []).map((rule, i) => (
                     <div key={i} className="form-grid" style={{ marginBottom: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '12px' }}>
                       <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -3302,10 +3590,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-header"><div className="card-title">Lokasi &amp; Peta</div></div>
                 <div className="card-body">
                   <div className="form-grid">
+                    <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.lokasiEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, lokasiEyebrow: e.target.value })} placeholder="Lokasi KKS" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.lokasiTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, lokasiTitle: e.target.value })} placeholder="Jumpa Kami *Di Sini*" /></div>
+                    <div className="form-group"><label className="form-label">Nama dalam Kotak Hubungan</label><input className="form-input" value={settingsEdit.contactName || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, contactName: e.target.value })} placeholder="Kolam Keli Sayang" /></div>
                     <div className="form-group form-span"><label className="form-label">Embed URL Peta Google</label><input className="form-input" value={settingsEdit.mapEmbedUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, mapEmbedUrl: e.target.value })} placeholder="https://www.google.com/maps?q=...&output=embed" /></div>
                     <div className="form-group"><label className="form-label">Waze URL</label><input className="form-input" value={settingsEdit.wazeUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, wazeUrl: e.target.value })} placeholder="https://waze.com/ul?ll=..." /></div>
                     <div className="form-group"><label className="form-label">Google Maps URL</label><input className="form-input" value={settingsEdit.googleMapsUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, googleMapsUrl: e.target.value })} placeholder="https://maps.google.com/?q=..." /></div>
                   </div>
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">Footer</div></div>
+                <div className="card-body">
+                  <div className="form-group form-span"><label className="form-label">Tagline Footer</label><input className="form-input" value={settingsEdit.footerTagline || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, footerTagline: e.target.value })} placeholder="Arena pertandingan memancing keli yang adil..." /></div>
                 </div>
               </div>
 
@@ -3356,6 +3654,124 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             </div>
           )}
+          {page === 'seo' && (() => {
+            const seo = settingsEdit.seo;
+            const siteUrl = (seo?.siteUrl || '').replace(/\/$/, '');
+            const pageMeta: { key: 'home' | 'book' | 'live' | 'confirmed'; label: string; path: string }[] = [
+              { key: 'home', label: 'Laman Utama', path: '/' },
+              { key: 'book', label: 'Tempah', path: '/book' },
+              { key: 'live', label: 'Live', path: '/live' },
+              { key: 'confirmed', label: 'Tempahan Disahkan', path: '/confirmed' },
+            ];
+            return (
+              <div className="page active">
+                <div className="page-header"><div><div className="page-title">SEO</div><div className="page-sub">Tajuk, penerangan, imej perkongsian dan data berstruktur untuk enjin carian &amp; pratonton media sosial</div></div></div>
+
+                <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', fontSize: '13px', color: 'var(--text)' }}>
+                  ℹ️ Perubahan SEO disiarkan melalui cache CDN — boleh ambil masa sehingga <strong>~10 minit</strong> untuk kelihatan pada Google/WhatsApp selepas disimpan.
+                </div>
+
+                <div className="card">
+                  <div className="card-header"><div className="card-title">Tetapan Umum</div></div>
+                  <div className="card-body">
+                    <div className="form-grid">
+                      <div className="form-group"><label className="form-label">Site URL</label><input className="form-input" value={seo?.siteUrl || ''} onChange={(e) => updateSeoGeneral('siteUrl', e.target.value)} placeholder="https://kolamkelisayang.com.my" /></div>
+                      <div className="form-group"><label className="form-label">Nama Laman</label><input className="form-input" value={seo?.siteName || ''} onChange={(e) => updateSeoGeneral('siteName', e.target.value)} placeholder="Kolam Keli Sayang" /></div>
+                      <div className="form-group"><label className="form-label">Latitud (pilihan)</label><input className="form-input" type="number" value={seo?.latitude ?? ''} onChange={(e) => updateSeoGeoCoord('latitude', e.target.value)} placeholder="6.146" /></div>
+                      <div className="form-group"><label className="form-label">Longitud (pilihan)</label><input className="form-input" type="number" value={seo?.longitude ?? ''} onChange={(e) => updateSeoGeoCoord('longitude', e.target.value)} placeholder="100.369" /></div>
+                    </div>
+                    <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--line)' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Imej Perkongsian Lalai (Open Graph)</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>JPEG, 1200×630 disyorkan. Digunakan bila sesuatu halaman tiada imej sendiri.</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                        {seo?.defaultOgImage && (
+                          <img src={seo.defaultOgImage} alt="Imej OG lalai" style={{ width: '160px', aspectRatio: '1.91/1', objectFit: 'cover', borderRadius: '6px', background: 'rgba(0,0,0,0.15)' }} />
+                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <label
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '8px',
+                              padding: '8px 16px', borderRadius: '8px', cursor: ogImageUploading === 'default' ? 'not-allowed' : 'pointer',
+                              background: 'var(--green)', color: '#fff', fontSize: '0.85rem', fontWeight: 600,
+                              opacity: ogImageUploading === 'default' ? 0.65 : 1,
+                            }}
+                          >
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: 'none' }}
+                              disabled={ogImageUploading === 'default'}
+                              onChange={e => { const f = e.target.files?.[0]; if (f) handleOgImageUpload('default', f); e.target.value = ''; }}
+                            />
+                            {ogImageUploading === 'default' ? 'Memuat naik...' : (seo?.defaultOgImage ? '🔄 Tukar Imej' : '⬆ Muat Naik Imej')}
+                          </label>
+                          {seo?.defaultOgImage && (
+                            <button className="btn btn-sm btn-ghost" onClick={() => updateSeoGeneral('defaultOgImage', '')}>Padam</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {pageMeta.map(({ key, label, path }) => {
+                  const meta = seo?.pages?.[key];
+                  const title = meta?.title || '';
+                  const description = meta?.description || '';
+                  const previewImage = meta?.ogImage || seo?.defaultOgImage || '';
+                  return (
+                    <div key={key} className="card" style={{ marginTop: '12px' }}>
+                      <div className="card-header"><div className="card-title">{label} <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.8rem' }}>({path})</span></div></div>
+                      <div className="card-body">
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1.3fr) minmax(240px, 1fr)', gap: '20px' }}>
+                          <div>
+                            <div className="form-group form-span">
+                              <label className="form-label">Tajuk Meta <span style={{ color: title.length > 60 ? '#ef4444' : 'var(--text-muted)' }}>({title.length}/60)</span></label>
+                              <input className="form-input" value={title} onChange={(e) => updateSeoPage(key, 'title', e.target.value)} placeholder="Tajuk halaman untuk Google" />
+                            </div>
+                            <div className="form-group form-span" style={{ marginTop: '10px' }}>
+                              <label className="form-label">Penerangan Meta <span style={{ color: description.length > 160 ? '#ef4444' : 'var(--text-muted)' }}>({description.length}/160)</span></label>
+                              <textarea className="form-textarea" rows={3} value={description} onChange={(e) => updateSeoPage(key, 'description', e.target.value)} placeholder="Penerangan ringkas halaman untuk hasil carian" />
+                            </div>
+                            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                              <label
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                                  padding: '6px 14px', borderRadius: '8px', cursor: ogImageUploading === key ? 'not-allowed' : 'pointer',
+                                  background: 'var(--navy, #1e3a5f)', color: '#fff', fontSize: '0.8rem', fontWeight: 600,
+                                  opacity: ogImageUploading === key ? 0.65 : 1,
+                                }}
+                              >
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  style={{ display: 'none' }}
+                                  disabled={ogImageUploading === key}
+                                  onChange={e => { const f = e.target.files?.[0]; if (f) handleOgImageUpload(key, f); e.target.value = ''; }}
+                                />
+                                {ogImageUploading === key ? 'Memuat naik...' : (meta?.ogImage ? '🔄 Tukar Imej OG' : '⬆ Imej OG Khusus')}
+                              </label>
+                              {meta?.ogImage && (
+                                <button className="btn btn-sm btn-ghost" onClick={() => updateSeoPage(key, 'ogImage', '')}>Guna imej lalai</button>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <SeoSnippetPreview url={`${siteUrl}${path}`} title={title} description={description} />
+                            <SocialCardPreview url={`${siteUrl}${path}`} title={title} description={description} image={previewImage} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="form-actions" style={{ marginTop: '14px' }}>
+                  <button className="btn btn-primary" disabled={saving} onClick={handleSeoSave}>{saving ? 'Menyimpan...' : 'Simpan SEO'}</button>
+                </div>
+              </div>
+            );
+          })()}
           {page === 'users' && (() => {
             // Derive the real email: self-service bookings store the Firebase UID in
             // userId (not human-readable), so prefer userEmail and fall back to a

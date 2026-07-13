@@ -24,6 +24,7 @@ import { useUI } from './context/UIContext';
 import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
 import { useCountdown } from './hooks/useCountdown';
+import { useSEO } from './hooks/useSEO';
 import { fmt, formatDate } from './utils';
 import { formatSeatList, pondDisplayName } from './utils/seatLabel';
 import { countOutstanding, hasOutstandingBalance } from './utils/booking';
@@ -32,6 +33,15 @@ import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindow
 import { normalizePdfUrl } from './utils/pdfStorage';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
+
+/**
+ * Renders a CMS-edited headline where `*word(s)*` becomes the accent-colored
+ * <span> the design already uses (e.g. 'Bukan *Kolam* Biasa' → Bukan <span>Kolam</span> Biasa).
+ */
+const renderHeadline = (text: string): React.ReactNode => {
+  const parts = text.split(/\*(.+?)\*/g);
+  return parts.map((part, i) => (i % 2 === 1 ? <span key={i}>{part}</span> : part));
+};
 
 const AppContent: React.FC = () => {
   const {
@@ -65,6 +75,7 @@ const AppContent: React.FC = () => {
   const location = useLocation();
   const { login, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady } = useAuth();
   const [completeProfileOpen, setCompleteProfileOpen] = useState(false);
+  useSEO(currentSection, db.settings);
 
   const [homeScrollTarget, setHomeScrollTarget] = useState<string | null>(null);
   const [pondPickerOpen, setPondPickerOpen] = useState(false);
@@ -830,7 +841,7 @@ const AppContent: React.FC = () => {
     return (
     <div className="home-shell">
       {/* HERO */}
-      <section className="kks-hero" id="home" style={{ backgroundImage: `linear-gradient(90deg, rgba(5,18,30,.94) 0%, rgba(8,22,37,.76) 34%, rgba(8,22,37,.18) 72%), url('${asset('heroBg')}')` }}>
+      <section className="kks-hero" id="home" style={{ backgroundImage: `linear-gradient(90deg, rgba(5,18,30,.94) 0%, rgba(8,22,37,.76) 34%, rgba(8,22,37,.18) 72%), url('${asset('heroBg', settings)}')` }}>
         <div className="kks-container kks-hero-content">
           <div className="kks-hero-kicker">{heroKicker}</div>
           <h1 className="kks-hero-title">
@@ -845,50 +856,37 @@ const AppContent: React.FC = () => {
               </div>
             ))}
           </div>
-          <button className="btn btn-red btn-hero" onClick={() => openBookingChoice(() => goToBook())}>Book Slot Sekarang!</button>
+          <button className="btn btn-red btn-hero" onClick={() => openBookingChoice(() => goToBook())}>{settings.heroCtaLabel}</button>
         </div>
       </section>
 
       {/* INTRO */}
-      <section className="kks-section kks-intro" id="about" style={{ backgroundImage: `linear-gradient(180deg, rgba(255,255,255,.78), rgba(255,255,255,.84)), url('${asset('pondBg')}')` }}>
+      <section className="kks-section kks-intro" id="about" style={{ backgroundImage: `linear-gradient(180deg, rgba(255,255,255,.78), rgba(255,255,255,.84)), url('${asset('pondBg', settings)}')` }}>
         <div className="kks-container">
-          <div className="kks-eyebrow">Kolam Keli Sayang</div>
-          <h2 className="kks-headline">Bukan <span>Kolam</span> Biasa</h2>
+          <div className="kks-eyebrow">{settings.aboutEyebrow}</div>
+          <h2 className="kks-headline">{renderHeadline(settings.aboutTitle || '')}</h2>
           <p className="kks-intro-copy">{introCopy}</p>
           <div className="kks-features">
-            <article className="kks-feature">
-              <div className="kks-feature-icon"><i className="fa-solid fa-flag-checkered"></i></div>
-              <h3>Event Pertandingan Sahaja</h3>
-              <p>Tak dibuka untuk umum harian. Setiap sesi adalah event rasmi dengan peraturan, pengadil, dan hadiah yang jelas.</p>
-            </article>
-            <article className="kks-feature">
-              <div className="kks-feature-icon"><i className="fa-solid fa-water"></i></div>
-              <h3>12 Lubuk Mega</h3>
-              <p>Tak perlu berebut spot. 12 kolam besar mampu tampung 480 peserta sekali.</p>
-            </article>
-            <article className="kks-feature">
-              <div className="kks-feature-icon"><i className="fa-solid fa-car-side"></i></div>
-              <h3>Parking King Size</h3>
-              <p>Datang konvoi besar pun tak ada hal. Kawasan parking tersusun, luas, dan tanpa caj tambahan.</p>
-            </article>
-            <article className="kks-feature">
-              <div className="kks-feature-icon"><i className="fa-solid fa-seedling"></i></div>
-              <h3>Suasana Bendang Padi</h3>
-              <p>Dikelilingi sawah padi hijau Kedah. Pemandangan alami yang tulen jadi latar belakang setiap pertandingan anda.</p>
-            </article>
+            {(settings.features || []).map((f, i) => (
+              <article key={i} className="kks-feature">
+                <div className="kks-feature-icon"><i className={f.icon}></i></div>
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+              </article>
+            ))}
           </div>
           <div className="kks-intro-cta">
-            <button className="btn btn-navy" onClick={() => goToBook()}>Semak Layout Kolam</button>
+            <button className="btn btn-navy" onClick={() => goToBook()}>{settings.aboutCtaLabel}</button>
           </div>
         </div>
       </section>
 
       {/* COMPETITION */}
-      <section className="kks-section kks-competition" id="competitions" style={{ backgroundImage: `radial-gradient(circle at top left, rgba(22,183,220,.18), transparent 32%), radial-gradient(circle at bottom right, rgba(231,25,45,.18), transparent 34%), linear-gradient(135deg, rgba(6,24,40,.96), rgba(10,37,60,.94)), url('${asset('pondBg')}')` }}>
+      <section className="kks-section kks-competition" id="competitions" style={{ backgroundImage: `radial-gradient(circle at top left, rgba(22,183,220,.18), transparent 32%), radial-gradient(circle at bottom right, rgba(231,25,45,.18), transparent 34%), linear-gradient(135deg, rgba(6,24,40,.96), rgba(10,37,60,.94)), url('${asset('pondBg', settings)}')` }}>
         <div className="kks-container">
           <div className="kks-section-head">
-            <div className="kks-eyebrow">Pertandingan</div>
-            <h2 className="kks-headline">Sertai &amp; <span>Menang</span> Besar</h2>
+            <div className="kks-eyebrow">{settings.competitionsEyebrow}</div>
+            <h2 className="kks-headline">{renderHeadline(settings.competitionsTitle || '')}</h2>
           </div>
 
           {featuredCompetition ? (
@@ -950,9 +948,9 @@ const AppContent: React.FC = () => {
 
                 <aside className="kks-event-side">
                   <article className="kks-mini-card kks-mini-featured">
-                    <h4>Weekly Strike</h4>
-                    <p>Format kompetitif mingguan dengan slot terhad dan susunan lubuk yang lebih kemas.</p>
-                    <div className="kks-mini-meta"><span>Setiap Minggu</span><span>Slot Terhad</span></div>
+                    <h4>{settings.weeklyCardTitle}</h4>
+                    <p>{settings.weeklyCardBody}</p>
+                    <div className="kks-mini-meta"><span>{settings.weeklyCardTag1}</span><span>{settings.weeklyCardTag2}</span></div>
                   </article>
                   <article className="kks-mini-card">
                     <h4>{secondCompetition?.name || 'Next Battle'}</h4>
@@ -1013,37 +1011,24 @@ const AppContent: React.FC = () => {
       )}
 
       {/* BOOKING STEPS */}
-      <section className="kks-section kks-booking-section" id="how" style={{ backgroundImage: `linear-gradient(90deg, rgba(255,255,255,.96) 0%, rgba(255,255,255,.9) 48%, rgba(255,255,255,.72) 100%), url('${asset('bookingBg')}')` }}>
+      <section className="kks-section kks-booking-section" id="how" style={{ backgroundImage: `linear-gradient(90deg, rgba(255,255,255,.96) 0%, rgba(255,255,255,.9) 48%, rgba(255,255,255,.72) 100%), url('${asset('bookingBg', settings)}')` }}>
         <div className="kks-container">
           <div className="kks-steps-top">
             <div className="kks-steps-copy">
-              <div className="kks-eyebrow">Cara Tempah</div>
-              <h2 className="kks-headline">Langkah Tempah <span>Yang Mudah</span></h2>
-              <p>Proses tempahan yang simple dan cepat — kurang dari 2 minit siap.</p>
+              <div className="kks-eyebrow">{settings.stepsEyebrow}</div>
+              <h2 className="kks-headline">{renderHeadline(settings.stepsTitle || '')}</h2>
+              <p>{settings.stepsSubtitle}</p>
             </div>
-            <button className="btn btn-navy" onClick={() => openBookingChoice(() => goToBook())}>Pilih Pertandingan</button>
+            <button className="btn btn-navy" onClick={() => openBookingChoice(() => goToBook())}>{settings.stepsCtaLabel}</button>
           </div>
           <div className="kks-steps">
-            <article className="kks-step" data-step="01">
-              <div className="kks-step-icon"><i className="fa-solid fa-trophy"></i></div>
-              <h3>Pilih Pertandingan</h3>
-              <p>Tengok senarai pertandingan yang available dan pilih yang berkenan.</p>
-            </article>
-            <article className="kks-step" data-step="02">
-              <div className="kks-step-icon"><i className="fa-solid fa-fish-fins"></i></div>
-              <h3>Pilih Kolam &amp; Tempat</h3>
-              <p>Pilih kolam dan tempat duduk yang anda suka.</p>
-            </article>
-            <article className="kks-step" data-step="03">
-              <div className="kks-step-icon"><i className="fa-solid fa-credit-card"></i></div>
-              <h3>Buat Bayaran</h3>
-              <p>Bayaran penuh atau deposit 50% melalui transfer bank. Muat naik resit.</p>
-            </article>
-            <article className="kks-step" data-step="04">
-              <div className="kks-step-icon"><i className="fa-solid fa-circle-check"></i></div>
-              <h3>Dapat Pengesahan</h3>
-              <p>Staff akan sahkan tempahan. Anda akan menerima notifikasi e-mel bersama.</p>
-            </article>
+            {(settings.steps || []).map((s, i) => (
+              <article key={i} className="kks-step" data-step={String(i + 1).padStart(2, '0')}>
+                <div className="kks-step-icon"><i className={s.icon}></i></div>
+                <h3>{s.title}</h3>
+                <p>{s.body}</p>
+              </article>
+            ))}
           </div>
         </div>
       </section>
@@ -1052,9 +1037,9 @@ const AppContent: React.FC = () => {
       <section className="kks-section kks-rules" id="rules">
         <div className="kks-container kks-rules-grid">
           <div>
-            <div className="kks-eyebrow">Format Bertanding</div>
-            <h2 className="kks-headline">Macam Mana <span>Ia Berjalan?</span></h2>
-            <button className="btn btn-navy" onClick={openRulesPdf}>SEMAK SYARAT &amp; PERATURAN</button>
+            <div className="kks-eyebrow">{settings.rulesEyebrow}</div>
+            <h2 className="kks-headline">{renderHeadline(settings.rulesTitle || '')}</h2>
+            <button className="btn btn-navy" onClick={openRulesPdf}>{settings.rulesCtaLabel}</button>
           </div>
           <div className="kks-rule-list">
             {rules.map((r, i) => (
@@ -1074,15 +1059,15 @@ const AppContent: React.FC = () => {
       <section className="kks-section kks-lokasi" id="lokasi">
         <div className="kks-container kks-location-grid">
           <div>
-            <div className="kks-eyebrow">Lokasi KKS</div>
-            <h2 className="kks-headline">Jumpa Kami <span>Di Sini</span></h2>
+            <div className="kks-eyebrow">{settings.lokasiEyebrow}</div>
+            <h2 className="kks-headline">{renderHeadline(settings.lokasiTitle || '')}</h2>
             <div className="kks-quick-links">
               <a className="btn btn-red" href={wazeHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-waze"></i> Waze</a>
               <a className="btn btn-navy" href={gmapsHref} target="_blank" rel="noopener noreferrer"><i className="fa-solid fa-location-dot"></i> Google Map</a>
               <a className="btn btn-light" href={whatsappHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-whatsapp"></i> WhatsApp Us</a>
             </div>
             <div className="kks-contact-box">
-              <strong className="kks-contact-name">Kolam Keli Sayang</strong>
+              <strong className="kks-contact-name">{settings.contactName}</strong>
               <div className="kks-contact-item">
                 <i className="fa-solid fa-location-dot"></i>
                 <div><strong>Alamat</strong>{settings.location || 'Kubang Rotan, Alor Setar, Kedah.'}</div>
@@ -1800,6 +1785,7 @@ const AppContent: React.FC = () => {
         onOpenCMS={() => goToCMS()}
         onLogout={handleLogout}
         outstandingCount={outstandingCount}
+        settings={db.settings}
       />
       {currentSection === 'home' && <SecondaryMobileNav onSectionChange={handleNavigation} />}
       {renderSection()}

@@ -167,6 +167,26 @@ export interface Competition {
   status?: 'ACTIVE' | 'INACTIVE';
 }
 
+export type SeoPageKey = 'home' | 'book' | 'live' | 'confirmed';
+
+export interface SeoPageMeta {
+  title: string;
+  description: string;
+  /** Absolute URL to a JPEG (not WebP) share image, 1200×630. Falls back to seo.defaultOgImage. */
+  ogImage?: string;
+}
+
+export interface SeoSettings {
+  /** Canonical production origin, no trailing slash, e.g. https://kolamkelisayang.com.my */
+  siteUrl: string;
+  siteName: string;
+  /** Absolute JPEG URL, 1200×630, used when a page has no ogImage of its own. */
+  defaultOgImage: string;
+  latitude?: number;
+  longitude?: number;
+  pages: Record<SeoPageKey, SeoPageMeta>;
+}
+
 export interface Settings {
   qrBank: string;
   qrName: string;
@@ -191,13 +211,45 @@ export interface Settings {
   heroSubtitle?: string;
   heroKicker?: string;
   heroStats?: { label: string; value: string }[];
+  heroCtaLabel?: string;
   introCopy?: string;
+  aboutEyebrow?: string;
   aboutTitle?: string;
   aboutContent?: string;
+  aboutCtaLabel?: string;
+  /** Fixed set of 4 "why us" feature cards shown under the intro section */
+  features?: { icon: string; title: string; body: string }[];
+  competitionsEyebrow?: string;
+  competitionsTitle?: string;
+  weeklyCardTitle?: string;
+  weeklyCardBody?: string;
+  weeklyCardTag1?: string;
+  weeklyCardTag2?: string;
+  stepsEyebrow?: string;
+  stepsTitle?: string;
+  stepsSubtitle?: string;
+  stepsCtaLabel?: string;
+  /** Fixed set of 4 "how to book" step cards */
+  steps?: { icon: string; title: string; body: string }[];
+  rulesEyebrow?: string;
+  rulesTitle?: string;
+  rulesCtaLabel?: string;
+  lokasiEyebrow?: string;
+  lokasiTitle?: string;
+  contactName?: string;
   contactTitle?: string;
   contactSubtitle?: string;
   ctaTitle?: string;
   ctaSubtitle?: string;
+  footerTagline?: string;
+  /** CMS-uploaded landing images (Firebase Storage URLs). Empty = fall back to the built-in asset. */
+  landingImages?: {
+    logo?: string;
+    footerLogo?: string;
+    heroBg?: string;
+    pondBg?: string;
+    bookingBg?: string;
+  };
   /** Numbered rules shown in the homepage "Format Bertanding" section */
   rules?: { title: string; body: string }[];
   /** Uploaded PDF URL for Syarat & Peraturan. */
@@ -207,6 +259,8 @@ export interface Settings {
   /** External map/directions deep links shown as quick-link buttons */
   wazeUrl?: string;
   googleMapsUrl?: string;
+  /** Site-wide + per-page SEO metadata, rendered server-side by the seoRender function. */
+  seo?: SeoSettings;
   /** When true, the booking page and CMS show the legacy capsule pond view instead of the SVG polygon */
   useLegacyPondView?: boolean;
   /** URL of the pond arrangement overview image shown to users during booking */

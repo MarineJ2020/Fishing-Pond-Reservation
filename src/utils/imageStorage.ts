@@ -8,6 +8,10 @@ import { isPdfFile } from './pdfStorage';
 const MAX_DIM = 1280;
 const WEBP_QUALITY = 0.7;
 const JPEG_QUALITY = 0.6;
+// Open Graph / Twitter share images: fixed JPEG (not WebP — WhatsApp's link-preview
+// scraper doesn't reliably render WebP og:image) at social-card resolution.
+const OG_MAX_DIM = 1200;
+const OG_JPEG_QUALITY = 0.8;
 
 let webpSupport: boolean | null = null;
 
@@ -108,6 +112,38 @@ export function compressImageToDataUrl(file: File): Promise<string> {
 export async function compressBlobToWebp(blob: Blob, fileName: string): Promise<File> {
   const dataUrl = await compressSourceToDataUrl(blob);
   return dataUrlToFile(dataUrl, fileName);
+}
+
+/**
+ * Compress a Blob/File to a JPEG File sized for social share cards (max 1200px,
+ * q0.8). Used for OG/Twitter image uploads — always JPEG, never WebP, since
+ * WhatsApp/Facebook scrapers don't reliably render WebP og:image.
+ */
+export function compressBlobToJpeg(blob: Blob, fileName: string): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, OG_MAX_DIM / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d')!;
+      // JPEG has no alpha channel; flatten onto white so transparent PNGs don't turn black.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(objectUrl);
+      resolve(dataUrlToFile(canvas.toDataURL('image/jpeg', OG_JPEG_QUALITY), fileName));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Gagal membaca fail imej'));
+    };
+    img.src = objectUrl;
+  });
 }
 
 const buildImagePath = (folder: string, file: Blob | File, fileName?: string): string => {

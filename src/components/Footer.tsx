@@ -17,9 +17,9 @@ const Footer: React.FC<FooterProps> = ({ settings, onNavigate }) => {
         <div className="kks-footer-grid">
           <div className="kks-footer-brand">
             <div className="kks-footer-logo">
-              <img src={asset('footerLogo')} alt="Kolam Keli Sayang" />
+              <img src={asset('footerLogo', settings)} alt="Kolam Keli Sayang" />
             </div>
-            <p>Arena pertandingan memancing keli yang adil, meriah dan penuh cabaran di Kedah.</p>
+            <p>{settings.footerTagline}</p>
           </div>
 
           <div className="kks-footer-col">

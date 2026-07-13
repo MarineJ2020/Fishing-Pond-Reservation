@@ -24,3 +24,6 @@ dist-ssr
 *.sln
 *.sw?
 dist /
+
+# Generated at build time by scripts/copy-seo-template.mjs
+functions/src/template.html

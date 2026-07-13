@@ -36,7 +36,11 @@ export const LANDING_ASSETS = {
 
 type AssetKey = keyof typeof LANDING_ASSETS;
 
-export const asset = (key: AssetKey): string => {
+/**
+ * Resolve a landing image URL: CMS-uploaded Storage URL (settings.landingImages)
+ * takes priority, then the Cloudinary slot, then the original Drive fallback.
+ */
+export const asset = (key: AssetKey, settings?: { landingImages?: Partial<Record<AssetKey, string>> }): string => {
   const entry = LANDING_ASSETS[key];
-  return entry.cloudinary || entry.drive;
+  return settings?.landingImages?.[key] || entry.cloudinary || entry.drive;
 };

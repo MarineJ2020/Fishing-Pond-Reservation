@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /cms
+Disallow: /my-bookings
+Disallow: /profile
+Disallow: /bookings/
+
+Sitemap: https://kolamkelisayang.com.my/sitemap.xml

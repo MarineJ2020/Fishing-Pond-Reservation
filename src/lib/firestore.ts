@@ -19,8 +19,9 @@ import {
 } from 'firebase/firestore';
 import { auth } from '../../lib/firebase';
 import { db } from '../../lib/firebase';
-import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry, User, AuditEntry } from '../types';
+import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry, User, AuditEntry, SeoSettings } from '../types';
 import { emptyDB } from '../data';
+import { LANDING_DEFAULTS, SEO_DEFAULTS } from '../config/landingDefaults';
 
 const normalizeTimestamp = (value: any) => {
   if (!value) return null;
@@ -119,13 +120,59 @@ const normalizeSettings = (data: any): Settings => ({
   heroTitle: data.heroTitle || '',
   heroSubtitle: data.heroSubtitle || '',
   heroStats: Array.isArray(data.heroStats) ? data.heroStats : [],
+  heroCtaLabel: data.heroCtaLabel || LANDING_DEFAULTS.heroCtaLabel,
   introCopy: data.introCopy || '',
   rules: Array.isArray(data.rules) ? data.rules : [],
   rulesPdfUrl: data.rulesPdfUrl || '',
   wazeUrl: data.wazeUrl || '',
   googleMapsUrl: data.googleMapsUrl || '',
   mapEmbedUrl: data.mapEmbedUrl || '',
+
+  // Landing v5 — full homepage content customization + images. Real (non-empty)
+  // defaults so first deploy is visually identical and CMS inputs show live text.
+  aboutEyebrow: data.aboutEyebrow || LANDING_DEFAULTS.aboutEyebrow,
+  aboutTitle: data.aboutTitle || LANDING_DEFAULTS.aboutTitle,
+  aboutCtaLabel: data.aboutCtaLabel || LANDING_DEFAULTS.aboutCtaLabel,
+  features: Array.isArray(data.features) && data.features.length === 4 ? data.features : LANDING_DEFAULTS.features,
+  competitionsEyebrow: data.competitionsEyebrow || LANDING_DEFAULTS.competitionsEyebrow,
+  competitionsTitle: data.competitionsTitle || LANDING_DEFAULTS.competitionsTitle,
+  weeklyCardTitle: data.weeklyCardTitle || LANDING_DEFAULTS.weeklyCardTitle,
+  weeklyCardBody: data.weeklyCardBody || LANDING_DEFAULTS.weeklyCardBody,
+  weeklyCardTag1: data.weeklyCardTag1 || LANDING_DEFAULTS.weeklyCardTag1,
+  weeklyCardTag2: data.weeklyCardTag2 || LANDING_DEFAULTS.weeklyCardTag2,
+  stepsEyebrow: data.stepsEyebrow || LANDING_DEFAULTS.stepsEyebrow,
+  stepsTitle: data.stepsTitle || LANDING_DEFAULTS.stepsTitle,
+  stepsSubtitle: data.stepsSubtitle || LANDING_DEFAULTS.stepsSubtitle,
+  stepsCtaLabel: data.stepsCtaLabel || LANDING_DEFAULTS.stepsCtaLabel,
+  steps: Array.isArray(data.steps) && data.steps.length === 4 ? data.steps : LANDING_DEFAULTS.steps,
+  rulesEyebrow: data.rulesEyebrow || LANDING_DEFAULTS.rulesEyebrow,
+  rulesTitle: data.rulesTitle || LANDING_DEFAULTS.rulesTitle,
+  rulesCtaLabel: data.rulesCtaLabel || LANDING_DEFAULTS.rulesCtaLabel,
+  lokasiEyebrow: data.lokasiEyebrow || LANDING_DEFAULTS.lokasiEyebrow,
+  lokasiTitle: data.lokasiTitle || LANDING_DEFAULTS.lokasiTitle,
+  contactName: data.contactName || LANDING_DEFAULTS.contactName,
+  footerTagline: data.footerTagline || LANDING_DEFAULTS.footerTagline,
+  landingImages: { ...(data.landingImages || {}) },
+
+  seo: normalizeSeo(data.seo),
 });
+
+const normalizeSeo = (data: any): SeoSettings => {
+  const pages = data?.pages || {};
+  return {
+    siteUrl: data?.siteUrl || SEO_DEFAULTS.siteUrl,
+    siteName: data?.siteName || SEO_DEFAULTS.siteName,
+    defaultOgImage: data?.defaultOgImage || SEO_DEFAULTS.defaultOgImage,
+    latitude: typeof data?.latitude === 'number' ? data.latitude : undefined,
+    longitude: typeof data?.longitude === 'number' ? data.longitude : undefined,
+    pages: {
+      home: { ...SEO_DEFAULTS.pages.home, ...(pages.home || {}) },
+      book: { ...SEO_DEFAULTS.pages.book, ...(pages.book || {}) },
+      live: { ...SEO_DEFAULTS.pages.live, ...(pages.live || {}) },
+      confirmed: { ...SEO_DEFAULTS.pages.confirmed, ...(pages.confirmed || {}) },
+    },
+  };
+};
 
 const buildBooking = (
   docSnap: any,

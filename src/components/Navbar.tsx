@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { User } from '../types';
+import { Settings, User } from '../types';
 import { asset } from '../config/landingAssets';
 
 interface NavbarProps {
@@ -11,9 +11,10 @@ interface NavbarProps {
   onLogout: () => void;
   /** Number of the user's bookings with an outstanding balance (drives the red dot). */
   outstandingCount?: number;
+  settings?: Settings;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOpenCMS, onLogout, outstandingCount = 0 }) => {
+const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOpenCMS, onLogout, outstandingCount = 0, settings }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -40,7 +41,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOp
     <header className="kks-header">
       <div className="kks-nav-container">
         <a className="kks-nav-logo" onClick={() => handleNav('home')} aria-label="Kolam Keli Sayang">
-          <img src={asset('logo')} alt="Kolam Keli Sayang" />
+          <img src={asset('logo', settings)} alt="Kolam Keli Sayang" />
         </a>
 
         <nav className="kks-nav-links" aria-label="Navigasi utama">

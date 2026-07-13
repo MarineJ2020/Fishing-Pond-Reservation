@@ -38,6 +38,26 @@
     ],
     "rewrites": [
       {
+        "source": "/",
+        "function": "seoRender"
+      },
+      {
+        "source": "/book",
+        "function": "seoRender"
+      },
+      {
+        "source": "/live",
+        "function": "seoRender"
+      },
+      {
+        "source": "/confirmed",
+        "function": "seoRender"
+      },
+      {
+        "source": "/sitemap.xml",
+        "function": "seoRender"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
