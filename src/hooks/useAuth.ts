@@ -47,13 +47,30 @@ export const useAuth = () => {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      const user = await mapFirebaseUser(firebaseUser);
-      setUser(user);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (!firebaseUser) {
         localStorage.removeItem('cb_session');
+        setUser(null);
+        setAuthReady(true);
+        return;
+      }
+      // Show basic identity immediately instead of blocking authReady on the
+      // Firestore profile getDoc — role defaults to 'CLIENT' (fail-safe: an
+      // ADMIN/STAFF-only UI just appears a beat later once the real role loads).
+      if (firebaseUser.email) {
+        setUser({
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          emailVerified: firebaseUser.emailVerified,
+          name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+          phone: '',
+          role: 'CLIENT',
+        });
       }
       setAuthReady(true);
+      mapFirebaseUser(firebaseUser).then((full) => {
+        if (full) setUser(full);
+      });
     });
     return () => unsubscribe();
   }, [setUser]);

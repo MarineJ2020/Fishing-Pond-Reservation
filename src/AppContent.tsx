@@ -796,8 +796,8 @@ const AppContent: React.FC = () => {
     const heroStats = settings.heroStats?.length
       ? settings.heroStats
       : [
-          { value: String(totalPonds || 12), label: 'Lubuk Mega' },
-          { value: String(availablePegs || 480), label: 'Peserta / Kocah' },
+          { value: String(totalPonds), label: 'Lubuk Mega' },
+          { value: String(availablePegs), label: 'Peserta / Kocah' },
           { value: 'Weekly Strike', label: 'Pertandingan' },
         ];
     const introCopy = settings.introCopy
@@ -851,7 +851,7 @@ const AppContent: React.FC = () => {
           <div className="kks-hero-stats">
             {heroStats.map((s, i) => (
               <div key={i} className="kks-hero-stat">
-                <strong>{s.value}</strong>
+                <strong>{dbLoading ? <span className="kks-hero-stat-skeleton" aria-hidden="true" /> : s.value}</strong>
                 <small>{s.label}</small>
               </div>
             ))}
@@ -1779,6 +1779,7 @@ const AppContent: React.FC = () => {
     <>
       <Navbar
         user={user}
+        authReady={authReady}
         currentSection={currentSection}
         onSectionChange={handleNavigation}
         onOpenAuth={() => setAuthModalOpen(true)}

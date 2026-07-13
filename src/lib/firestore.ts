@@ -282,23 +282,32 @@ const buildScores = async (competitionId: string, bookings: Booking[]) => {
   return scores;
 };
 
-export const getActiveCompetition = async (): Promise<Competition | null> => {
-  const competitionsRef = collection(db, 'competitions');
-  const snapshot = await getDocs(competitionsRef);
-  const comps = snapshot.docs
+const pickActiveCompetitionRaw = (docs: QueryDocumentSnapshot<DocumentData>[]): any | null => {
+  const comps = docs
     .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
-    .filter((data) => data.status !== 'DRAFT')
-    .sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime());
-  if (!comps.length) return null;
-  return normalizeCompetition(comps[0]);
+    .filter((data: any) => data.status !== 'DRAFT')
+    .sort((a: any, b: any) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime());
+  return comps.length ? comps[0] : null;
 };
 
-export const getCompetitions = async (): Promise<Competition[]> => {
-  const competitionsRef = collection(db, 'competitions');
-  const snapshot = await getDocs(competitionsRef);
-  return snapshot.docs
+const buildCompetitionsList = (docs: QueryDocumentSnapshot<DocumentData>[]): Competition[] =>
+  docs
     .map((docSnap) => normalizeCompetition({ id: docSnap.id, ...docSnap.data() }))
     .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+export const getActiveCompetition = async (
+  preFetchedDocs?: QueryDocumentSnapshot<DocumentData>[]
+): Promise<Competition | null> => {
+  const docs = preFetchedDocs ?? (await getDocs(collection(db, 'competitions'))).docs;
+  const raw = pickActiveCompetitionRaw(docs);
+  return raw ? normalizeCompetition(raw) : null;
+};
+
+export const getCompetitions = async (
+  preFetchedDocs?: QueryDocumentSnapshot<DocumentData>[]
+): Promise<Competition[]> => {
+  const docs = preFetchedDocs ?? (await getDocs(collection(db, 'competitions'))).docs;
+  return buildCompetitionsList(docs);
 };
 
 export const createCompetition = async (data: Partial<Competition>) => {
@@ -321,8 +330,10 @@ export const createCompetition = async (data: Partial<Competition>) => {
   return docRef.id;
 };
 
-export const getOrCreateDefaultCompetition = async (): Promise<Competition> => {
-  const comp = await getActiveCompetition();
+export const getOrCreateDefaultCompetition = async (
+  preFetched?: { active: Competition | null }
+): Promise<Competition> => {
+  const comp = preFetched ? preFetched.active : await getActiveCompetition();
   if (comp) return comp;
   
   // Create default competition if none exists
@@ -352,13 +363,19 @@ export const getOrCreateDefaultCompetition = async (): Promise<Competition> => {
   return newComp;
 };
 
-export const getPondsWithSeats = async (): Promise<Pond[]> => {
-  const pondsRef = collection(db, 'ponds');
-  const seatsRef = collection(db, 'seats');
-  const [pondSnapshot, seatSnapshot] = await Promise.all([getDocs(pondsRef), getDocs(seatsRef)]);
+export const getPondsWithSeats = async (
+  preFetched?: { pondDocs: QueryDocumentSnapshot<DocumentData>[]; seatDocs: QueryDocumentSnapshot<DocumentData>[] }
+): Promise<Pond[]> => {
+  const { pondDocs, seatDocs } = preFetched ?? await (async () => {
+    const [pondSnapshot, seatSnapshot] = await Promise.all([
+      getDocs(collection(db, 'ponds')),
+      getDocs(collection(db, 'seats')),
+    ]);
+    return { pondDocs: pondSnapshot.docs, seatDocs: seatSnapshot.docs };
+  })();
 
   const seatsByPond = new Map<string, Array<any>>();
-  seatSnapshot.forEach((seatSnap) => {
+  seatDocs.forEach((seatSnap) => {
     const seatData = seatSnap.data();
     const pondId = seatData.pondId?.id || seatData.pondId;
     if (!pondId) return;
@@ -367,7 +384,7 @@ export const getPondsWithSeats = async (): Promise<Pond[]> => {
     seatsByPond.set(pondId.toString(), existing);
   });
 
-  return pondSnapshot.docs.map((pondSnap, index) => {
+  return pondDocs.map((pondSnap, index) => {
     const data = pondSnap.data();
     const totalSeats = data.totalSeats || 30;
     const seatDocs = seatsByPond.get(pondSnap.id) || [];
@@ -398,20 +415,27 @@ export const getPondsWithSeats = async (): Promise<Pond[]> => {
   .map(({ _idx, ...pond }: any) => pond as Pond);
 };
 
-export const getBookings = async (competitionId?: string, competitions: Competition[] = []): Promise<Booking[]> => {
-  const bookingsRef = collection(db, 'bookings');
-  const snapshot = await getDocs(bookingsRef);
+export const getBookings = async (
+  competitionId?: string,
+  competitions: Competition[] = [],
+  preFetched?: {
+    ponds?: Pond[];
+    seatDocs?: QueryDocumentSnapshot<DocumentData>[];
+    bookingDocs?: QueryDocumentSnapshot<DocumentData>[];
+  }
+): Promise<Booking[]> => {
+  const bookingDocs = preFetched?.bookingDocs ?? (await getDocs(collection(db, 'bookings'))).docs;
 
-  const ponds = await getPondsWithSeats();
+  const ponds = preFetched?.ponds ?? await getPondsWithSeats();
   const pondMap = new Map<string, Pond>();
   ponds.forEach((pond) => {
     pondMap.set(pond.id.toString(), pond);
     if (pond._docId) pondMap.set(pond._docId, pond);
   });
 
-  const seatSnapshot = await getDocs(collection(db, 'seats'));
+  const seatDocs = preFetched?.seatDocs ?? (await getDocs(collection(db, 'seats'))).docs;
   const seatMap = new Map<string, number>();
-  seatSnapshot.forEach((seatSnap) => {
+  seatDocs.forEach((seatSnap) => {
     const data = seatSnap.data();
     if (data.seatNumber) {
       seatMap.set(seatSnap.id, data.seatNumber);
@@ -424,7 +448,7 @@ export const getBookings = async (competitionId?: string, competitions: Competit
     if (competition.id) competitionMap.set(competition.id, competition);
   });
 
-  return snapshot.docs
+  return bookingDocs
     .filter((docSnap) => {
       if (!competitionId) return true;
       const data = docSnap.data();
@@ -516,15 +540,26 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
 
 export const loadAppDB = async (): Promise<DB> => {
   try {
-    const [competition, competitions, ponds, settings] = await Promise.all([
-      getOrCreateDefaultCompetition(),
-      getCompetitions(),
-      getPondsWithSeats(),
+    const [pondSnapshot, seatSnapshot, competitionSnapshot, bookingSnapshot, settings] = await Promise.all([
+      getDocs(collection(db, 'ponds')),
+      getDocs(collection(db, 'seats')),
+      getDocs(collection(db, 'competitions')),
+      getDocs(collection(db, 'bookings')),
       getSettings(),
     ]);
 
-    // Fetch all bookings (not just for one competition)
-    const bookings = await getBookings(undefined, competitions);
+    const ponds = await getPondsWithSeats({ pondDocs: pondSnapshot.docs, seatDocs: seatSnapshot.docs });
+    const competitions = await getCompetitions(competitionSnapshot.docs);
+    const activeComp = await getActiveCompetition(competitionSnapshot.docs);
+    const competition = await getOrCreateDefaultCompetition({ active: activeComp });
+
+    // Fetch all bookings (not just for one competition) — reuse the ponds/seats/bookings
+    // already fetched above instead of re-querying them.
+    const bookings = await getBookings(undefined, competitions, {
+      ponds,
+      seatDocs: seatSnapshot.docs,
+      bookingDocs: bookingSnapshot.docs,
+    });
 
     const scores = competition && competition.id ? await buildScores(competition.id, bookings) : {};
 

@@ -4,6 +4,7 @@ import { asset } from '../config/landingAssets';
 
 interface NavbarProps {
   user: User | null;
+  authReady: boolean;
   currentSection: string;
   onSectionChange: (section: string) => void;
   onOpenAuth: () => void;
@@ -14,7 +15,7 @@ interface NavbarProps {
   settings?: Settings;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOpenCMS, onLogout, outstandingCount = 0, settings }) => {
+const Navbar: React.FC<NavbarProps> = ({ user, authReady, onSectionChange, onOpenAuth, onOpenCMS, onLogout, outstandingCount = 0, settings }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -51,7 +52,9 @@ const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOp
         </nav>
 
         <div className="kks-nav-actions">
-          {user ? (
+          {!authReady ? (
+            <span className="kks-nav-greet" aria-hidden="true">&nbsp;</span>
+          ) : user ? (
             <span className="kks-nav-greet">Hi, {user.name.split(' ')[0]}</span>
           ) : (
             <a className="btn btn-navy" onClick={onOpenAuth}>Log Masuk / Daftar</a>
@@ -80,7 +83,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onSectionChange, onOpenAuth, onOp
         <a onClick={() => handleNav('live')}><i className="fa-solid fa-bolt"></i> Keputusan / Live</a>
         <a onClick={() => handleNav('book')}><i className="fa-solid fa-ticket"></i> Tempah Sekarang</a>
         <hr />
-        {user ? (
+        {!authReady ? null : user ? (
           <>
             <a onClick={() => handleNav('mybookings')}>
               <i className="fa-solid fa-clipboard-list"></i> Tempahan Saya
