@@ -1064,7 +1064,7 @@ const AppContent: React.FC = () => {
             <div className="kks-quick-links">
               <a className="btn btn-red" href={wazeHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-waze"></i> Waze</a>
               <a className="btn btn-navy" href={gmapsHref} target="_blank" rel="noopener noreferrer"><i className="fa-solid fa-location-dot"></i> Google Map</a>
-              <a className="btn btn-light" href={whatsappHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-whatsapp"></i> WhatsApp Us</a>
+              <a className="btn btn-whatsapp" href={whatsappHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-whatsapp"></i> WhatsApp Us</a>
             </div>
             <div className="kks-contact-box">
               <strong className="kks-contact-name">{settings.contactName}</strong>

@@ -40,7 +40,7 @@ const Footer: React.FC<FooterProps> = ({ settings, onNavigate }) => {
           </div>
 
           <div className="kks-footer-cta">
-            <a className="btn btn-light" href={whatsappHref} target="_blank" rel="noopener noreferrer">
+            <a className="btn btn-whatsapp" href={whatsappHref} target="_blank" rel="noopener noreferrer">
               <i className="fa-brands fa-whatsapp"></i> WhatsApp Us
             </a>
           </div>
