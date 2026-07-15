@@ -1723,24 +1723,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
   };
 
-  if (!isStaff) {
-    return (
-      <div className="modal-overlay open">
-        <div className="modal" style={{ maxWidth: '400px' }}>
-          <div className="modal-header">
-            <div className="modal-title">Akses Terhad</div>
-            <button className="modal-close" onClick={onClose}>×</button>
-          </div>
-          <div className="modal-body" style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '40px', marginBottom: '16px' }}>🔒</div>
-            <p style={{ color: 'var(--text-muted)' }}>Kawasan ini hanya untuk kakitangan dan pentadbir.</p>
-            <button className="btn btn-primary mt-4" onClick={onClose}>Kembali</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const pendingCount = bookings.filter(b => b.status === 'pending').length;
   const confirmedCount = bookings.filter(b => b.status === 'confirmed').length;
 
@@ -1819,6 +1801,28 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     fetchWeighPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, allWeighCompId, allWeighPond]);
+
+  // Staff/admin gate. MUST stay below every hook above — an early return placed
+  // among the hooks changes the hook count between renders (e.g. when the user's
+  // role resolves from an optimistic 'CLIENT' to 'ADMIN' after the profile loads),
+  // which crashes React with "rendered more hooks than during the previous render".
+  if (!isStaff) {
+    return (
+      <div className="modal-overlay open">
+        <div className="modal" style={{ maxWidth: '400px' }}>
+          <div className="modal-header">
+            <div className="modal-title">Akses Terhad</div>
+            <button className="modal-close" onClick={onClose}>×</button>
+          </div>
+          <div className="modal-body" style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '40px', marginBottom: '16px' }}>🔒</div>
+            <p style={{ color: 'var(--text-muted)' }}>Kawasan ini hanya untuk kakitangan dan pentadbir.</p>
+            <button className="btn btn-primary mt-4" onClick={onClose}>Kembali</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── Unsaved-changes guard ────────────────────────────────────────────────
   const compSig = (c?: Partial<Competition>) => c ? JSON.stringify({

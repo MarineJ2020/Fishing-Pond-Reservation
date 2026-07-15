@@ -790,10 +790,29 @@ export const deleteCompetition = async (competitionId: string) => {
   await deleteDoc(compRef);
 };
 
+// Firestore rejects `undefined` field values (the SDK is not initialised with
+// ignoreUndefinedProperties). Settings sub-objects like `seo` legitimately carry
+// undefined for optional, unset fields (e.g. latitude/longitude), which would
+// otherwise make setDoc throw and silently fail the save. Recursively drop them.
+const stripUndefined = <T>(value: T): T => {
+  if (Array.isArray(value)) {
+    return value.map((v) => stripUndefined(v)) as unknown as T;
+  }
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v === undefined) continue;
+      out[k] = stripUndefined(v);
+    }
+    return out as T;
+  }
+  return value;
+};
+
 export const updateSettings = async (updates: Partial<Settings>) => {
   const settingsRef = doc(db, 'settings', 'global');
   await setDoc(settingsRef, {
-    ...updates,
+    ...stripUndefined(updates),
     updatedAt: serverTimestamp(),
   }, { merge: true });
 };
