@@ -95,20 +95,41 @@ All routes require a Firebase ID token (`Authorization: Bearer <token>`).
 
 ## Deployment
 
-### Frontend + Firestore rules (current — no Blaze plan needed)
+Project: `kolamkelisayang`. Hosting serves `dist/`.
+
+### One-click (Windows)
+Double-click **`build and deploy.bat`** in the repo root. It builds the bundle and
+deploys **hosting + functions** together (see the warning below for why both are
+required), falling back to `npx firebase` if the global CLI fails.
+
+### Manual
 ```bash
 npm run build
-firebase deploy --only "hosting,firestore,storage"
+firebase deploy --only "hosting,functions" --project kolamkelisayang
 ```
+
+> ⚠️ **Always deploy `hosting` and `functions` together.** The `/`, `/book`,
+> `/live` and `/confirmed` routes are rendered by the **`seoRender` Cloud
+> Function**, which serves a bundled copy of the built `index.html`
+> (`functions/src/template.html`, refreshed by `scripts/copy-seo-template.mjs`
+> during `npm run build`). That template contains **hashed asset names** that
+> change on every build. Deploying hosting alone leaves `seoRender` pointing at a
+> JS bundle hosting has already replaced → `/` returns a blank page with a
+> `MIME type "text/html"` module-script error. `firebase` skips unchanged
+> functions automatically, so including `functions` in every deploy is cheap.
+>
+> After deploy, `/` is CDN-cached (`s-maxage=600`); the hosting release purges
+> that edge cache, so a hard refresh shows the new build right away.
+
+Include `firestore,storage` as well when rules changed:
+`firebase deploy --only "hosting,functions,firestore,storage" --project kolamkelisayang`.
+
+If a deploy fails to resolve `node`/`npm` (a known PATH quirk on the build
+machine), prefix the clean Node path or retry via `npx firebase deploy ...`.
 
 ### Firebase Storage CORS (required for browser PDF upload)
 ```bash
 gsutil cors set storage.cors.json gs://kolamkelisayang.firebasestorage.app
-```
-
-### Cloud Functions (requires Blaze plan)
-```bash
-firebase deploy --only functions
 ```
 
 ## Firestore Security Rules
