@@ -8,6 +8,7 @@ import PondEditor from './PondEditor';
 import { checkInBooking, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
 import {
   createPond as createPondFirestore,
+  deletePond as deletePondFirestore,
   createCompetition as createCompetitionFirestore,
   deleteCompetition as deleteCompetitionFirestore,
   syncPondSeats as syncPondSeatsFirestore,
@@ -701,6 +702,46 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       setCompetitionEditorOpen(false);
     } catch (err) {
       console.error('Failed to delete competition:', err);
+    }
+    setSaving(false);
+  };
+
+  const handleDeletePond = async (pond: Pond) => {
+    const pondDocId = pond._docId || pond.id.toString();
+    const pondKeys = new Set([pondDocId, pond.id.toString()]);
+    const label = pondDisplayName(pond);
+    if (!window.confirm(`Padam kolam "${label}" secara kekal? Semua tempat duduk kolam ini akan turut dipadam dan ia akan dikeluarkan daripada semua pertandingan. Tindakan ini tidak boleh dibatalkan.`)) return;
+    setSaving(true);
+    try {
+      // Strip the pond from every competition that references it, so no dangling
+      // ids remain in activePondIds / pondSeats after the pond doc is gone. Both
+      // document IDs and legacy numeric IDs may exist in older competitions.
+      const affected = compList.filter(
+        (c): c is Competition & { id: string } => !!c.id && (
+          (c.activePondIds || []).some((id) => pondKeys.has(id)) ||
+          Object.keys(c.pondSeats || {}).some((id) => pondKeys.has(id))
+        )
+      );
+      await Promise.all(
+        affected.map((c) => {
+          const activePondIds = (c.activePondIds || []).filter((id) => !pondKeys.has(id));
+          const pondSeats = { ...(c.pondSeats || {}) };
+          pondKeys.forEach((id) => delete pondSeats[id]);
+          return updateCompetitionFirestore(c.id, { activePondIds, pondSeats });
+        })
+      );
+      await deletePondFirestore(pondDocId);
+      await reloadDB();
+      await logAuditEvent({
+        action: 'pond.delete', actionLabel: 'Padam Kolam', entityType: 'pond',
+        entityId: pondDocId, entityLabel: label,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+      setEditingPond(null);
+      setPondSaveError(null);
+    } catch (err) {
+      console.error('Failed to delete pond:', err);
+      window.alert('Gagal memadam kolam.');
     }
     setSaving(false);
   };
@@ -4208,6 +4249,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
                 <div className="form-actions" style={{ marginTop: '16px' }}>
                   {isEdit ? (<>
+                    <button type="button" className="btn btn-danger" style={{ marginRight: 'auto' }} disabled={saving} onClick={() => handleDeletePond(editingPond)}>Padam Kolam</button>
                     <button className="btn btn-ghost" onClick={closePondModal}>Batal</button>
                     <button className="btn btn-primary" disabled={saving || !seatCountOk} onClick={() => handlePondUpdate(editingPond)}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
                   </>) : (<>
