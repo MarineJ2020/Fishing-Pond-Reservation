@@ -35,7 +35,8 @@ const Footer: React.FC<FooterProps> = ({ settings, onNavigate }) => {
             <p>
               {settings.email && <>{settings.email}<br /></>}
               {settings.phone && <>{settings.phone}<br /></>}
-              {settings.whatsapp && settings.whatsapp !== settings.phone && <>{settings.whatsapp}</>}
+              {settings.whatsapp && settings.whatsapp !== settings.phone && <>{settings.whatsapp}<br /></>}
+              Waktu Operasi : 9:00 pagi &ndash; 5:30 petang
             </p>
           </div>
 

@@ -104,7 +104,7 @@ function PondSVGContent({ polygonPoints, positionedSeats, selectedSeats, onSeatC
       {selectedSeats.length === 0 && positionedSeats.length > 0 && (
         <text x={SVG_W / 2} y={SVG_H - 36} textAnchor="middle"
           fill="rgba(255,255,255,0.22)" fontSize="13" letterSpacing="0.5" pointerEvents="none">
-          Klik peg hijau untuk pilih tempat duduk
+          Klik pancang hijau untuk pilih tempat duduk
         </text>
       )}
 
@@ -292,7 +292,7 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
         <div className="seat-map-header">
           <div>
             <div className="seat-map-title">{pond.name}</div>
-            <div className="seat-map-subtitle">{pond.date} — {av} pegs available</div>
+            <div className="seat-map-subtitle">{pond.date} — {av} pancang tersedia</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             {showCanvas && (
@@ -314,7 +314,6 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
             /* ── Legacy column layout (kept behind the CMS toggle) ── */
             <>
               <div className="seat-zone-wrap left">
-                <div className="seat-zone-label">Kiri</div>
                 <div className="seat-col">
                   {splitSeats.left.map(s => {
                     const isSel    = selectedSeats.includes(s.num);
@@ -339,7 +338,6 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
                 <div className="pond-visual-text">KOLAM</div>
               </div>
               <div className="seat-zone-wrap right">
-                <div className="seat-zone-label">Kanan</div>
                 <div className="seat-col">
                   {splitSeats.right.map(s => {
                     const isSel    = selectedSeats.includes(s.num);
@@ -359,8 +357,7 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
             <div className="v5-seatmap-wrap">
               <div className="v5-seatmap">
                 <div>
-                  <div className="v5-bank-title">Kiri</div>
-                  <div className="v5-seat-bank">
+                    <div className="v5-seat-bank">
                     {splitSeats.left.map(s => renderBankSeat(s))}
                   </div>
                 </div>
@@ -373,7 +370,6 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
                   <span className="v5-fish v5-fish-5">🐠</span>
                 </div>
                 <div>
-                  <div className="v5-bank-title">Kanan</div>
                   <div className="v5-seat-bank">
                     {splitSeats.right.map(s => renderBankSeat(s))}
                   </div>
@@ -388,7 +384,7 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
           <div className="price-bar">
             <div>
               <div className="price-bar-label">Total Amount</div>
-              <div className="price-bar-detail">{selectedSeats.length} peg{selectedSeats.length !== 1 ? 's' : ''} selected</div>
+              <div className="price-bar-detail">{selectedSeats.length} pancang dipilih</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div className="price-bar-total">RM {selectedTotal}</div>
@@ -466,7 +462,7 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
                 </div>
               </>
             ) : (
-              <div className="pond-expand-empty-hint">Tiada peg dipilih · Klik peg hijau untuk pilih</div>
+              <div className="pond-expand-empty-hint">Tiada pancang dipilih · Klik pancang hijau untuk pilih</div>
             )}
           </div>
         </div>

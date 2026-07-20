@@ -803,8 +803,6 @@ const AppContent: React.FC = () => {
     const introCopy = settings.introCopy
       || 'Kolam Keli Sayang dibuka untuk pertandingan sahaja — bukan aktiviti memancing harian. Terletak di Kubang Rotan, Alor Setar, dikelilingi hamparan sawah padi yang menghijau, kami menawarkan pengalaman bertanding yang adil, teratur, dan penuh semangat.';
     const rules = settings.rules?.length ? settings.rules : [];
-    const whatsappDigits = (settings.whatsapp || settings.phone || '').replace(/[^0-9]/g, '');
-    const whatsappHref = whatsappDigits ? `https://wa.me/${whatsappDigits}` : '#';
     const wazeHref = settings.wazeUrl || (settings.location ? `https://waze.com/ul?q=${encodeURIComponent(settings.location)}` : '#');
     const gmapsHref = settings.googleMapsUrl || (settings.location ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(settings.location)}` : '#');
     const mapEmbedSrc = settings.mapEmbedUrl
@@ -913,7 +911,7 @@ const AppContent: React.FC = () => {
                 <article className="kks-event-main">
                   <div className="kks-event-top">
                     <div className="kks-event-title">
-                      <div className="kks-eyebrow">Event Pilihan</div>
+                      <div className="kks-eyebrow">Acara Pilihan</div>
                       <h3>{featuredName}</h3>
                     </div>
                     <span className={`kks-badge${showLive ? ' is-live' : ''}`}>
@@ -925,7 +923,7 @@ const AppContent: React.FC = () => {
                       <div className="kks-event-metric"><small>Tarikh</small><strong>{featuredDate}</strong></div>
                       <div className="kks-event-metric"><small>Masa</small><strong>{featuredTime}</strong></div>
                       <div className="kks-event-metric"><small>Kolam Dibuka</small><strong>{featuredPondsCount}</strong></div>
-                      <div className="kks-event-metric"><small>Slot Tersedia</small><strong>{featuredSlots}</strong></div>
+                      <div className="kks-event-metric"><small>Pancang Tersedia</small><strong>{featuredSlots}</strong></div>
                     </div>
                     <div className="kks-event-prize">
                       <div><small>Yuran</small><strong>{featuredFee}</strong></div>
@@ -941,7 +939,7 @@ const AppContent: React.FC = () => {
                       >
                         Tempah Slot
                       </button>
-                      <a className="btn btn-light" onClick={() => handleNavigation('rules')}>Syarat Event</a>
+                      <a className="btn btn-light" onClick={() => handleNavigation('rules')}>Syarat Acara</a>
                     </div>
                   </div>
                 </article>
@@ -960,8 +958,8 @@ const AppContent: React.FC = () => {
                         : 'Paparan ringkas event akan datang supaya peserta boleh banding tarikh, yuran dan kapasiti sebelum tempah.'}
                     </p>
                     <div className="kks-mini-meta">
-                      <span>{(secondCompetition?.activePondIds?.length || totalPonds || 12) + ' Lubuk'}</span>
-                      <span>{(secondCompetition?.id ? competitionAvailableSeats.get(secondCompetition.id) : null) ?? availablePegs} Slot</span>
+                      <span>{(secondCompetition?.activePondIds?.length || totalPonds || 12) + ' Kolam Mega'}</span>
+                      <span>{(secondCompetition?.id ? competitionAvailableSeats.get(secondCompetition.id) : null) ?? availablePegs} Pancang</span>
                     </div>
                   </article>
                 </aside>
@@ -999,7 +997,7 @@ const AppContent: React.FC = () => {
                     >
                       <div className="pond-num">{letterIdx}</div>
                       <div className="pond-name">{pondDisplayName(pond)}</div>
-                      <div className="pond-seats">{pond.seats.length} tempat duduk · RM{(selectedCompetition?.pricePerPeg ?? pond.seats[0]?.price ?? 0)}/peg</div>
+                      <div className="pond-seats">{pond.seats.length} tempat duduk · RM{(selectedCompetition?.pricePerPeg ?? pond.seats[0]?.price ?? 0)}/pancang</div>
                       <div className="pond-badge">{statusLabel}</div>
                     </div>
                   );
@@ -1064,7 +1062,6 @@ const AppContent: React.FC = () => {
             <div className="kks-quick-links">
               <a className="btn btn-red" href={wazeHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-waze"></i> Waze</a>
               <a className="btn btn-navy" href={gmapsHref} target="_blank" rel="noopener noreferrer"><i className="fa-solid fa-location-dot"></i> Google Map</a>
-              <a className="btn btn-whatsapp" href={whatsappHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-whatsapp"></i> WhatsApp Us</a>
             </div>
             <div className="kks-contact-box">
               <strong className="kks-contact-name">{settings.contactName}</strong>
@@ -1163,7 +1160,7 @@ const AppContent: React.FC = () => {
                 <div className="bk-hero-copy">
                   <div className="bk-eyebrow">Tempahan Pertandingan</div>
                   <h1 className="bk-hero-title">Pilih Spot <span>Macam Pro</span></h1>
-                  <p>Pilih pertandingan, kolam dan tempat duduk dengan yakin. Seat map dibuka dalam popup supaya mudah dikawal di telefon.</p>
+                  <p>Pilih pertandingan, kolam dan tempat duduk dengan yakin. Peta pancang dibuka dalam popup supaya mudah dikawal di telefon.</p>
                 </div>
                 {hasCompetition && (
                   <aside className="bk-hero-card" aria-label="Maklumat event dipilih">
@@ -1171,7 +1168,7 @@ const AppContent: React.FC = () => {
                     <h3>{selectedCompetition?.name}</h3>
                     <div className="bk-hero-card-stats">
                       <div><small>Tarikh</small><strong>{heroDate}</strong></div>
-                      <div><small>Slot Tersedia</small><strong>{heroSlots}</strong></div>
+                      <div><small>Pancang Tersedia</small><strong>{heroSlots}</strong></div>
                       <div><small>Yuran</small><strong>{heroFee}</strong></div>
                     </div>
                   </aside>
@@ -1298,7 +1295,7 @@ const AppContent: React.FC = () => {
                                       onClick={() => { if (!disabled) { setPond(pond.id); setSeatModalOpen(true); } }}
                                     >
                                       <strong>{pondDisplayName(pond)}</strong>
-                                      <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} slot tersedia`}</small>
+                                      <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} pancang tersedia`}</small>
                                     </button>
                                   );
                                 })}
@@ -1312,7 +1309,7 @@ const AppContent: React.FC = () => {
                               <div>
                                 <div className="bk-eyebrow">Langkah 03</div>
                                 <h2>Pilih Tempat</h2>
-                                <p>Seat map dibuka dalam popup supaya page kekal ringkas.</p>
+                                <p>Peta pancang dibuka dalam popup supaya page kekal ringkas.</p>
                               </div>
                             </div>
                             <div className="bk-panel-body">
@@ -1322,16 +1319,16 @@ const AppContent: React.FC = () => {
                                   <div>
                                     <h3>{hasSeats ? `${pondDisplayName(bookedPond)} — ${selectedSeats.length} tempat dipilih` : 'Belum pilih tempat'}</h3>
                                     <p>{hasSeats
-                                      ? `Pegs: ${formatSeatList(bookedPond?.code, selectedSeats)}. Jumlah yuran RM${subtotal}.`
-                                      : hasPond ? 'Klik "Buka Seat Map" untuk pilih satu atau lebih tempat.' : 'Pilih kolam dahulu untuk membuka seat map.'}</p>
+                                      ? `Pancang: ${formatSeatList(bookedPond?.code, selectedSeats)}. Jumlah yuran RM${subtotal}.`
+                                      : hasPond ? 'Klik "Buka Peta Pancang" untuk pilih satu atau lebih tempat.' : 'Pilih kolam dahulu untuk membuka peta pancang.'}</p>
                                     <div className="bk-tags">
                                       <span className="bk-tag"><i className="fa-solid fa-water"></i> {bookedPond ? pondDisplayName(bookedPond) : 'Belum pilih kolam'}</span>
-                                      <span className="bk-tag sel"><i className="fa-solid fa-ticket"></i> {hasSeats ? `${selectedSeats.length} seat` : 'Tiada seat'}</span>
+                                      <span className="bk-tag sel"><i className="fa-solid fa-ticket"></i> {hasSeats ? `${selectedSeats.length} pancang` : 'Tiada pancang'}</span>
                                     </div>
                                   </div>
                                 </div>
                                 <button className={`btn btn-red${hintCls('seat')}`} type="button" disabled={!hasPond} onClick={() => setSeatModalOpen(true)}>
-                                  <i className="fa-solid fa-chair"></i> Buka Seat Map
+                                  <i className="fa-solid fa-chair"></i> Buka Peta Pancang
                                 </button>
                               </div>
                             </div>
@@ -1382,23 +1379,22 @@ const AppContent: React.FC = () => {
                 <aside className="bk-summary" aria-label="Ringkasan tempahan">
                   <div className="bk-summary-head">
                     <small>Ringkasan Tempahan</small>
-                    <h2>Booking Cart</h2>
                   </div>
                   <div className="bk-summary-body">
-                    <div className="bk-summary-line"><span>Event</span><strong>{hasCompetition ? selectedCompetition?.name : 'Belum dipilih'}</strong></div>
+                    <div className="bk-summary-line"><span>Pertandingan</span><strong>{hasCompetition ? selectedCompetition?.name : 'Belum dipilih'}</strong></div>
                     <div className="bk-summary-line"><span>Kolam</span><strong>{bookedPond ? pondDisplayName(bookedPond) : 'Belum dipilih'}</strong></div>
-                    <div className="bk-summary-line"><span>Seat</span><strong>{selectedSeats.length ? formatSeatList(bookedPond?.code, selectedSeats) : 'Belum dipilih'}</strong></div>
-                    <div className="bk-summary-line"><span>Bilangan</span><strong>{selectedSeats.length} seat</strong></div>
+                    <div className="bk-summary-line"><span>Pancang</span><strong>{selectedSeats.length ? formatSeatList(bookedPond?.code, selectedSeats) : 'Belum dipilih'}</strong></div>
+                    <div className="bk-summary-line"><span>Bilangan</span><strong>{selectedSeats.length} pancang</strong></div>
                     <div className="bk-summary-line"><span>Bayaran</span><strong>{payType === 'deposit' ? 'Deposit 50%' : 'Penuh'}</strong></div>
                     {payType === 'deposit' && hasSeats && (
-                      <div className="bk-summary-line"><span>Baki Event Day</span><strong>RM{balanceDue}</strong></div>
+                      <div className="bk-summary-line"><span>Baki Bayaran</span><strong>RM{balanceDue}</strong></div>
                     )}
                     <div className="bk-summary-total">
                       <span>{payType === 'deposit' ? 'Bayar Sekarang' : 'Jumlah'}</span>
                       <strong>RM{payableNow}</strong>
                     </div>
                     {payType === 'deposit' && hasSeats && (
-                      <div className="bk-summary-note">Baki perlu dibayar pada hari event di kaunter pendaftaran.</div>
+                      <div className="bk-summary-note">Baki perlu dibayar sepenuhnya sehari sebelum tarikh pertandingan untuk mengelakkan tempahan dibatalkan dan deposit tidak dipulangkan.</div>
                     )}
                   </div>
                   <div className="bk-summary-actions">
@@ -1413,7 +1409,7 @@ const AppContent: React.FC = () => {
                     )}
                     {hasPond && !detailsPhase && (
                       <button className={`btn btn-light w-full${!hasSeats ? hintCls('seat') : ''}`} type="button" onClick={() => setSeatModalOpen(true)}>
-                        <i className="fa-solid fa-chair"></i> {hasSeats ? 'Tukar Seat' : 'Buka Seat Map'}
+                        <i className="fa-solid fa-chair"></i> {hasSeats ? 'Tukar Pancang' : 'Buka Peta Pancang'}
                       </button>
                     )}
                   </div>
@@ -1425,8 +1421,8 @@ const AppContent: React.FC = () => {
             {!detailsPhase && hasSeats && (
               <div className="bk-mobile-continue">
                 <div>
-                  <small>Seat Dipilih</small>
-                  <strong>{pondDisplayName(bookedPond)} · {selectedSeats.length} seat · RM{payableNow}</strong>
+                  <small>Pancang Dipilih</small>
+                  <strong>{pondDisplayName(bookedPond)} · {selectedSeats.length} pancang · RM{payableNow}</strong>
                 </div>
                 <button className={`btn btn-red${hintCls('continue')}`} type="button" onClick={goToDetails}>
                   <i className="fa-solid fa-arrow-right"></i> Teruskan
@@ -1440,7 +1436,7 @@ const AppContent: React.FC = () => {
                 <div className="bk-seat-dialog" onClick={(e) => e.stopPropagation()}>
                   <div className="bk-seat-modal-head">
                     <div>
-                      <div className="bk-eyebrow">Seat Selection</div>
+                      <div className="bk-eyebrow">Pilihan Pancang</div>
                       <h2>{pondDisplayName(bookedPond)}</h2>
                     </div>
                     <button className="bk-icon-btn" type="button" onClick={() => setSeatModalOpen(false)} aria-label="Tutup popup">
@@ -1465,7 +1461,7 @@ const AppContent: React.FC = () => {
                               onClick={() => { if (!disabled) setPond(pond.id); }}
                             >
                               <strong>{pondDisplayName(pond)}</strong>
-                              <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} slot tersedia`}</small>
+                              <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} pancang tersedia`}</small>
                             </button>
                           );
                         })}
@@ -1478,10 +1474,10 @@ const AppContent: React.FC = () => {
                   <div className="bk-seat-modal-foot">
                     <div>
                       <small>Pilihan Semasa</small>
-                      <strong>{selectedSeats.length ? `${selectedSeats.length} seat · RM${subtotal}` : 'Belum pilih seat'}</strong>
+                      <strong>{selectedSeats.length ? `${selectedSeats.length} pancang · RM${subtotal}` : 'Belum pilih pancang'}</strong>
                     </div>
                     <button className={`btn btn-red${hasSeats ? ' bk-hint' : ''}`} type="button" disabled={!hasSeats} onClick={() => setSeatModalOpen(false)}>
-                      <i className="fa-solid fa-check"></i> Sahkan Seat
+                      <i className="fa-solid fa-check"></i> Sahkan Pancang
                     </button>
                   </div>
                 </div>
@@ -1585,7 +1581,7 @@ const AppContent: React.FC = () => {
                   <div className="booking-pond">{b.pondName}</div>
                   <div style={{ fontSize: '11px', color: 'var(--gold)', marginTop: '2px', fontWeight: 600 }}>{b.competitionName || selectedCompetition?.name || db.comp.name}</div>
                   <div className="booking-meta">
-                    <span>📍 Pegs: {b.seats.join(', ')}</span>
+                    <span>📍 Pancang: {b.seats.join(', ')}</span>
                     <span>💰 RM {b.paidAmount ?? b.amount}</span>
                     <span>{b.paymentType === 'deposit' ? '💳 Deposit' : '💳 Full'}</span>
                     {hasOutstandingBalance(b) && (
@@ -1645,7 +1641,7 @@ const AppContent: React.FC = () => {
                 <>
                   <strong>{lastBooking.pondName}</strong><br />
                   Competition: {lastBooking.competitionName || selectedCompetition?.name || db.comp.name}<br />
-                  Pegs: {lastBooking.seats.join(', ')}<br />
+                  Pancang: {lastBooking.seats.join(', ')}<br />
                   Amount: RM {lastBooking.amount} ({lastBooking.paymentType === 'deposit' ? '50% deposit' : 'full payment'})<br />
                   <br />
                   {lastBooking.status === 'confirmed' ? (

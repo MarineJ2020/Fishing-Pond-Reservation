@@ -179,7 +179,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
             required
           />
           <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: 1.5 }}>
-            Masukkan nombor telefon yang boleh dihubungi untuk tempahan ini. Ini membantu staf menghubungi anda pada hari pertandingan.
+            Masukkan nombor telefon yang boleh dihubungi untuk tempahan ini.
           </div>
         </div>
       )}
@@ -223,12 +223,12 @@ const BookingForm: React.FC<BookingFormProps> = ({
         </div>
       )}
 
-      <label className="form-label">Selected Pegs</label>
+      <label className="form-label">Pancang Dipilih</label>
       <div className="selected-pills">
         {selectedSeats.length ? (
           selectedSeats.map(n => <span key={n} className="seat-pill">{formatSeat(pond?.code, n)}</span>)
         ) : (
-          <div style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>No pegs selected yet</div>
+          <div style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>Belum pilih pancang</div>
         )}
       </div>
       <hr className="divider" />
@@ -251,7 +251,8 @@ const BookingForm: React.FC<BookingFormProps> = ({
       </div>
       {payType === 'deposit' && (
         <div style={{ marginBottom: '14px', padding: '10px 12px', borderRadius: '9px', border: '1px solid rgba(185,28,28,0.25)', background: 'rgba(185,28,28,0.06)', fontSize: '.78rem', lineHeight: 1.5, color: '#7a2230' }}>
-          <strong style={{ color: 'var(--red)' }}>Nota:</strong> Deposit akan ditolak daripada jumlah penuh. Baki perlu dijelaskan sebelum/ketika hari pertandingan.
+          <strong style={{ color: 'var(--red)' }}>Nota 1 :</strong> Baki perlu dibayar sepenuhnya sehari sebelum tarikh pertandingan untuk mengelakkan tempahan dibatalkan dan deposit tidak dipulangkan.<br /><br />
+          <strong style={{ color: 'var(--red)' }}>Nota 2 :</strong> Pulangan deposit HANYA dibenarkan bagi pembatalan yang dibuat 3 hari sebelum pertandingan.
         </div>
       )}
 
@@ -269,7 +270,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
             {settings.qrBank && <div style={{ fontSize: '.85rem', fontWeight: 700 }}>{settings.qrBank}</div>}
             {settings.qrName && <div style={{ fontSize: '.82rem', marginTop: '2px' }}>{settings.qrName}</div>}
             {settings.qrAccNo && <div style={{ fontSize: '.82rem', marginTop: '2px', fontFamily: 'monospace', letterSpacing: '.5px' }}>{settings.qrAccNo}</div>}
-            <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '6px' }}>Imbas QR atau pindah terus, kemudian muat naik resit di bawah.</div>
+            <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '6px' }}>Imbas QR atau pemindahan dalam talian, kemudian muat naik resit di bawah.</div>
           </div>
         </div>
       )}
@@ -291,7 +292,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
         />
         <div className="upload-icon">📤</div>
         <div className="upload-text">
-          Klik atau tarik resit ke sini<br />
+          Muat naik resit bayaran di sini<br />
           <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>JPG, PNG atau PDF</span>
         </div>
       </div>
@@ -353,7 +354,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
         {isSubmitting ? 'Menghantar...' : (isAdminProxyMode ? `Tempah untuk ${adminProxyName.trim()}` : 'Hantar Tempahan')}
       </button>
       <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '7px' }}>
-        {isAdminProxyMode ? 'Tempahan ini akan ditanda sebagai dibuat oleh Admin' : 'Staff akan sahkan dan maklumkan melalui email'}
+        {isAdminProxyMode ? 'Tempahan ini akan ditanda sebagai dibuat oleh Admin' : 'Pengesahan akan dimaklum melalui email/whatsapp'}
       </div>
     </div>
   );

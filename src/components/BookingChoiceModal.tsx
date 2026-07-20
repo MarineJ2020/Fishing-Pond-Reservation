@@ -33,7 +33,7 @@ const BookingChoiceModal: React.FC<BookingChoiceModalProps> = ({ open, onClose, 
         <div className="v5-choice-head">
           <div className="bk-eyebrow">Cara Tempahan</div>
           <h2>Pilih Cara Anda Tempah</h2>
-          <p>Tempah terus di website untuk pilih seat sendiri, atau hubungi kami di WhatsApp untuk bantuan.</p>
+          <p>Tempah terus di website untuk pilih pancang sendiri, atau hubungi kami di WhatsApp untuk bantuan.</p>
         </div>
         <div className="v5-choice-grid">
           <button
@@ -43,7 +43,7 @@ const BookingChoiceModal: React.FC<BookingChoiceModalProps> = ({ open, onClose, 
           >
             <span className="v5-choice-ico"><i className="fa-solid fa-laptop"></i></span>
             <strong>Tempah di Website</strong>
-            <small>Pilih pertandingan, kolam &amp; seat sendiri — siap dalam beberapa minit.</small>
+            <small>Pilih pertandingan, kolam &amp; pancang sendiri — siap dalam beberapa minit.</small>
           </button>
 
           {waHref ? (
@@ -65,6 +65,9 @@ const BookingChoiceModal: React.FC<BookingChoiceModalProps> = ({ open, onClose, 
               <small>Nombor WhatsApp belum ditetapkan.</small>
             </button>
           )}
+        </div>
+        <div className="v5-choice-hours" style={{ marginTop: '14px', textAlign: 'center', fontSize: '.82rem', color: 'var(--text-muted)' }}>
+          Waktu Operasi : 9:00 pagi &ndash; 5:30 petang
         </div>
       </div>
     </div>

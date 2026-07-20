@@ -35,6 +35,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
   const [verificationEmail, setVerificationEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [phoneToConfirm, setPhoneToConfirm] = useState<string | null>(null);
+  const [showLoginPass, setShowLoginPass] = useState(false);
+  const [showRegPass, setShowRegPass] = useState(false);
 
   const handleLogin = async () => {
     setLoading(true);
@@ -131,7 +133,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
             <label className="form-label">Email</label>
             <input type="email" className="form-input" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="you@example.com" />
             <label className="form-label">Password</label>
-            <input type="password" className="form-input" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} placeholder="••••••••" onKeyDown={(e) => e.key === 'Enter' && handleLogin()} />
+            <div className="pass-input-wrap">
+              <input type={showLoginPass ? 'text' : 'password'} className="form-input" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} placeholder="••••••••" onKeyDown={(e) => e.key === 'Enter' && handleLogin()} />
+              <button type="button" className="pass-toggle-btn" onClick={() => setShowLoginPass(v => !v)} tabIndex={-1} aria-label={showLoginPass ? 'Sembunyikan kata laluan' : 'Papar kata laluan'}>
+                <i className={`fa-solid ${showLoginPass ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+              </button>
+            </div>
             <button className="form-submit" onClick={handleLogin} disabled={loading}>Log Masuk</button>
             <div className="modal-switch">Belum ada akaun? <a onClick={() => setTab('register')}>Daftar sekarang</a></div>
           </div>
@@ -141,9 +148,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
               Daftar dengan Google
             </button>
             <div className="divider">atau</div>
-            <label className="form-label">Nama Penuh</label>
+            <label className="form-label">Nama Penuh <span style={{ color: 'var(--red)' }}>*</span></label>
             <input type="text" className="form-input" value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="Ahmad bin Abdullah" />
-            <label className="form-label">Email</label>
+            <label className="form-label">Email <span style={{ color: 'var(--red)' }}>*</span></label>
             <input type="email" className="form-input" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="you@example.com" />
             <PhoneNumberField
               prefix={regPhonePrefix}
@@ -153,7 +160,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
               required
             />
             <label className="form-label" style={{ marginTop: '14px' }}>Password</label>
-            <input type="password" className="form-input" value={regPass} onChange={(e) => setRegPass(e.target.value)} placeholder="Cipta kata laluan" />
+            <div className="pass-input-wrap">
+              <input type={showRegPass ? 'text' : 'password'} className="form-input" value={regPass} onChange={(e) => setRegPass(e.target.value)} placeholder="Cipta kata laluan" />
+              <button type="button" className="pass-toggle-btn" onClick={() => setShowRegPass(v => !v)} tabIndex={-1} aria-label={showRegPass ? 'Sembunyikan kata laluan' : 'Papar kata laluan'}>
+                <i className={`fa-solid ${showRegPass ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+              </button>
+            </div>
             {regError && <div style={{ color: 'var(--red, #c0152a)', fontSize: '13px', marginBottom: '10px' }}>{regError}</div>}
             <button className="form-submit" onClick={handleRegisterClick} disabled={loading}>Daftar Akaun</button>
             <div className="modal-switch">Sudah ada akaun? <a onClick={() => setTab('login')}>Log masuk</a></div>
