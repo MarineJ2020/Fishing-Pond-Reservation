@@ -328,14 +328,16 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
                 </div>
               </div>
               <div className="pond-visual">
-                <div className="pond-ripple"></div>
-                <div className="pond-ripple"></div>
-                <div className="pond-ripple"></div>
-                <div className="fish fish-1">🐟</div>
-                <div className="fish fish-2">🐠</div>
-                <div className="fish fish-3">🐟</div>
-                <div className="pond-visual-emoji">🎣</div>
-                <div className="pond-visual-text">KOLAM</div>
+                <div className="pond-visual-stage">
+                  <div className="pond-ripple"></div>
+                  <div className="pond-ripple"></div>
+                  <div className="pond-ripple"></div>
+                  <div className="fish fish-1">🐟</div>
+                  <div className="fish fish-2">🐠</div>
+                  <div className="fish fish-3">🐟</div>
+                  <div className="pond-visual-emoji">🎣</div>
+                  <div className="pond-visual-text">KOLAM</div>
+                </div>
               </div>
               <div className="seat-zone-wrap right">
                 <div className="seat-col">
