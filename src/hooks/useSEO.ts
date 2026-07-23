@@ -5,7 +5,6 @@ const SECTION_TO_SEO_KEY: Partial<Record<string, SeoPageKey>> = {
   home: 'home',
   book: 'book',
   live: 'live',
-  confirmed: 'confirmed',
 };
 
 const upsertMeta = (attr: 'name' | 'property', key: string, content: string) => {
@@ -46,7 +45,7 @@ export const useSEO = (section: string, settings: Settings | undefined) => {
     if (pageKey && seo) {
       const meta = seo.pages[pageKey];
       const siteUrl = (seo.siteUrl || '').replace(/\/$/, '');
-      const path = pageKey === 'home' ? '/' : `/${pageKey === 'confirmed' ? 'confirmed' : pageKey}`;
+      const path = pageKey === 'home' ? '/' : `/${pageKey}`;
       document.title = meta.title;
       upsertMeta('name', 'description', meta.description);
       upsertMeta('name', 'robots', 'index, follow');

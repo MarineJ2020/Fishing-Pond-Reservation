@@ -36,7 +36,11 @@ export const acquireSeatLock = async (payload: { seatId: string; competitionId: 
 export const createBooking = async (payload: any) => {
   if (!baseUrl) {
     const docRef = await createBookingDocument(payload);
-    return { bookingId: docRef.id, bookingRef: payload.bookingRef };
+    return {
+      bookingId: docRef.id,
+      bookingRef: payload.bookingRef,
+      status: payload.createdByStaff ? 'confirmed' : 'pending',
+    };
   }
   return postJson('/createBooking', payload);
 };

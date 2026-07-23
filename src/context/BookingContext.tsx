@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
-import { DB, User, Pond, Booking } from '../types';
+import { DB, User, Pond, Booking, BookingPondSelection } from '../types';
 import { emptyDB, setDB } from '../data';
 import { loadAppDB } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
@@ -17,10 +17,12 @@ interface BookingContextType {
   selectedCompetitionId: string | null;
   selectedPond: number | null;
   selectedSeats: number[];
+  selectedPondSeats: Record<number, number[]>;
   payType: 'full' | 'deposit';
   receiptData: string | null;
   receiptFile: File | null;
   bookingNotes: string;
+  bankReference: string;
   contactPhone: string;
   adminProxyName: string;
   adminProxyEmail: string;
@@ -29,10 +31,12 @@ interface BookingContextType {
   setPond: (id: number | null) => void;
   setSelectedCompetitionId: (id: string | null) => void;
   toggleSeat: (num: number) => void;
+  removeSeat: (pondId: number, num: number) => void;
   setSeats: (seats: number[]) => void;
   setPayType: (type: 'full' | 'deposit') => void;
   setReceiptData: (data: string | null, file: File | null) => void;
   setBookingNotes: (notes: string) => void;
+  setBankReference: (reference: string) => void;
   setContactPhone: (phone: string) => void;
   setAdminProxyName: (name: string) => void;
   setAdminProxyEmail: (email: string) => void;
@@ -59,11 +63,12 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [user, setUser] = useState<User | null>(null);
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
   const [selectedPond, setSelectedPond] = useState<number | null>(null);
-  const [selectedSeats, setSelectedSeats] = useState<number[]>([]);
+  const [selectedPondSeats, setSelectedPondSeats] = useState<Record<number, number[]>>({});
   const [payType, setPayType] = useState<'full' | 'deposit'>('full');
   const [receiptData, setReceiptDataState] = useState<string | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [bookingNotes, setBookingNotes] = useState('');
+  const [bankReference, setBankReference] = useState('');
   // Per-booking contact phone the customer keys in each time (self-service).
   const [contactPhone, setContactPhone] = useState('');
   const [adminProxyName, setAdminProxyName] = useState('');
@@ -111,8 +116,12 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const setPond = useCallback((id: number | null) => {
     setSelectedPond(id);
-    setSelectedSeats([]);
   }, []);
+
+  const selectedSeats = React.useMemo(
+    () => (selectedPond ? selectedPondSeats[selectedPond] || [] : []),
+    [selectedPond, selectedPondSeats],
+  );
 
   const seatTakenMap = React.useMemo(() => {
     const map = new Map<string, boolean>();
@@ -120,8 +129,13 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       const competitionId = booking.competitionId || db.comp.id || '';
       if (!competitionId || competitionId !== (selectedCompetitionId || db.comp.id || '')) continue;
       if (booking.status !== 'pending' && booking.status !== 'confirmed') continue;
-      for (const seatNum of booking.seats || []) {
-        map.set(`${booking.pondId}-${seatNum}`, true);
+      const selections = booking.pondSelections?.length
+        ? booking.pondSelections
+        : [{ pondId: booking.pondId, seats: booking.seats || [] }];
+      for (const selection of selections) {
+        for (const seatNum of selection.seats) {
+          map.set(`${selection.pondId}-${seatNum}`, true);
+        }
       }
     }
     return map;
@@ -133,14 +147,39 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!seat) return;
     const taken = seatTakenMap.get(`${selectedPond}-${num}`);
     if (taken) return;
-    setSelectedSeats(prev => {
-      const idx = prev.indexOf(num);
-      return idx > -1 ? prev.filter(s => s !== num) : [...prev, num];
+    if (!selectedPond) return;
+    setSelectedPondSeats(prev => {
+      const current = prev[selectedPond] || [];
+      const idx = current.indexOf(num);
+      const next = idx > -1 ? current.filter(s => s !== num) : [...current, num];
+      if (!next.length) {
+        const nextState = { ...prev };
+        delete nextState[selectedPond];
+        return nextState;
+      }
+      return { ...prev, [selectedPond]: next };
     });
   }, [db.ponds, selectedPond, seatTakenMap]);
 
   const setSeats = useCallback((seats: number[]) => {
-    setSelectedSeats(seats);
+    if (!seats.length) {
+      setSelectedPondSeats({});
+      return;
+    }
+    if (!selectedPond) return;
+    setSelectedPondSeats((prev) => ({ ...prev, [selectedPond]: seats }));
+  }, [selectedPond]);
+
+  const removeSeat = useCallback((pondId: number, num: number) => {
+    setSelectedPondSeats((prev) => {
+      const next = (prev[pondId] || []).filter((seatNum) => seatNum !== num);
+      if (!next.length) {
+        const nextState = { ...prev };
+        delete nextState[pondId];
+        return nextState;
+      }
+      return { ...prev, [pondId]: next };
+    });
   }, []);
 
   const setReceiptData = useCallback((data: string | null, file: File | null) => {
@@ -156,18 +195,18 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [db.comp, db.competitions, selectedCompetitionId]);
 
   const calculateTotal = useCallback(() => {
-    if (!selectedPond) return 0;
-    const pond = db.ponds.find(p => p.id === selectedPond);
-    if (!pond) return 0;
-    const tot = selectedSeats.length * getCompetitionPricePerPeg(pond);
+    const seatCount = Object.values(selectedPondSeats).reduce((sum, seats) => sum + seats.length, 0);
+    const pond = db.ponds.find(p => p.id === selectedPond) || db.ponds[0];
+    const tot = seatCount * getCompetitionPricePerPeg(pond);
     return payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
-  }, [db.ponds, selectedPond, selectedSeats, payType, getCompetitionPricePerPeg]);
+  }, [db.ponds, selectedPond, selectedPondSeats, payType, getCompetitionPricePerPeg]);
 
   const clearBooking = useCallback(() => {
-    setSelectedSeats([]);
+    setSelectedPondSeats({});
     setReceiptDataState(null);
     setReceiptFile(null);
     setBookingNotes('');
+    setBankReference('');
     setContactPhone('');
     setAdminProxyName('');
     setAdminProxyEmail('');
@@ -176,7 +215,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   const submitBooking = useCallback(async (pond: Pond): Promise<Booking | null> => {
-    if (!user || !selectedSeats.length || !receiptData || !receiptFile) return null;
+    const totalSelectedSeats = Object.values(selectedPondSeats).reduce((sum, seats) => sum + seats.length, 0);
+    if (!user || !totalSelectedSeats || !receiptData || !receiptFile || !bankReference.trim()) return null;
 
     // Block bookings for competitions that have already ended ("tamat").
     const targetCompetitionId = selectedCompetitionId || db.comp.id || '';
@@ -214,11 +254,27 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const notifyEmail = isAdminProxy
       ? adminProxyEmail.trim()
       : (auth.currentUser?.email || user.email || '');
-    const seatIds = selectedSeats
-      .map((num) => pond.seats.find((s) => s.num === num)?.id)
-      .filter(Boolean) as string[];
+    const pondSelections = Object.entries(selectedPondSeats)
+      .map(([pondIdRaw, seats]): BookingPondSelection | null => {
+        const selectedPondForGroup = db.ponds.find((candidate) => candidate.id === Number(pondIdRaw));
+        if (!selectedPondForGroup || !seats.length) return null;
+        return {
+          pondId: selectedPondForGroup.id,
+          pondName: selectedPondForGroup.name,
+          pondCode: selectedPondForGroup.code || '',
+          pondDate: selectedPondForGroup.date,
+          seats: [...seats],
+          seatIds: seats
+            .map((num) => selectedPondForGroup.seats.find((seat) => seat.num === num)?.id)
+            .filter(Boolean) as string[],
+        };
+      })
+      .filter((selection): selection is BookingPondSelection => Boolean(selection));
+    const primarySelection = pondSelections.find((selection) => selection.pondId === pond.id) || pondSelections[0];
+    if (!primarySelection) return null;
+    const seatIds = pondSelections.flatMap((selection) => selection.seatIds || []);
 
-    const tot = selectedSeats.length * getCompetitionPricePerPeg(pond);
+    const tot = totalSelectedSeats * getCompetitionPricePerPeg(pond);
     const payAmt = payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
 
     // Short, simple, still-unique ref. Unambiguous charset (no 0/O/1/I).
@@ -230,22 +286,25 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const payload = {
       competitionId: selectedCompetitionId || db.comp.id || '',
       competitionName: db.competitions.find((c) => c.id === (selectedCompetitionId || db.comp.id || ''))?.name || db.comp.name,
-      pondId: pond.id,
-      pondCode: pond.code || '',
+      pondId: primarySelection.pondId,
+      pondCode: primarySelection.pondCode || '',
       userId: effectiveEmail,
       userEmail: notifyEmail,
       userName: effectiveName,
       userPhone: effectivePhone,
       bookingPhone: perBookingPhone,
       seatIds,
-      seatNumbers: selectedSeats,
+      seatNumbers: primarySelection.seats,
+      pondSelections,
       paymentType: payType,
       amount: payAmt,
       totalAmount: tot,
       receiptUrl,
+      bankReference: bankReference.trim(),
       bookingRef,
       notes: bookingNotes,
       createdByStaff: isAdminProxy,
+      ...(isAdminProxy && user.uid ? { createdByUid: user.uid } : {}),
     };
 
     const result = await createBookingApi(payload);
@@ -256,10 +315,10 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         to: notifyEmail,
         bookingRef: result.bookingRef || bookingRef,
         amount: payAmt,
-        pondName: pond.name,
-        pondCode: pond.code || '',
-        pondDate: pond.date,
-        seats: selectedSeats,
+        pondName: primarySelection.pondName,
+        pondCode: primarySelection.pondCode || '',
+        pondDate: primarySelection.pondDate || pond.date,
+        seats: primarySelection.seats,
       });
     }
 
@@ -273,28 +332,31 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       userName: effectiveName,
       userPhone: effectivePhone,
       bookingPhone: perBookingPhone,
-      pondId: pond.id,
-      pondName: pond.name,
-      pondCode: pond.code || '',
-      pondDate: pond.date,
-      seats: [...selectedSeats],
+      pondId: primarySelection.pondId,
+      pondName: primarySelection.pondName,
+      pondCode: primarySelection.pondCode || '',
+      pondDate: primarySelection.pondDate || pond.date,
+      seats: [...primarySelection.seats],
       seatIds,
+      pondSelections,
       paymentType: payType,
       amount: payAmt,
       totalAmount: tot,
       receiptData: receiptUrl,
       receiptName: receiptFile.name,
+      bankReference: bankReference.trim(),
       notes: bookingNotes,
-      status: 'pending',
+      status: isAdminProxy ? 'confirmed' : 'pending',
       createdAt: new Date().toISOString(),
       createdByStaff: isAdminProxy,
+      createdByUid: isAdminProxy ? user.uid : undefined,
     };
 
     const newDb = { ...db, bookings: [booking, ...db.bookings] };
     updateDB(newDb);
     clearBooking();
     return booking;
-  }, [user, selectedSeats, receiptData, receiptFile, payType, bookingNotes, contactPhone, adminProxyName, adminProxyEmail, adminProxyPhone, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
+  }, [user, selectedPondSeats, receiptData, receiptFile, bankReference, payType, bookingNotes, contactPhone, adminProxyName, adminProxyEmail, adminProxyPhone, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
 
   return (
     <BookingContext.Provider
@@ -305,10 +367,12 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         selectedCompetitionId,
         selectedPond,
         selectedSeats,
+        selectedPondSeats,
         payType,
         receiptData,
         receiptFile,
         bookingNotes,
+        bankReference,
         contactPhone,
         adminProxyName,
         adminProxyEmail,
@@ -316,10 +380,12 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         setPond,
         setSelectedCompetitionId,
         toggleSeat,
+        removeSeat,
         setSeats,
         setPayType,
         setReceiptData,
         setBookingNotes,
+        setBankReference,
         setContactPhone,
         setAdminProxyName,
         setAdminProxyEmail,

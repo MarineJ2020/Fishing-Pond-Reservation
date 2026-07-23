@@ -32,14 +32,11 @@ const SEO_DEFAULTS = {
             title: 'Keputusan Live | Kolam Keli Sayang',
             description: 'Ikuti keputusan dan carta pendahulu pertandingan memancing keli secara langsung di Kolam Keli Sayang.',
         },
-        confirmed: {
-            title: 'Tempahan Disahkan | Kolam Keli Sayang',
-            description: 'Tempahan slot pertandingan anda di Kolam Keli Sayang telah disahkan.',
-        },
     },
 };
 
-const PAGE_BY_PATH = { '/': 'home', '/book': 'book', '/live': 'live', '/confirmed': 'confirmed' };
+const PAGE_BY_PATH = { '/': 'home', '/book': 'book', '/live': 'live' };
+const PRIVATE_PATHS = new Set(['/confirmed']);
 
 const CACHE_CONTROL = 'public, max-age=300, s-maxage=600, stale-while-revalidate=86400';
 const TTL_MS = 60_000;
@@ -71,7 +68,6 @@ const mergeSeo = (raw) => {
             home: { ...SEO_DEFAULTS.pages.home, ...(pages.home || {}) },
             book: { ...SEO_DEFAULTS.pages.book, ...(pages.book || {}) },
             live: { ...SEO_DEFAULTS.pages.live, ...(pages.live || {}) },
-            confirmed: { ...SEO_DEFAULTS.pages.confirmed, ...(pages.confirmed || {}) },
         },
     };
 };
@@ -144,13 +140,21 @@ function buildHead(seo, raw, pageKey, urlPath) {
     return tags.join('\n    ');
 }
 
+function buildPrivateHead(seo) {
+    return [
+        `<title>${esc(seo.siteName)}</title>`,
+        '<meta name="description" content="" />',
+        '<meta name="robots" content="noindex, nofollow" />',
+    ].join('\n    ');
+}
+
 function sendSitemap(res, seo, updatedAt) {
     const siteUrl = (seo.siteUrl || '').replace(/\/$/, '');
     let lastmod = new Date().toISOString();
     try {
         if (updatedAt && typeof updatedAt.toDate === 'function') lastmod = updatedAt.toDate().toISOString();
     } catch { /* fall back to now */ }
-    const urls = ['/', '/book', '/live', '/confirmed'];
+    const urls = ['/', '/book', '/live'];
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls
         .map((u) => `  <url>\n    <loc>${esc(siteUrl + u)}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`)
         .join('\n')}\n</urlset>\n`;
@@ -168,7 +172,9 @@ export const seoRender = functions.https.onRequest(async (req, res) => {
     }
 
     const pageKey = PAGE_BY_PATH[req.path] || 'home';
-    const head = buildHead(seo, raw, pageKey, req.path === '/' ? '/' : req.path);
+    const head = PRIVATE_PATHS.has(req.path)
+        ? buildPrivateHead(seo)
+        : buildHead(seo, raw, pageKey, req.path === '/' ? '/' : req.path);
     const html = TEMPLATE.replace(/<!--seo:start-->[\s\S]*?<!--seo:end-->/, head);
 
     res.set('Cache-Control', CACHE_CONTROL);

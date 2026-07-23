@@ -14,7 +14,17 @@ export const bookingSchema = z.object({
   paymentType: z.enum(['full', 'deposit', 'baki']),
   amount: z.number().nonnegative(),
   receiptUrl: z.string().url().optional(),
+  bankReference: z.string().min(1).optional(),
   createdByStaff: z.boolean().optional(),
+  createdByUid: z.string().optional(),
+  pondSelections: z.array(z.object({
+    pondId: z.number().int().positive(),
+    pondName: z.string(),
+    pondCode: z.string().optional(),
+    pondDate: z.string().optional(),
+    seats: z.array(z.number().int().positive()).min(1),
+    seatIds: z.array(z.string()).optional(),
+  })).optional(),
 });
 
 export const competitionSchema = z.object({

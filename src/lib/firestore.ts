@@ -169,7 +169,6 @@ const normalizeSeo = (data: any): SeoSettings => {
       home: { ...SEO_DEFAULTS.pages.home, ...(pages.home || {}) },
       book: { ...SEO_DEFAULTS.pages.book, ...(pages.book || {}) },
       live: { ...SEO_DEFAULTS.pages.live, ...(pages.live || {}) },
-      confirmed: { ...SEO_DEFAULTS.pages.confirmed, ...(pages.confirmed || {}) },
     },
   };
 };
@@ -196,6 +195,20 @@ const buildBooking = (
 
   const pondIdRef = data.pondId?.id ?? data.pondId;
   const pond = pondMap.get(pondIdRef?.toString() || '') ?? undefined;
+  const pondSelections = Array.isArray(data.pondSelections)
+    ? data.pondSelections.map((selection: any) => {
+        const selectionPondIdRef = selection?.pondId?.id ?? selection?.pondId;
+        const selectionPond = pondMap.get(selectionPondIdRef?.toString() || '');
+        return {
+          pondId: selectionPond?.id ?? Number(selectionPondIdRef) ?? 0,
+          pondName: selectionPond?.name || selection?.pondName || 'Kolam',
+          pondCode: selectionPond?.code || selection?.pondCode || undefined,
+          pondDate: selectionPond?.date || selection?.pondDate || undefined,
+          seats: Array.isArray(selection?.seats) ? selection.seats : [],
+          seatIds: Array.isArray(selection?.seatIds) ? selection.seatIds : [],
+        };
+      }).filter((selection: any) => selection.pondId && selection.seats.length)
+    : undefined;
   const competitionIdRef = data.competitionId?.id ?? data.competitionId ?? '';
   const competition = competitionMap.get(competitionIdRef?.toString() || '');
 
@@ -242,11 +255,13 @@ const buildBooking = (
     pondCode: pond?.code || data.pondCode || undefined,
     pondDate: pond?.date || normalizeTimestamp(data.eventDate) || new Date().toISOString(),
     seats: seatNumbers,
+    pondSelections,
     paymentType: data.paymentType || 'full',
     amount,
     totalAmount,
     receiptData: data.receiptUrl || receipts[0]?.url || '',
     receiptName: data.receiptName || 'receipt',
+    bankReference: data.bankReference || '',
     receipts,
     paidAmount,
     balanceDue,
@@ -255,6 +270,7 @@ const buildBooking = (
     createdAt: normalizeTimestamp(data.createdAt) || new Date().toISOString(),
     bookingRef: data.bookingRef || undefined,
     createdByStaff: data.createdByStaff === true,
+    createdByUid: data.createdByUid || undefined,
     balanceReminderSentAt: normalizeTimestamp(data.balanceReminderSentAt) || undefined,
     receiptReuploadUsed: data.receiptReuploadUsed === true,
   };
@@ -636,19 +652,29 @@ export const createBookingDocument = async (data: any) => {
   const snap = await getDocs(
     query(
       collection(db, 'bookings'),
-      where('pondId', '==', data.pondId),
       where('competitionId', '==', data.competitionId)
     )
   );
   // Seats are implicitly locked between submission and staff decision: any existing
   // booking in PENDING_APPROVAL / APPROVED / CONFIRMED holds its seats here.
-  const requestedSeats = new Set<number>(data.seatNumbers ?? []);
+  const requestedSelections = Array.isArray(data.pondSelections) && data.pondSelections.length
+    ? data.pondSelections
+    : [{ pondId: data.pondId, seats: data.seatNumbers ?? [] }];
+  const requestedSeats = new Set<string>();
+  requestedSelections.forEach((selection: any) => {
+    (selection.seats ?? []).forEach((seatNum: number) => requestedSeats.add(`${selection.pondId}-${seatNum}`));
+  });
   snap.forEach((d) => {
-    const s = (d.data().status || '').toUpperCase();
+    const existingData = d.data();
+    const s = (existingData.status || '').toUpperCase();
     if (!['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED'].includes(s)) return;
-    const taken = (d.data().seatNumbers ?? []) as number[];
-    const clash = taken.find((n) => requestedSeats.has(n));
-    if (clash) throw new Error(`Tempat #${clash} telah ditempah. Sila pilih tempat lain. / Seat #${clash} is already booked. Please choose another seat.`);
+    const existingSelections = Array.isArray(existingData.pondSelections) && existingData.pondSelections.length
+      ? existingData.pondSelections
+      : [{ pondId: existingData.pondId, seats: existingData.seatNumbers ?? [] }];
+    for (const selection of existingSelections) {
+      const clash = (selection.seats ?? []).find((seatNum: number) => requestedSeats.has(`${selection.pondId}-${seatNum}`));
+      if (clash) throw new Error(`Pancang #${clash} telah ditempah. Sila pilih pancang lain. / Seat #${clash} is already booked. Please choose another seat.`);
+    }
   });
 
   // Bookings made by staff/admin on behalf of a customer are trusted and

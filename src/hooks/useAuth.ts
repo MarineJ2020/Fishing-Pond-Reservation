@@ -3,6 +3,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  sendPasswordResetEmail,
   signOut,
   onAuthStateChanged,
   User as FirebaseUser,
@@ -90,6 +91,25 @@ export const useAuth = () => {
       console.error(error);
       addToast('Login failed. Check your email and password.', 'error');
       return false;
+    }
+  }, [addToast]);
+
+  const resetPassword = useCallback(async (email: string) => {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      addToast('Masukkan email berdaftar anda dahulu.', 'error');
+      return false;
+    }
+    try {
+      await sendPasswordResetEmail(auth, normalizedEmail);
+      addToast('Pautan reset kata laluan telah dihantar. Sila semak email anda.', 'success');
+      return true;
+    } catch (error) {
+      console.error(error);
+      // Keep the response neutral so the login form does not reveal whether an
+      // email address is registered.
+      addToast('Jika email itu berdaftar, pautan reset akan dihantar sebentar lagi.', 'info');
+      return true;
     }
   }, [addToast]);
 
@@ -240,5 +260,5 @@ export const useAuth = () => {
     }
   }, [setUser, addToast]);
 
-  return { login, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady };
+  return { login, resetPassword, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady };
 };

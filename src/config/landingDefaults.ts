@@ -113,9 +113,5 @@ export const SEO_DEFAULTS: SeoSettings = {
       title: 'Keputusan Live | Kolam Keli Sayang',
       description: 'Ikuti keputusan dan carta pendahulu pertandingan memancing keli secara langsung di Kolam Keli Sayang.',
     },
-    confirmed: {
-      title: 'Tempahan Disahkan | Kolam Keli Sayang',
-      description: 'Tempahan slot pertandingan anda di Kolam Keli Sayang telah disahkan.',
-    },
   },
 };

@@ -77,6 +77,7 @@ const EMPTY_COMP_CREATE = {
   bookingCloseAt: '',
   activePondIds: [] as string[],
   pricePerPeg: 100 as number,
+  topN: 20 as number,
   status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
 };
 
@@ -92,94 +93,6 @@ interface CMSModalProps {
   bookings: Booking[];
   onUpdateData: (updates: { ponds?: Pond[]; comp?: Competition }) => void;
   reloadDB: () => Promise<void>;
-}
-
-// ── Inline SVG pond seat editor used in competition management ──────────────
-const CMS_SVG_W = 600;
-const CMS_SVG_H = 400;
-
-function CMSPondSeatEditor({
-  pond,
-  seatEdits,
-  onToggle,
-  useLegacyView = false,
-}: {
-  pond: Pond;
-  seatEdits: Record<number, boolean>;
-  onToggle: (num: number, active: boolean) => void;
-  useLegacyView?: boolean;
-}) {
-  const dragVal = useRef<boolean | null>(null);
-  const hasShape    = (pond.shape?.length ?? 0) > 2;
-  const posSeatsList = pond.seats.filter(s => s.px !== undefined && s.py !== undefined);
-  const hasSVG      = !useLegacyView && hasShape && posSeatsList.length > 0;
-
-  if (!hasSVG) {
-    // Fallback: flat grid for ponds without a drawn shape
-    return (
-      <div className="sag-wrap"
-        onMouseLeave={() => { dragVal.current = null; }}
-        onMouseUp={() => { dragVal.current = null; }}>
-        {pond.seats.map(s => {
-          const edited   = seatEdits[s.num];
-          const isActive = edited !== undefined ? edited : s.active !== false;
-          return (
-            <div key={s.num}
-              className={`sag-seat ${isActive ? 'sag-active' : 'sag-inactive'}`}
-              onMouseDown={() => { const nv = !isActive; dragVal.current = nv; onToggle(s.num, nv); }}
-              onMouseEnter={() => { if (dragVal.current !== null) onToggle(s.num, dragVal.current); }}>
-              {s.num}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  const polyPts = pond.shape!.map(v => `${(v.x / 100) * CMS_SVG_W},${(v.y / 100) * CMS_SVG_H}`).join(' ');
-
-  return (
-    <svg
-      viewBox={`0 0 ${CMS_SVG_W} ${CMS_SVG_H}`}
-      style={{ width: '100%', display: 'block', borderRadius: '8px' }}
-      onMouseLeave={() => { dragVal.current = null; }}
-      onMouseUp={() => { dragVal.current = null; }}
-    >
-      {/* Background water */}
-      <rect width={CMS_SVG_W} height={CMS_SVG_H} fill="#0d1c2e" rx="6" />
-      {/* Shimmer lines */}
-      {Array.from({ length: 7 }, (_, i) => (
-        <line key={i} x1={30} y1={55 + i * 48} x2={CMS_SVG_W - 30} y2={55 + i * 48}
-          stroke="rgba(77,166,255,0.05)" strokeWidth="1" pointerEvents="none" />
-      ))}
-      {/* Pond polygon */}
-      <polygon points={polyPts}
-        fill="rgba(0, 120, 220, 0.17)" stroke="rgba(77,166,255,0.6)"
-        strokeWidth="2" strokeLinejoin="round" />
-      {/* Seats */}
-      {posSeatsList.map(s => {
-        const cx       = (s.px! / 100) * CMS_SVG_W;
-        const cy       = (s.py! / 100) * CMS_SVG_H;
-        const edited   = seatEdits[s.num];
-        const isActive = edited !== undefined ? edited : s.active !== false;
-        const fill     = isActive ? '#1a7a3e' : '#2a2a2a';
-        const stroke   = isActive ? 'rgba(100,220,100,0.55)' : '#444';
-        return (
-          <g key={s.num} style={{ cursor: 'pointer' }}
-            onMouseDown={() => { const nv = !isActive; dragVal.current = nv; onToggle(s.num, nv); }}
-            onMouseEnter={() => { if (dragVal.current !== null) onToggle(s.num, dragVal.current); }}>
-            <circle cx={cx} cy={cy} r={13} fill={fill} stroke={stroke} strokeWidth={1.5} />
-            <text x={cx} y={cy + 4} textAnchor="middle"
-              fill={isActive ? 'rgba(255,255,255,0.92)' : '#666'}
-              fontSize="10" fontWeight="bold" pointerEvents="none">{s.num}</text>
-          </g>
-        );
-      })}
-      {/* Watermark */}
-      <text x={CMS_SVG_W / 2} y={CMS_SVG_H - 12} textAnchor="middle"
-        fill="rgba(255,255,255,0.07)" fontSize="11" letterSpacing="3" pointerEvents="none">KOLAM</text>
-    </svg>
-  );
 }
 
 const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB }) => {
@@ -203,8 +116,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [competitionEditorOpen, setCompetitionEditorOpen] = useState(false);
   // True while the Manage editor is creating a brand-new competition (not yet persisted).
   const [compEditIsNew, setCompEditIsNew] = useState(false);
-  // The pond list inside the Manage editor starts collapsed; the admin expands it on demand.
-  const [compPondsExpanded, setCompPondsExpanded] = useState(false);
   const [competitionDeleteTarget, setCompetitionDeleteTarget] = useState<Competition | null>(null);
   const [settingsEdit, setSettingsEdit] = useState(settings);
   // Sync settingsEdit when the parent settings prop changes (e.g. after reloadDB)
@@ -244,6 +155,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   // Shared receipt-review popup (Kelulusan's first receipt, Semua Tempahan's balance receipt).
   const [reviewTarget, setReviewTarget] = useState<Booking | null>(null);
+  const [receiptHistoryBooking, setReceiptHistoryBooking] = useState<Booking | null>(null);
 
   // Force-cancel-a-confirmed-booking flow: typed confirmation guard.
   const [forceCancelTarget, setForceCancelTarget] = useState<Booking | null>(null);
@@ -269,10 +181,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Camera-open timestamp — decode attempts are skipped for a brief warm-up
   // window so a scan can't latch onto the first (still-focusing) frames.
   const checkinLiveStartedAtRef = useRef(0);
-
-  // Competition: per-pond seat active/inactive edits (pondKey -> seatNum -> active)
-  const [pondSeatEdits, setPondSeatEdits] = useState<Record<string, Record<number, boolean>>>({});
-  const seatDragValue = useRef<boolean | null>(null);
 
   // Audit Log page state
   const [auditLogEntries, setAuditLogEntries] = useState<AuditEntry[]>([]);
@@ -356,9 +264,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     fetchUsersPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, page, userSortOrder]);
-  // Reorder/collapse state for the ponds CMS.
+  // Reorder state for the ponds CMS.
   const [pondReordering, setPondReordering] = useState(false);
-  const [expandedPondSeats, setExpandedPondSeats] = useState<Record<string, boolean>>({});
 
   // In-page receipt lightbox (replaces opening a new browser tab).
   const [receiptViewerUrl, setReceiptViewerUrl] = useState<string | null>(null);
@@ -472,9 +379,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     bookings.forEach((b) => {
       if (b.status === 'rejected') return;
       const compId = b.competitionId || '';
-      (b.seats ?? []).forEach((seatNum) => {
-        const key = `${compId}-${b.pondId}-${seatNum}`;
-        map.set(key, [...(map.get(key) ?? []), b.id]);
+      const selections = b.pondSelections?.length ? b.pondSelections : [{ pondId: b.pondId, seats: b.seats ?? [] }];
+      selections.forEach((selection) => {
+        selection.seats.forEach((seatNum) => {
+          const key = `${compId}-${selection.pondId}-${seatNum}`;
+          map.set(key, [...(map.get(key) ?? []), b.id]);
+        });
       });
     });
     return map;
@@ -493,7 +403,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     return { label: 'Aktif', badgeClass: 'badge-live' };
   };
 
-  const openDatePicker = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const openDatePicker = (event: React.MouseEvent<HTMLElement>) => {
     const wrap = event.currentTarget.closest('.date-input-wrap') as HTMLElement | null;
     const input = wrap?.querySelector('input[type="date"], input[type="datetime-local"]') as HTMLInputElement | null;
     if (!input) return;
@@ -515,7 +425,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const seatsWithPos = pond.seats.filter(s => s.px !== undefined && s.py !== undefined);
     const target = pond.maxSeats;
     if (hasPolygon && seatsWithPos.length > 0 && target !== undefined && seatsWithPos.length !== target) {
-      setPondSaveError(`Letakkan tepat ${target} peg pada peta (kini ${seatsWithPos.length}/${target}).`);
+      setPondSaveError(`Letakkan tepat ${target} pancang pada peta (kini ${seatsWithPos.length}/${target}).`);
       return;
     }
 
@@ -525,7 +435,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       : new Set(pond.seats.map(s => s.num));
     const conflicts = getConflictingRemovedSeats(pond.id, newSeatNums);
     if (conflicts.length > 0) {
-      setPondSaveError(`Tidak dapat simpan — peg ${conflicts.join(', ')} masih ada tempahan aktif. Alihkan atau batalkan tempahan tersebut dahulu.`);
+      setPondSaveError(`Tidak dapat simpan — pancang ${conflicts.join(', ')} masih ada tempahan aktif. Alihkan atau batalkan tempahan tersebut dahulu.`);
       return;
     }
 
@@ -570,14 +480,24 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleCompetitionUpdate = async () => {
+    if (!compEdit.name?.trim()) { window.alert('Sila masukkan nama pertandingan.'); return; }
+    if (!compEdit.startDate) { window.alert('Sila pilih tarikh & masa mula pertandingan.'); return; }
+    if (!compEdit.endDate) { window.alert('Sila pilih tarikh & masa tamat pertandingan.'); return; }
+    if (!compEdit.bookingOpenAt) { window.alert('Sila pilih tarikh & masa buka tempahan.'); return; }
+    if (!compEdit.bookingCloseAt) { window.alert('Sila pilih tarikh & masa tutup tempahan.'); return; }
+    if (!Number.isFinite(compEdit.pricePerPeg) || (compEdit.pricePerPeg ?? 0) <= 0) { window.alert('Sila masukkan Harga Pancang yang sah.'); return; }
+    if (!Number.isFinite(compEdit.topN) || (compEdit.topN ?? 0) <= 0) { window.alert('Sila masukkan Jumlah Kedudukan Dipaparkan yang sah.'); return; }
+    if (!(compEdit.activePondIds?.length)) { window.alert('Sila pilih sekurang-kurangnya satu kolam.'); return; }
     const start = new Date(compEdit.startDate).getTime();
     const end = new Date(compEdit.endDate || compEdit.startDate).getTime();
     if (!Number.isNaN(start) && !Number.isNaN(end) && end < start) {
       window.alert('Tarikh tamat mesti sama atau selepas tarikh mula.');
       return;
     }
-    if (compEditIsNew && !compEdit.name?.trim()) {
-      window.alert('Sila masukkan nama pertandingan.');
+    const bookingOpen = new Date(compEdit.bookingOpenAt).getTime();
+    const bookingClose = new Date(compEdit.bookingCloseAt).getTime();
+    if (bookingClose < bookingOpen) {
+      window.alert('Tarikh tutup tempahan mesti selepas tarikh buka tempahan.');
       return;
     }
 
@@ -599,24 +519,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
 
-      // Persist any manually toggled seat active flags back to the ponds
-      for (const [pondKey, seatMap] of Object.entries(pondSeatEdits)) {
-        if (Object.keys(seatMap).length === 0) continue;
-        const pond = ponds.find(p => (p._docId || p.id.toString()) === pondKey);
-        if (!pond) continue;
-        const seatLayout = pond.seats.map(s => ({
-          num:    s.num,
-          px:     s.px  ?? 50,
-          py:     s.py  ?? 50,
-          active: seatMap[s.num] !== undefined ? seatMap[s.num] : s.active !== false,
-        }));
-        await updatePondFirestore(pondKey, { seatLayout } as any);
-      }
-
       await reloadDB();
       setCompetitionEditorOpen(false);
       setCompEditIsNew(false);
-      setPondSeatEdits({});
     } catch (err) { console.error('Failed to save competition:', err); }
     setSaving(false);
   };
@@ -647,14 +552,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const handleSaveNewCompetition = async () => {
     if (!compCreate.name.trim()) { window.alert('Sila masukkan nama pertandingan.'); return; }
     if (!compCreate.startDateTime) { window.alert('Sila pilih tarikh & masa mula pertandingan.'); return; }
+    if (!compCreate.endDateTime) { window.alert('Sila pilih tarikh & masa tamat pertandingan.'); return; }
+    if (!compCreate.bookingOpenAt) { window.alert('Sila pilih tarikh & masa buka tempahan.'); return; }
+    if (!compCreate.bookingCloseAt) { window.alert('Sila pilih tarikh & masa tutup tempahan.'); return; }
+    if (!Number.isFinite(compCreate.pricePerPeg) || compCreate.pricePerPeg <= 0) { window.alert('Sila masukkan Harga Pancang yang sah.'); return; }
+    if (!Number.isFinite(compCreate.topN) || compCreate.topN <= 0) { window.alert('Sila masukkan Jumlah Kedudukan Dipaparkan yang sah.'); return; }
+    if (!compCreate.activePondIds.length) { window.alert('Sila pilih sekurang-kurangnya satu kolam.'); return; }
     const startIso = new Date(compCreate.startDateTime).toISOString();
-    const endIso = compCreate.endDateTime ? new Date(compCreate.endDateTime).toISOString() : startIso;
+    const endIso = new Date(compCreate.endDateTime).toISOString();
     if (new Date(endIso) < new Date(startIso)) {
       window.alert('Tarikh & masa tamat mesti selepas tarikh & masa mula.');
       return;
     }
-    const bookingOpenAt = compCreate.bookingOpenAt ? new Date(compCreate.bookingOpenAt).toISOString() : undefined;
-    const bookingCloseAt = compCreate.bookingCloseAt ? new Date(compCreate.bookingCloseAt).toISOString() : undefined;
+    const bookingOpenAt = new Date(compCreate.bookingOpenAt).toISOString();
+    const bookingCloseAt = new Date(compCreate.bookingCloseAt).toISOString();
     if (bookingOpenAt && bookingCloseAt && new Date(bookingCloseAt) < new Date(bookingOpenAt)) {
       window.alert('Tarikh tutup tempahan mesti selepas tarikh buka.');
       return;
@@ -665,7 +576,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         name: compCreate.name.trim(),
         startDate: startIso,
         endDate: endIso,
-        topN: 20,
+        topN: compCreate.topN,
         prizes: [],
         pricePerPeg: Number.isFinite(compCreate.pricePerPeg) ? compCreate.pricePerPeg : 100,
         activePondIds: compCreate.activePondIds,
@@ -710,7 +621,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const pondDocId = pond._docId || pond.id.toString();
     const pondKeys = new Set([pondDocId, pond.id.toString()]);
     const label = pondDisplayName(pond);
-    if (!window.confirm(`Padam kolam "${label}" secara kekal? Semua tempat duduk kolam ini akan turut dipadam dan ia akan dikeluarkan daripada semua pertandingan. Tindakan ini tidak boleh dibatalkan.`)) return;
+    if (!window.confirm(`Padam kolam "${label}" secara kekal? Semua pancang kolam ini akan turut dipadam dan ia akan dikeluarkan daripada semua pertandingan. Tindakan ini tidak boleh dibatalkan.`)) return;
     setSaving(true);
     try {
       // Strip the pond from every competition that references it, so no dangling
@@ -1396,7 +1307,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSettingsEdit(s => ({ ...s, seo: { ...(s.seo as any), [field]: Number.isFinite(num) ? num : undefined } }));
   };
 
-  const updateSeoPage = (key: 'home' | 'book' | 'live' | 'confirmed', field: 'title' | 'description' | 'ogImage', val: string) => {
+  const updateSeoPage = (key: 'home' | 'book' | 'live', field: 'title' | 'description' | 'ogImage', val: string) => {
     setSettingsEdit(s => ({
       ...s,
       seo: {
@@ -1421,7 +1332,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
-  const handleOgImageUpload = async (target: 'default' | 'home' | 'book' | 'live' | 'confirmed', file: File) => {
+  const handleOgImageUpload = async (target: 'default' | 'home' | 'book' | 'live', file: File) => {
     setOgImageUploading(target);
     try {
       const jpeg = await compressBlobToJpeg(file, file.name);
@@ -1767,16 +1678,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const pendingCount = bookings.filter(b => b.status === 'pending').length;
   const confirmedCount = bookings.filter(b => b.status === 'confirmed').length;
 
-  const hasConflict = (b: { pondId: number; seats: number[]; competitionId?: string }) =>
-    (b.seats ?? []).some((n) => (seatConflictMap.get(`${b.competitionId || ''}-${b.pondId}-${n}`) ?? []).length > 1);
+  const hasConflict = (b: Booking) => {
+    const selections = b.pondSelections?.length ? b.pondSelections : [{ pondId: b.pondId, seats: b.seats ?? [] }];
+    return selections.some((selection) => selection.seats.some(
+      (seatNum) => (seatConflictMap.get(`${b.competitionId || ''}-${selection.pondId}-${seatNum}`) ?? []).length > 1,
+    ));
+  };
   const totalRevenue = bookings.filter(b => b.status === 'confirmed').reduce((s, b) => s + b.amount, 0);
   const competitionsForCms = compList.length ? compList : (comp.name ? [comp] : []);
-  const competitionForDashboard =
-    competitionsForCms.find((c) => getCompetitionPhase(c) === 'live') ||
-    competitionsForCms.find((c) => getCompetitionPhase(c) === 'upcoming') ||
-    competitionsForCms[0] ||
-    null;
-  const dashboardStatus = competitionForDashboard ? getCompetitionStatusMeta(competitionForDashboard) : null;
+  const dashboardCompetitions = competitionsForCms
+    .filter((competition) => {
+      const phase = getCompetitionPhase(competition);
+      return phase === 'live' || phase === 'upcoming';
+    })
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
   // Competitions ordered with ended ("tamat") events pushed to the bottom — used
   // by the keputusan/live & prize selectors.
@@ -1867,7 +1782,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   // ── Unsaved-changes guard ────────────────────────────────────────────────
   const compSig = (c?: Partial<Competition>) => c ? JSON.stringify({
-    name: c.name || '', startDate: c.startDate || '', endDate: c.endDate || '', topN: c.topN || 0,
+    name: c.name || '', startDate: c.startDate || '', endDate: c.endDate || '',
+    bookingOpenAt: c.bookingOpenAt || '', bookingCloseAt: c.bookingCloseAt || '', topN: c.topN || 0,
     pricePerPeg: c.pricePerPeg ?? null,
     prizes: c.prizes || [], activePondIds: [...(c.activePondIds || [])].sort(), pondSeats: c.pondSeats || {},
   }) : '';
@@ -1897,14 +1813,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   // Competition Manage editor unsaved guard.
   const competitionEditorSource = competitionsForCms.find(c => c.id === compEdit.id);
-  const competitionEditorDirty = competitionEditorOpen && (
-    Object.values(pondSeatEdits).some(seatMap => Object.keys(seatMap).length > 0)
-    || (compEditIsNew
-        ? (!!compEdit.name?.trim() || (compEdit.activePondIds?.length ?? 0) > 0)
-        : (!!competitionEditorSource && compSig(competitionEditorSource) !== compSig(compEdit)))
-  );
+  const competitionEditorDirty = competitionEditorOpen && (compEditIsNew
+    ? (!!compEdit.name?.trim() || (compEdit.activePondIds?.length ?? 0) > 0)
+    : (!!competitionEditorSource && compSig(competitionEditorSource) !== compSig(compEdit)));
   const closeCompetitionEditor = () => {
-    const doClose = () => { setCompetitionEditorOpen(false); setCompEditIsNew(false); setPondSeatEdits({}); };
+    const doClose = () => { setCompetitionEditorOpen(false); setCompEditIsNew(false); };
     if (!competitionEditorDirty) { doClose(); return; }
     setConfirmDialog({
       title: 'Perubahan belum disimpan',
@@ -1947,7 +1860,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const pageTitle = navSections.flatMap(s => s.items).find(i => i.id === page)?.text || 'Dashboard';
 
   // Seat list for a booking, using the pond's alphabet code (e.g. "A-1, A-23").
-  const bookingSeatList = (b: Booking) => formatSeatList(b.pondCode || ponds.find(p => p.id === b.pondId)?.code, b.seats);
+  const bookingSeatList = (b: Booking) => {
+    const selections = b.pondSelections?.length ? b.pondSelections : [{ pondId: b.pondId, pondCode: b.pondCode, seats: b.seats }];
+    return selections.map((selection) => formatSeatList(
+      selection.pondCode || ponds.find((pond) => pond.id === selection.pondId)?.code,
+      selection.seats,
+    )).filter(Boolean).join(', ');
+  };
+  const bookingPondList = (b: Booking) => b.pondSelections?.length
+    ? Array.from(new Set(b.pondSelections.map((selection) => selection.pondName))).join(', ')
+    : b.pondName;
 
   // Clickable, sortable <th> — used by Kelulusan/Semua Tempahan. Clicking
   // toggles asc/desc on the same field, or switches field (defaulting desc).
@@ -2041,7 +1963,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
                   <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <li>Halaman ini memaparkan <strong>hanya tempahan yang telah dibuat keputusan</strong> (disahkan atau ditolak). Tempahan yang masih menunggu keputusan pertama berada di tab <strong>Kelulusan</strong>.</li>
-                    <li>Penapis <strong>Status</strong> memecahkan tempahan disahkan mengikut peringkat baki: <strong>Review Needed (Balance)</strong> — ada resit baki menunggu semakan; <strong>Pending Balance</strong> — masih ada baki tapi belum ada resit dimuat naik; <strong>Fully Paid</strong> — selesai bayar penuh; <strong>Cancelled</strong> — tempahan ditolak.</li>
+                    <li>Penapis <strong>Status</strong> memecahkan tempahan disahkan mengikut peringkat baki: <strong>Menunggu Semak (Baki)</strong> — ada resit baki menunggu semakan; <strong>Baki Belum Dibayar</strong> — masih ada baki tetapi belum ada resit dimuat naik; <strong>Selesai Dibayar</strong> — selesai bayar penuh; <strong>Dibatalkan</strong> — tempahan ditolak.</li>
                     <li>Klik <strong>Review</strong> untuk sahkan/tolak resit baki, rekod bayaran manual dengan bukti, atau tambah <strong>Catatan Staf</strong> — tetingkap yang sama seperti di Kelulusan.</li>
                     <li><strong>Hantar Peringatan</strong> — hantar e-mel peringatan baki kepada pelanggan yang masih ada baki tertunggak. Ini <strong>menetapkan semula</strong> kiraan auto-peringat (~7 hari).</li>
                     <li><strong>Batal Paksa</strong> — hanya untuk tempahan yang <strong>telah DISAHKAN</strong>. Perlu pengesahan dua peringkat (dialog + menaip <code>DELETE BOOKING</code>). Tempat akan dilepaskan.</li>
@@ -2065,10 +1987,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-header"><div className="card-title">🏆 Pengurusan Pertandingan & Kolam</div></div>
                 <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
                   <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li><strong>Pertandingan</strong> — cipta atau edit pertandingan (nama, tarikh, harga peg, hadiah). Aktif/nyahaktif peg secara per-pertandingan dalam editor susun atur.</li>
-                    <li>Peg yang sudah ditempah (tempahan aktif) <strong>tidak boleh dinyahaktifkan</strong> — batalkan tempahan dahulu jika perlu.</li>
+                    <li><strong>Pertandingan</strong> — cipta atau edit pertandingan lengkap dengan nama, tarikh dan masa, Harga Pancang, jumlah kedudukan dipaparkan, serta pilihan kolam.</li>
+                    <li>Semua medan pertandingan wajib diisi dan sekurang-kurangnya satu kolam mesti dipilih sebelum pertandingan boleh disimpan.</li>
                     <li>Status pertandingan dalam jadual (<strong>Coming Soon</strong> / <strong>Active</strong> / <strong>Inactive</strong> / <strong>Tamat</strong>) ditentukan <strong>automatik ikut tarikh</strong> — tiada lagi tetapan manual. Coming Soon = belum sampai tarikh buka tempahan; Active = tempahan dibuka atau pertandingan sedang berlangsung; Inactive = tempahan sudah ditutup tetapi pertandingan belum bermula; Tamat = pertandingan sudah selesai.</li>
-                    <li><strong>Kolam</strong> — cipta atau edit kolam: kod kolam (huruf A–Z), bilangan tempat, dan susun atur (capsule atau polygon). Tempat dijana automatik mengikut bilangan. Paparan kolam menggunakan format lama secara tetap.</li>
+                    <li><strong>Kolam</strong> — cipta atau edit kolam: kod kolam (huruf A–Z), bilangan pancang dan Peta Kolam. Pancang dijana automatik mengikut bilangan.</li>
                     <li><strong>Hadiah & Ranking</strong> — tetapkan julat kedudukan dan jumlah hadiah; jadual di bawah menyemak julat tidak sah/bertindih. Setiap simpanan direkod dalam <strong>Log Audit</strong>. Hanya pertandingan yang belum tamat dipaparkan di sini. Guna <strong>Duplicate Previous</strong> untuk pilih pertandingan lain (yang sudah ada hadiah) dan salin terus julat hadiahnya ke pertandingan semasa.</li>
                   </ul>
                 </div>
@@ -2148,19 +2070,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="card-body">
                     <div className="table-wrap">
                       <table>
-                        <thead><tr><th>Ref</th><th>Pertandingan</th><th>Nama</th><th>Kolam</th><th>Jumlah</th><th>Status</th></tr></thead>
+                        <thead><tr><th>Ref</th><th>Pertandingan</th><th>Nama</th><th>Jumlah</th><th>Status</th></tr></thead>
                         <tbody>
                           {bookings.slice(0, 5).map(b => (
                             <tr key={b.id}>
                               <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
                               <td>{b.competitionName || comp.name || '-'}</td>
                               <td className="td-name">{b.userName}</td>
-                              <td>{b.pondName}</td>
                               <td>RM {b.amount}</td>
-                              <td><span className={`badge badge-${b.status === 'confirmed' ? 'approved' : b.status}`}>{b.status}</span></td>
+                              <td>
+                                <span className={`badge badge-${b.status === 'confirmed' ? 'approved' : b.status}`}>
+                                  {b.status === 'confirmed' ? 'Disahkan' : b.status === 'rejected' ? 'Dibatalkan' : 'Menunggu Semakan'}
+                                </span>
+                              </td>
                             </tr>
                           ))}
-                          {bookings.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Tiada tempahan</td></tr>}
+                          {bookings.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Tiada tempahan</td></tr>}
                         </tbody>
                       </table>
                     </div>
@@ -2169,20 +2094,26 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card">
                   <div className="card-header"><div className="card-title">Pertandingan Aktif</div></div>
                   <div className="card-body">
-                    {competitionForDashboard?.name ? (
-                      <div style={{ padding: '1rem', background: 'var(--cream)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                          {getCompetitionPhase(competitionForDashboard) === 'live' && <span className="live-dot"></span>}
-                          <strong>{competitionForDashboard.name}</strong>
-                          {dashboardStatus && <span className={`badge ${dashboardStatus.badgeClass}`}>{dashboardStatus.label}</span>}
-                        </div>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                          📅 {formatDate(competitionForDashboard.startDate)}<br />
-                          👥 {ponds.reduce((s, p) => s + p.seats.filter(se => se.status === 'available').length, 0)} tempat tersedia
-                        </div>
+                    {dashboardCompetitions.length ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {dashboardCompetitions.map((competition) => {
+                          const status = getCompetitionStatusMeta(competition);
+                          return (
+                            <div key={competition.id || competition.name} style={{ padding: '1rem', background: 'var(--cream)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                                {getCompetitionPhase(competition) === 'live' && <span className="live-dot"></span>}
+                                <strong>{competition.name}</strong>
+                                <span className={`badge ${status.badgeClass}`}>{status.label}</span>
+                              </div>
+                              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                📅 {formatDate(competition.startDate, { time: true })}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
-                      <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Tiada pertandingan aktif</div>
+                      <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Tiada pertandingan aktif atau akan datang</div>
                     )}
                   </div>
                 </div>
@@ -2198,45 +2129,62 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               return names.length ? names.join(', ') : 'Semua kolam';
             };
             const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
-            const fmtDate = (iso?: string) => formatDate(iso) || '—';
             const statAktif = competitionsForCms.filter(c => getCompetitionCmsStatus(c) === 'active').length;
             const statJualan = competitionsForCms.filter(c => isBookingOpen(c) && !isCompetitionEnded(c)).length;
-            const statSetup = competitionsForCms.filter(c => getCompetitionCmsStatus(c) === 'coming-soon').length;
-            const statDitutup = competitionsForCms.filter(c => {
-              const s = getCompetitionCmsStatus(c);
-              return s === 'tamat' || s === 'inactive';
-            }).length;
+            const statTamat = competitionsForCms.filter(c => isCompetitionEnded(c)).length;
             const toggleCreatePond = (key: string) => setCompCreate(s => ({ ...s, activePondIds: s.activePondIds.includes(key) ? s.activePondIds.filter(k => k !== key) : [...s.activePondIds, key] }));
+            const allPondsSelected = ponds.length > 0 && ponds.every((pond) => compCreate.activePondIds.includes(pondKeyOf(pond)));
+            const toggleAllCreatePonds = () => setCompCreate((current) => ({
+              ...current,
+              activePondIds: allPondsSelected ? [] : ponds.map(pondKeyOf),
+            }));
+            const compCreateComplete = Boolean(
+              compCreate.name.trim()
+              && compCreate.startDateTime
+              && compCreate.endDateTime
+              && compCreate.bookingOpenAt
+              && compCreate.bookingCloseAt
+              && Number.isFinite(compCreate.pricePerPeg)
+              && compCreate.pricePerPeg > 0
+              && Number.isFinite(compCreate.topN)
+              && compCreate.topN > 0
+              && compCreate.activePondIds.length > 0
+            );
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Pertandingan</div><div className="page-sub">Tambah dan urus pertandingan</div></div></div>
 
               <div className="stats-grid">
                 <div className="stat-card stat-accent"><div className="stat-label">Pertandingan Aktif</div><div className="stat-value">{statAktif}</div><div className="stat-change">Dipapar di website</div></div>
-                <div className="stat-card stat-accent"><div className="stat-label">Jualan Dibuka</div><div className="stat-value">{statJualan}</div><div className="stat-change">Tempahan dibuka</div></div>
-                <div className="stat-card stat-accent"><div className="stat-label">Menunggu Setup</div><div className="stat-value">{statSetup}</div><div className="stat-change">Tempahan belum dibuka</div></div>
-                <div className="stat-card stat-accent"><div className="stat-label">Ditutup</div><div className="stat-value">{statDitutup}</div><div className="stat-change">Inactive / tamat</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Tempahan Dibuka</div><div className="stat-value">{statJualan}</div><div className="stat-change">Tempahan buka</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Tamat</div><div className="stat-value">{statTamat}</div><div className="stat-change">Pertandingan selesai</div></div>
               </div>
 
               <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-header"><div className="card-title">Tambah Pertandingan</div><button className="btn btn-primary" onClick={handleSaveNewCompetition} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan Pertandingan'}</button></div>
+                <div className="card-header"><div className="card-title">Tambah Pertandingan</div><button className="btn btn-primary" onClick={handleSaveNewCompetition} disabled={saving || !compCreateComplete}>{saving ? 'Menyimpan...' : 'Simpan Pertandingan'}</button></div>
                 <div className="card-body">
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
                     <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={compCreate.name} onChange={e => setCompCreate({ ...compCreate, name: e.target.value })} placeholder="Contoh: Pertandingan Apex" /></div>
-                    <div className="form-group"><label className="form-label">Tarikh & Masa Mula</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.startDateTime} onChange={e => setCompCreate({ ...compCreate, startDateTime: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
+                    <div className="form-group"><label className="form-label">Tarikh &amp; Masa Mula</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={compCreate.startDateTime} onChange={e => setCompCreate({ ...compCreate, startDateTime: e.target.value })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
                     <div className="form-group">
-                      <label className="form-label">Tarikh & Masa Tamat</label>
-                      <div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.endDateTime} onChange={e => setCompCreate({ ...compCreate, endDateTime: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div>
-                      <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Kosongkan untuk guna masa yang sama seperti Mula.</div>
+                      <label className="form-label">Tarikh &amp; Masa Tamat</label>
+                      <div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={compCreate.endDateTime} onChange={e => setCompCreate({ ...compCreate, endDateTime: e.target.value })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div>
                     </div>
-                    <div className="form-group"><label className="form-label">Tarikh & Masa Buka Tempahan</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.bookingOpenAt} onChange={e => setCompCreate({ ...compCreate, bookingOpenAt: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
-                    <div className="form-group"><label className="form-label">Tarikh & Masa Tutup Tempahan</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={compCreate.bookingCloseAt} onChange={e => setCompCreate({ ...compCreate, bookingCloseAt: e.target.value })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
-                    <div className="form-group"><label className="form-label">Harga Per Seat (RM)</label><input className="form-input" type="number" min="0" value={compCreate.pricePerPeg} onChange={e => setCompCreate({ ...compCreate, pricePerPeg: Number(e.target.value) })} /></div>
+                    <div className="form-group"><label className="form-label">Tarikh &amp; Masa Buka Tempahan</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={compCreate.bookingOpenAt} onChange={e => setCompCreate({ ...compCreate, bookingOpenAt: e.target.value })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
+                    <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tutup Tempahan</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={compCreate.bookingCloseAt} onChange={e => setCompCreate({ ...compCreate, bookingCloseAt: e.target.value })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
+                    <div className="form-group"><label className="form-label">Harga Pancang (RM)</label><input className="form-input" type="number" min="1" value={compCreate.pricePerPeg} onChange={e => setCompCreate({ ...compCreate, pricePerPeg: Number(e.target.value) })} /></div>
+                    <div className="form-group"><label className="form-label">Jumlah Kedudukan Dipaparkan</label><input className="form-input" type="number" min="1" value={compCreate.topN} onChange={e => setCompCreate({ ...compCreate, topN: Number(e.target.value) })} /></div>
                   </div>
                   <div className="form-group" style={{ marginTop: 14 }}>
-                    <label className="form-label">Kolam Open</label>
+                    <label className="form-label">Kolam Terbuka</label>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
                       {ponds.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Tiada kolam. Tambah kolam dahulu di tab Kolam.</span>}
+                      {ponds.length > 0 && (
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontWeight: 800 }}>
+                          <input type="checkbox" checked={allPondsSelected} onChange={toggleAllCreatePonds} style={{ accentColor: 'var(--green)' }} />
+                          Pilih Semua
+                        </label>
+                      )}
                       {ponds.map(pond => {
                         const key = pondKeyOf(pond);
                         const checked = compCreate.activePondIds.includes(key);
@@ -2249,30 +2197,31 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       })}
                     </div>
                   </div>
-                  <p style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.5 }}>Status pertandingan (Coming Soon / Active / Inactive / Tamat) ditentukan automatik ikut tarikh — tiada tetapan manual. Untuk Kolam Open, tanda lebih daripada satu kolam jika perlu. Pengurusan peg &amp; tempat duduk terperinci ada di butang <strong>Manage</strong>.</p>
+                  <p style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.5 }}>Semua medan wajib diisi dan sekurang-kurangnya satu Kolam Terbuka mesti dipilih. Status pertandingan ditentukan secara automatik mengikut tarikh.</p>
                 </div>
               </div>
 
               <div className="card">
                 <div className="card-header"><div className="card-title">Senarai Pertandingan</div></div>
                 <div className="card-body"><div className="table-wrap"><table>
-                  <thead><tr><th>Nama</th><th>Tarikh &amp; Masa</th><th>Tempahan Buka</th><th>Tempahan Tutup</th><th>Kolam Open</th><th>Harga/Seat</th><th>Status</th><th>Tindakan</th></tr></thead>
+                  <thead><tr><th>Nama Pertandingan</th><th>Tarikh &amp; Masa Mula</th><th>Tarikh &amp; Masa Tamat</th><th>Tarikh &amp; Masa Buka Tempahan</th><th>Tarikh &amp; Masa Tutup Tempahan</th><th>Kolam Terbuka</th><th>Harga Pancang</th><th>Status</th><th>Tindakan</th></tr></thead>
                   <tbody>
                     {competitionsForCms.map((competition) => (
                       <tr key={competition.id || competition.name}>
                         <td className="td-name">{competition.name}</td>
                         <td>{fmtDateTime(competition.startDate)}</td>
-                        <td>{fmtDate(competition.bookingOpenAt)}</td>
-                        <td>{fmtDate(competition.bookingCloseAt)}</td>
+                        <td>{fmtDateTime(competition.endDate)}</td>
+                        <td>{fmtDateTime(competition.bookingOpenAt)}</td>
+                        <td>{fmtDateTime(competition.bookingCloseAt)}</td>
                         <td>{pondNames(competition)}</td>
                         <td>{competition.pricePerPeg != null ? `RM ${competition.pricePerPeg}` : '-'}</td>
-                        <td>{(() => { const meta = getCompetitionCmsStatusMeta(competition); return <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>; })()}</td>
+                        <td><span className={`badge ${isCompetitionEnded(competition) ? 'badge-completed' : 'badge-live'}`}>{isCompetitionEnded(competition) ? 'TAMAT' : 'AKTIF'}</span></td>
                         <td>
-                          <button className="btn btn-sm btn-ghost" onClick={() => { setCompEditIsNew(false); setCompPondsExpanded(false); setPondSeatEdits({}); setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Manage</button>
+                          <button className="btn btn-sm btn-ghost" onClick={() => { setCompEditIsNew(false); setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Urus</button>
                         </td>
                       </tr>
                     ))}
-                    {competitionsForCms.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada pertandingan lagi.</td></tr>}
+                    {competitionsForCms.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada pertandingan lagi.</td></tr>}
                   </tbody>
                 </table></div></div>
               </div>
@@ -2282,7 +2231,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           {page === 'ponds' && (
             <div className="page active">
               <div className="page-header">
-                <div><div className="page-title">Kolam</div><div className="page-sub">Urus kolam dan tempat duduk</div></div>
+                <div><div className="page-title">Kolam</div><div className="page-sub">Urus kolam dan pancang</div></div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <button className="btn btn-primary" onClick={openCreatePondModal}>+ Tambah Kolam</button>
                 </div>
@@ -2292,35 +2241,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
               <div className="three-col">
                 {ponds.map((pond, pondIdx) => {
-                  const avail = pond.seats.filter(s => s.status === 'available').length;
-                  const booked = pond.seats.filter(s => s.status === 'booked').length;
                   const pondKey = pond._docId || pond.id.toString();
-                  const seatsExpanded = !!expandedPondSeats[pondKey];
                   return (
                     <div key={pondKey} className="card">
                       <div className="card-header">
-                        <div className="card-title">
-                          {pond.code && <span className="cms-pond-code">{pond.code}</span>} {pondDisplayName(pond)}
-                        </div>
+                        <div className="card-title">{pondDisplayName(pond)}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <button className="btn btn-sm btn-ghost" title="Naik" disabled={pondIdx === 0 || pondReordering} onClick={() => handleMovePond(pond, 'up')} style={{ padding: '2px 8px' }}>▲</button>
                           <button className="btn btn-sm btn-ghost" title="Turun" disabled={pondIdx === ponds.length - 1 || pondReordering} onClick={() => handleMovePond(pond, 'down')} style={{ padding: '2px 8px' }}>▼</button>
-                          <span className={`badge ${pond.open ? 'badge-open' : 'badge-draft'}`}>{pond.open ? 'Buka' : 'Tutup'}</span>
                         </div>
                       </div>
                       <div className="card-body">
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>{pond.seats.length} tempat · harga ikut pertandingan</div>
-                        <button
-                          className="btn btn-sm btn-ghost"
-                          style={{ width: '100%', marginBottom: '0.6rem' }}
-                          onClick={() => setExpandedPondSeats(prev => ({ ...prev, [pondKey]: !prev[pondKey] }))}
-                        >
-                          {seatsExpanded ? '▾ Sembunyi tempat duduk' : `▸ Tunjuk tempat duduk (${pond.seats.length})`}
-                        </button>
-                        {seatsExpanded && (
-                          <div className="mini-seat-grid">{pond.seats.map(s => (<div key={s.num} className={`mini-seat ${s.status === 'available' ? 'avail' : 'taken'}`}>{s.num}</div>))}</div>
-                        )}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '0.82rem' }}><span style={{ color: 'var(--green)' }}>✓ {avail} kosong</span><span style={{ color: 'var(--red)' }}>✕ {booked} penuh</span></div>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Jumlah Pancang: <strong>{pond.seats.length}</strong></div>
                         <button className="btn btn-sm btn-ghost" style={{ width: '100%', marginTop: '0.75rem' }} onClick={() => setEditingPond(pond)}>Edit</button>
                       </div>
                     </div>
@@ -2331,7 +2263,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               {/* Pond arrangement overview image */}
               <div className="card" style={{ marginTop: '24px' }}>
                 <div className="card-header">
-                  <div className="card-title">Gambar Susunan Kolam</div>
+                  <div className="card-title">Peta Kolam</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Dipaparkan kepada pengguna semasa membuat tempahan</div>
                 </div>
                 <div className="card-body">
@@ -2339,7 +2271,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div style={{ marginBottom: '16px' }}>
                       <img
                         src={settingsEdit.pondMapImg}
-                        alt="Susunan kolam"
+                        alt="Peta kolam"
                         style={{ width: '100%', maxHeight: '320px', objectFit: 'contain', borderRadius: '8px', background: 'rgba(0,0,0,0.3)' }}
                       />
                     </div>
@@ -2637,7 +2569,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           <div style={{ fontSize: '0.7rem', color: '#b45309', marginTop: '2px' }} title="Nombor telefon dimasukkan untuk tempahan ini">📱 {b.bookingPhone}</div>
                         )}
                       </td>
-                      <td>{b.pondName}</td>
+                      <td>{bookingPondList(b)}</td>
                       <td>{bookingSeatList(b)}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
                       <td>
                         RM {paid} / {total}
@@ -2726,7 +2658,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 return haystack.includes(q);
               });
             const pondCodes = Array.from(new Set(ponds.map(p => p.code).filter(Boolean))) as string[];
-            const stageLabel: Record<string, string> = { 'review-balance': 'Review Baki', 'pending-balance': 'Baki Belum Bayar', 'fully-paid': 'Selesai Bayar' };
+            const stageLabel: Record<string, string> = { 'review-balance': 'Menunggu Semak (Baki)', 'pending-balance': 'Baki Belum Dibayar', 'fully-paid': 'Selesai Bayar' };
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Semua Tempahan</div><div className="page-sub">Tempahan yang telah dibuat keputusan — disahkan atau ditolak</div></div></div>
@@ -2750,7 +2682,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="cms-filter-block">
                     <span className="cms-filter-label">Status</span>
                     <div className="cms-segmented">
-                      {([['all','Semua'],['review-balance','Review Needed (Balance)'],['pending-balance','Pending Balance'],['fully-paid','Fully Paid'],['cancelled','Cancelled']] as const).map(([v,label]) => (
+                      {([['all','Semua'],['review-balance','Menunggu Semak (Baki)'],['pending-balance','Baki Belum Dibayar'],['fully-paid','Selesai Dibayar'],['cancelled','Dibatalkan']] as const).map(([v,label]) => (
                         <button key={v} type="button" className={`btn btn-pill ${allStatus === v ? 'active' : ''}`} onClick={() => setAllStatus(v)}>{label}</button>
                       ))}
                     </div>
@@ -2770,21 +2702,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-body"><div className="table-wrap"><table>
                   <thead><tr>
                     <th>Ref</th>
+                    {sortableTh('Tarikh Tempahan', 'createdAt', allSortField, allSortOrder, handleAllSort)}
                     <th>Pertandingan</th>
-                    {sortableTh('Nama', 'userName', allSortField, allSortOrder, handleAllSort)}
-                    <th>No. Telefon</th>
-                    <th>Kolam</th>
-                    <th>Pegs</th>
-                    {sortableTh('Jumlah', 'totalAmount', allSortField, allSortOrder, handleAllSort)}
+                    {sortableTh('Info Peserta', 'userName', allSortField, allSortOrder, handleAllSort)}
+                    <th>No. Pancang</th>
+                    {sortableTh('Jumlah Bayar', 'totalAmount', allSortField, allSortOrder, handleAllSort)}
                     <th>Status</th>
-                    {sortableTh('Tarikh', 'createdAt', allSortField, allSortOrder, handleAllSort)}
                     <th>Tindakan</th>
                   </tr></thead>
                   <tbody>
-                    {allLoading && <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
+                    {allLoading && <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
                     {!allLoading && filteredEntries.map(b => (
                       <tr key={b.id}>
                         <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
+                        <td style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>{b.createdAt ? formatDate(b.createdAt, { time: true }) : '-'}</td>
                         <td>{b.competitionName || comp.name || '-'}</td>
                         <td className="td-name">
                           {b.userName}
@@ -2792,42 +2723,28 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {/* Participant email — for admin-proxy bookings userEmail/userId already
                               hold the participant's address, not the admin's, so this is correct. */}
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 400 }}>{b.userEmail || b.userId || '-'}</div>
-                        </td>
-                        <td>
-                          {b.userPhone || '—'}
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 400 }}>{b.userPhone || '—'}</div>
                           {b.bookingPhone && b.bookingPhone !== b.userPhone && (
                             <div style={{ fontSize: '0.7rem', color: '#b45309', marginTop: '2px' }} title="Nombor telefon dimasukkan untuk tempahan ini">📱 {b.bookingPhone}</div>
                           )}
                         </td>
-                        <td>{b.pondName}</td>
-                        <td>{bookingSeatList(b)}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
+                        <td>
+                          <div>{bookingSeatList(b)}{hasConflict(b) && <span title="Pancang ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</div>
+                          {b.status === 'confirmed' && <button className="btn btn-sm btn-ghost" style={{ marginTop: 6 }} onClick={() => setQrPreviewBooking(b)}>QR</button>}
+                        </td>
                         <td>
                           RM {b.paidAmount ?? b.amount}{(b.totalAmount ?? b.amount) !== (b.paidAmount ?? b.amount) && <span style={{ color: 'var(--text-muted)' }}> / {b.totalAmount ?? b.amount}</span>}
                           {(b.balanceDue ?? 0) > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {b.balanceDue}</div>}
+                          {(b.receipts?.some(receipt => receipt.url) || b.receiptData) && <button className="btn btn-sm btn-ghost" style={{ marginTop: 6 }} onClick={() => setReceiptHistoryBooking(b)}>Receipt</button>}
                         </td>
                         <td>
                           {b.status === 'rejected'
-                            ? <span className="badge badge-rejected">Ditolak</span>
+                            ? <span className="badge badge-rejected">Dibatalkan</span>
                             : <span className={`badge badge-${deriveBalanceStage(b) === 'fully-paid' ? 'approved' : 'pending'}`}>{stageLabel[deriveBalanceStage(b)]}</span>}
                         </td>
-                        <td style={{ fontSize: '0.82rem' }}>{b.createdAt ? formatDate(b.createdAt) : '-'}</td>
                         <td>
                           <div className="action-cell">
-                            {(() => {
-                              const allReceipts = b.receipts && b.receipts.length
-                                ? b.receipts
-                                : (b.receiptData ? [{ url: b.receiptData, amount: b.amount, status: 'pending' as const, submittedAt: b.createdAt || '' }] : []);
-                              const receiptBtns = allReceipts
-                                .filter(r => r.url)
-                                .map((r, i) => (
-                                  <button key={i} className="btn btn-sm btn-ghost" title={`Resit #${i + 1} · RM ${r.amount} · ${r.status}`} onClick={() => handleViewReceipt(r.url)}>
-                                    Resit{allReceipts.length > 1 ? ` #${i + 1}` : ''}
-                                  </button>
-                                ));
-                              return receiptBtns.length ? <span className="receipt-group">{receiptBtns}</span> : null;
-                            })()}
-                            <button className="btn btn-sm btn-primary" onClick={() => setReviewTarget(b)}>Review</button>
-                            {b.status === 'confirmed' && (<button className="btn btn-sm btn-ghost" onClick={() => setQrPreviewBooking(b)}>QR</button>)}
+                            <button className="btn btn-sm btn-primary" onClick={() => setReviewTarget(b)}>Semak</button>
                             {b.status === 'confirmed' && (<button className="btn btn-sm btn-danger" disabled={saving} title="Batal paksa tempahan disahkan" onClick={() => askForceCancel(b)}>Batal Paksa</button>)}
                             {(b.staffRemarks?.length ?? 0) > 0 && (<span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>📝 {b.staffRemarks!.length}</span>)}
                           </div>
@@ -2850,7 +2767,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </td>
                       </tr>
                     ))}
-                    {!allLoading && filteredEntries.length === 0 && <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan sepadan</td></tr>}
+                    {!allLoading && filteredEntries.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan sepadan</td></tr>}
                   </tbody>
                 </table></div></div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 4px 4px' }}>
@@ -3702,11 +3619,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           {page === 'seo' && (() => {
             const seo = settingsEdit.seo;
             const siteUrl = (seo?.siteUrl || '').replace(/\/$/, '');
-            const pageMeta: { key: 'home' | 'book' | 'live' | 'confirmed'; label: string; path: string }[] = [
+            const pageMeta: { key: 'home' | 'book' | 'live'; label: string; path: string }[] = [
               { key: 'home', label: 'Laman Utama', path: '/' },
               { key: 'book', label: 'Tempah', path: '/book' },
               { key: 'live', label: 'Live', path: '/live' },
-              { key: 'confirmed', label: 'Tempahan Disahkan', path: '/confirmed' },
             ];
             return (
               <div className="page active">
@@ -3967,38 +3883,25 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           <div className="modal-overlay open" onClick={closeCompetitionEditor}>
             <div className="modal" style={{ maxWidth: '760px', width: '95%', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
               <div className="modal-header" style={{ flexShrink: 0 }}>
-                <div className="modal-title">{compEditIsNew ? 'Tambah Pertandingan' : 'Manage Competition'}</div>
+                <div className="modal-title">{compEditIsNew ? 'Tambah Pertandingan' : 'Info Pertandingan'}</div>
                 <button className="modal-close" onClick={closeCompetitionEditor}>×</button>
               </div>
               <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
                 <div className="form-grid">
-                  <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={compEdit.name || ''} onChange={(e) => setCompEdit({ ...compEdit, name: e.target.value })} /></div>
-                  <div className="form-group"><label className="form-label">Tarikh Mula</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.startDate)} onChange={(e) => e.target.value && setCompEdit({ ...compEdit, startDate: new Date(e.target.value).toISOString() })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
-                  <div className="form-group"><label className="form-label">Tarikh Tamat</label><div className="date-input-wrap"><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.endDate)} onChange={(e) => e.target.value && setCompEdit({ ...compEdit, endDate: new Date(e.target.value).toISOString() })} /><button type="button" className="date-picker-btn" onClick={openDatePicker}>📅</button></div></div>
+                  <div className="form-group"><label className="form-label">Nama Pertandingan</label><input className="form-input" value={compEdit.name || ''} onChange={(e) => setCompEdit({ ...compEdit, name: e.target.value })} /></div>
+                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Mula</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.startDate)} onChange={(e) => e.target.value && setCompEdit({ ...compEdit, startDate: new Date(e.target.value).toISOString() })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
+                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tamat</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.endDate)} onChange={(e) => e.target.value && setCompEdit({ ...compEdit, endDate: new Date(e.target.value).toISOString() })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
+                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Buka Tempahan</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.bookingOpenAt || '')} onChange={(e) => setCompEdit({ ...compEdit, bookingOpenAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
+                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tutup Tempahan</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.bookingCloseAt || '')} onChange={(e) => setCompEdit({ ...compEdit, bookingCloseAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
+                  <div className="form-group">
+                    <label className="form-label">Harga Pancang (RM)</label>
+                    <input className="form-input" type="number" min="1" step="1" value={compEdit.pricePerPeg ?? 100} onChange={(e) => setCompEdit({ ...compEdit, pricePerPeg: Math.max(0, parseInt(e.target.value) || 0) })} />
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Semua kolam dalam pertandingan ini berkongsi harga pancang yang sama.</div>
+                  </div>
                   <div className="form-group">
                     <label className="form-label">Jumlah Kedudukan Dipaparkan</label>
-                    <input className="form-input" type="number" value={compEdit.topN || 20} onChange={(e) => setCompEdit({ ...compEdit, topN: parseInt(e.target.value) || 20 })} />
-                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                      Berapa ramai peserta teratas yang dipaparkan di papan markah.
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Harga Per Peg (RM)</label>
-                    <input className="form-input" type="number" min="0" step="1" value={compEdit.pricePerPeg ?? 100} onChange={(e) => setCompEdit({ ...compEdit, pricePerPeg: Math.max(0, parseInt(e.target.value) || 0) })} />
-                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                      Semua kolam dalam pertandingan ini berkongsi harga per peg yang sama.
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Tarikh Buka Tempahan</label>
-                    <div className="date-input-wrap"><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.bookingOpenAt || '')} onChange={(e) => setCompEdit({ ...compEdit, bookingOpenAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })} /></div>
-                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                      Kosongkan untuk benarkan tempahan sehingga pertandingan tamat.
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Tarikh Tutup Tempahan</label>
-                    <div className="date-input-wrap"><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.bookingCloseAt || '')} onChange={(e) => setCompEdit({ ...compEdit, bookingCloseAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })} /></div>
+                    <input className="form-input" type="number" min="1" value={compEdit.topN || 20} onChange={(e) => setCompEdit({ ...compEdit, topN: parseInt(e.target.value) || 0 })} />
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Bilangan peserta teratas yang dipaparkan di papan markah.</div>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Status</label>
@@ -4010,131 +3913,34 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
 
                 <div className="card" style={{ marginTop: '12px' }}>
-                  <button
-                    type="button"
-                    className="card-header"
-                    onClick={() => setCompPondsExpanded(v => !v)}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', cursor: 'pointer', background: 'none', border: 'none', font: 'inherit', textAlign: 'left' }}
-                  >
-                    <div className="card-title" style={{ margin: 0 }}>
-                      Active Ponds For This Competition
-                      <span style={{ marginLeft: '8px', fontSize: '0.78rem', fontWeight: 400, color: 'var(--text-muted)' }}>
-                        ({(compEdit.activePondIds?.length ?? 0) > 0 ? `${compEdit.activePondIds!.length} kolam dipilih` : 'semua kolam'})
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)', transform: compPondsExpanded ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
-                  </button>
-                  {compPondsExpanded && (
+                  <div className="card-header">
+                    <div className="card-title">Kolam Dipilih</div>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{compEdit.activePondIds?.length || 0} kolam dipilih</span>
+                  </div>
                   <div className="card-body">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {ponds.map((pond) => {
-                        const pondKey  = pond._docId || pond.id.toString();
-                        const checked  = (compEdit.activePondIds || []).includes(pondKey);
-                        const edits    = pondSeatEdits[pondKey] || {};
-                        const hasUnsavedEdits = Object.keys(edits).length > 0;
-                        // Effective active state per seat = unsaved edit if present, else saved flag.
-                        const isSeatActive = (s: { num: number; active?: boolean }) =>
-                          edits[s.num] !== undefined ? edits[s.num] : s.active !== false;
-                        // Seats held by a non-rejected booking *in this competition* can't be
-                        // deactivated. Scoped to compEdit so the same physical pond reused in a
-                        // different competition starts with no held pegs.
-                        const heldSeats = pond.seats
-                          .filter(s => bookings.some(b =>
-                            b.status !== 'rejected' &&
-                            b.pondId === pond.id &&
-                            b.seats.includes(s.num) &&
-                            (b.competitionId || '') === (compEdit.id || '')
-                          ))
-                          .map(s => s.num);
-                        const heldSet = new Set(heldSeats);
-                        const activeCount = pond.seats.filter(isSeatActive).length;
-                        const inactiveCount = pond.seats.length - activeCount;
-                        // "Seat available" (bookable count) is capped at the active-seat count.
-                        const openSeats = Math.max(0, Math.min(activeCount, Math.floor(compEdit.pondSeats?.[pondKey] ?? activeCount)));
+                        const pondKey = pond._docId || pond.id.toString();
+                        const checked = (compEdit.activePondIds || []).includes(pondKey);
                         return (
-                          <div key={pondKey} style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px', background: checked ? 'var(--cream)' : 'transparent' }}>
-                            {/* Row 1: checkbox + count input */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem', fontWeight: 600, flex: 1, minWidth: 120 }}>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={(e) => {
-                                    const next = new Set(compEdit.activePondIds || []);
-                                    if (e.target.checked) next.add(pondKey);
-                                    else next.delete(pondKey);
-                                    setCompEdit({ ...compEdit, activePondIds: Array.from(next) });
-                                  }}
-                                />
-                                <span>{pond.name}</span>
-                              </label>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: checked ? 1 : 0.45 }}>
-                                <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Seat available</label>
-                                <input
-                                  className="form-input"
-                                  type="number"
-                                  min={0}
-                                  max={activeCount}
-                                  disabled={!checked}
-                                  style={{ width: '80px', padding: '5px 8px' }}
-                                  value={openSeats}
-                                  onChange={(e) => {
-                                    const raw  = parseInt(e.target.value) || 0;
-                                    const safe = Math.max(0, Math.min(activeCount, raw));
-                                    setCompEdit({ ...compEdit, pondSeats: { ...(compEdit.pondSeats || {}), [pondKey]: safe } });
-                                  }}
-                                />
-                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>/ {activeCount} aktif</span>
-                              </div>
-                            </div>
-
-                            {/* Row 2: pond SVG seat active/inactive editor */}
-                            {pond.seats.length > 0 && (
-                              <div style={{ marginTop: '12px' }}>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                                  Peg aktif/tidak aktif — klik atau seret untuk tukar:
-                                </div>
-                                <CMSPondSeatEditor
-                                  pond={pond}
-                                  seatEdits={edits}
-                                  useLegacyView={true}
-                                  onToggle={(num, active) => {
-                                    // Prevent deactivating a seat that is booked / pending approval.
-                                    if (!active && heldSet.has(num)) return;
-                                    setPondSeatEdits(prev => {
-                                      const nextSeat = { ...(prev[pondKey] || {}), [num]: active };
-                                      const nextEdits = { ...prev, [pondKey]: nextSeat };
-                                      // Keep the bookable "Seat available" count from exceeding active seats.
-                                      const nextActive = pond.seats.filter(s =>
-                                        nextSeat[s.num] !== undefined ? nextSeat[s.num] : s.active !== false
-                                      ).length;
-                                      const cur = compEdit.pondSeats?.[pondKey];
-                                      if (typeof cur === 'number' && cur > nextActive) {
-                                        setCompEdit(ce => ({ ...ce, pondSeats: { ...(ce.pondSeats || {}), [pondKey]: nextActive } }));
-                                      }
-                                      return nextEdits;
-                                    });
-                                  }}
-                                />
-                                <div className="sag-hint" style={{ marginTop: '5px' }}>
-                                  {activeCount} aktif · {inactiveCount} tidak aktif{hasUnsavedEdits ? ' (belum disimpan)' : ''}
-                                </div>
-                                {heldSeats.length > 0 && (
-                                  <div style={{ marginTop: '4px', fontSize: '0.72rem', color: 'var(--red)' }}>
-                                    🔒 Peg telah ditempah (tidak boleh dinyahaktifkan) / Booked pegs (cannot be deactivated): {heldSeats.sort((a, b) => a - b).map(n => `#${n}`).join(', ')}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          <label key={pondKey} style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', background: checked ? 'var(--cream)' : 'transparent', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 700 }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => {
+                                const next = new Set(compEdit.activePondIds || []);
+                                if (event.target.checked) next.add(pondKey);
+                                else next.delete(pondKey);
+                                setCompEdit({ ...compEdit, activePondIds: Array.from(next) });
+                              }}
+                            />
+                            {pondDisplayName(pond)}
+                          </label>
                         );
                       })}
-                    </div>
-                    <div style={{ marginTop: '10px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                      Biarkan semua tidak ditanda untuk benarkan semua kolam. Hijau = peg aktif, kelabu = peg tidak aktif.
+                      {ponds.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Tiada kolam tersedia.</span>}
                     </div>
                   </div>
-                  )}
                 </div>
 
                 <div className="form-actions" style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4142,7 +3948,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <button className="btn btn-danger" onClick={() => setCompetitionDeleteTarget(compEdit as Competition)} style={{ marginRight: 'auto' }}>Padam Pertandingan</button>
                   )}
                   <button className="btn btn-ghost" onClick={closeCompetitionEditor}>Batal</button>
-                  <button className="btn btn-primary" onClick={handleCompetitionUpdate} disabled={saving || (compEditIsNew && !compEdit.name?.trim())}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
+                  <button className="btn btn-primary" onClick={handleCompetitionUpdate} disabled={saving || !compEdit.name?.trim() || !compEdit.startDate || !compEdit.endDate || !compEdit.bookingOpenAt || !compEdit.bookingCloseAt || !compEdit.pricePerPeg || !compEdit.topN || !(compEdit.activePondIds?.length)}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
                 </div>
               </div>
             </div>
@@ -4182,16 +3988,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         if (isEdit) setEditingPond({ ...editingPond, code: v }); else setNewPond({ ...newPond, code: v });
                       }}
                     />
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>Digunakan sebagai awalan nombor seat, cth. {(isEdit ? editingPond.code : newPond.code) || nextFreePondCode(ponds, isEdit ? (editingPond._docId || '') : '') || 'A'}-23. Nama kosong akan papar sebagai “Kolam {(isEdit ? editingPond.code : newPond.code) || '?'}”.</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>Digunakan sebagai awalan nombor pancang, cth. {(isEdit ? editingPond.code : newPond.code) || nextFreePondCode(ponds, isEdit ? (editingPond._docId || '') : '') || 'A'}-23. Nama kosong akan papar sebagai “Kolam {(isEdit ? editingPond.code : newPond.code) || '?'}”.</div>
                   </div>
                   <div className="form-group"><label className="form-label">Keterangan</label><input className="form-input" value={isEdit ? editingPond.desc : newPond.desc} onChange={e => isEdit ? setEditingPond({ ...editingPond, desc: e.target.value }) : setNewPond({ ...newPond, desc: e.target.value })} /></div>
                   <div className="form-group form-span" style={{ fontSize: '0.78rem', color: 'var(--text-muted)', paddingTop: '6px' }}>
-                    Harga per peg diuruskan di menu <strong>Pertandingan</strong>, bukan di Kolam.
+                    Harga Pancang diuruskan di menu <strong>Pertandingan</strong>, bukan di Kolam.
                   </div>
                   <div className="form-group">
                     <label className="form-label">
-                      Bilangan Tempat Duduk Maksimum
-                      {!isLegacy && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 6 }}>(mesti sepadan dengan peg diletakkan)</span>}
+                      Bilangan Pancang Maksimum
+                      {!isLegacy && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 6 }}>(mesti sepadan dengan pancang diletakkan)</span>}
                     </label>
                     <input
                       className="form-input"
@@ -4210,17 +4016,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
 
                 {/* ── Pond visual editor (polygon mode only) ── */}
-                {isLegacy ? (
-                  <div style={{ marginTop: '16px', padding: '12px 16px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    ℹ️ Paparan kapsul lama aktif — bilangan tempat duduk ({curMaxSeats}) digunakan secara automatik. Tukar ke paparan polygon untuk menetapkan susun atur visual.
-                  </div>
-                ) : (
+                {!isLegacy && (
                   <div style={{ marginTop: '20px' }}>
                     <div className="form-label" style={{ marginBottom: '8px', display: 'block' }}>
-                      Reka Bentuk Kolam &amp; Susunan Tempat Duduk
+                      Reka Bentuk Kolam &amp; Susunan Pancang
                       {hasPolygon && seatsPlaced > 0 && (
                         <span style={{ marginLeft: 8, fontSize: '0.78rem', color: seatCountOk ? 'var(--green)' : '#facc15' }}>
-                          {seatsPlaced}/{curMaxSeats} peg diletakkan{seatCountOk ? ' ✓' : ` — perlu tepat ${curMaxSeats}`}
+                          {seatsPlaced}/{curMaxSeats} pancang diletakkan{seatCountOk ? ' ✓' : ` — perlu tepat ${curMaxSeats}`}
                         </span>
                       )}
                     </div>
@@ -4258,7 +4060,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       if (newPond.name) {
                         // Conflict check for new pond: no existing bookings, so just count check
                         if (!isLegacy && hasPolygon && seatsPlaced > 0 && seatsPlaced !== newPondMaxSeats) {
-                          setPondSaveError(`Letakkan tepat ${newPondMaxSeats} peg pada peta (kini ${seatsPlaced}/${newPondMaxSeats}).`);
+                          setPondSaveError(`Letakkan tepat ${newPondMaxSeats} pancang pada peta (kini ${seatsPlaced}/${newPondMaxSeats}).`);
                           return;
                         }
                         const newCodeErr = pondCodeError(newPond.code, ponds);
@@ -4340,6 +4142,44 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         onAddRemark={handleAddRemark}
         onClose={() => setReviewTarget(null)}
       />
+
+      {receiptHistoryBooking && (() => {
+        const receipts = receiptHistoryBooking.receipts?.length
+          ? receiptHistoryBooking.receipts
+          : (receiptHistoryBooking.receiptData
+              ? [{
+                  url: receiptHistoryBooking.receiptData,
+                  amount: receiptHistoryBooking.amount,
+                  status: 'pending' as const,
+                  submittedAt: receiptHistoryBooking.createdAt || '',
+                }]
+              : []);
+        return (
+          <div className="modal-overlay open" style={{ zIndex: 1080 }} onClick={() => setReceiptHistoryBooking(null)}>
+            <div className="modal" style={{ maxWidth: 620, width: '94%' }} onClick={(event) => event.stopPropagation()}>
+              <div className="modal-header">
+                <div className="modal-title">Receipt — {receiptHistoryBooking.bookingRef || receiptHistoryBooking.id.slice(0, 10)}</div>
+                <button className="modal-close" onClick={() => setReceiptHistoryBooking(null)}>×</button>
+              </div>
+              <div className="modal-body">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {receipts.map((receipt, index) => (
+                    <div key={`${receipt.url}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--cream)' }}>
+                      <div>
+                        <strong>Receipt #{index + 1}</strong>
+                        <div style={{ marginTop: 4, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Tarikh diterima: {receipt.submittedAt ? formatDate(receipt.submittedAt, { time: true }) : '-'}</div>
+                        <div style={{ marginTop: 2, fontSize: '0.78rem', color: 'var(--text-muted)' }}>RM {receipt.amount} · {receipt.status === 'accepted' ? 'Disahkan' : receipt.status === 'rejected' ? 'Ditolak' : 'Menunggu Semakan'}</div>
+                      </div>
+                      {receipt.url && <button className="btn btn-sm btn-primary" onClick={() => handleViewReceipt(receipt.url)}>Lihat Receipt</button>}
+                    </div>
+                  ))}
+                  {receipts.length === 0 && <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>Tiada receipt diterima.</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* In-page receipt lightbox (replaces opening a new browser tab) */}
       {receiptViewerUrl && (() => {

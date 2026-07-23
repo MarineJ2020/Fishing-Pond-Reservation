@@ -191,7 +191,12 @@ app.post('/acquireSeatLock', verifyToken, async (req, res) => {
 });
 
 app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req, res) => {
-    const { competitionId, pondId, seatIds, seatNumbers, paymentType, amount, totalAmount, receiptUrl, notes, createdByStaff } = req.body;
+    const {
+        competitionId, competitionName, pondId, pondCode, pondSelections,
+        seatIds, seatNumbers, paymentType, amount, totalAmount, receiptUrl,
+        bankReference, notes, createdByStaff, userEmail, userName, userPhone,
+        bookingPhone,
+    } = req.body;
     const user = req.user;
 
     if (!competitionId || !pondId || !seatIds?.length || !paymentType || amount == null) {
@@ -223,13 +228,22 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
         const bookingDoc = await adminDb.collection('bookings').add({
             bookingRef,
             userId: adminDb.doc(`users/${user.uid}`),
+            userEmail: staffMode ? (userEmail || '') : (user.email || userEmail || ''),
+            userName: staffMode ? (userName || '') : (userName || user.name || ''),
+            userPhone: userPhone || '',
+            bookingPhone: bookingPhone || '',
+            createdByUid: staffMode ? user.uid : null,
             competitionId: adminDb.doc(`competitions/${competitionId}`),
+            competitionName: competitionName || '',
             pondId: adminDb.doc(`ponds/${pondId}`),
+            pondCode: pondCode || '',
+            pondSelections: Array.isArray(pondSelections) ? pondSelections : [],
             seatIds: seatIds.map((id) => adminDb.doc(`seats/${id}`)),
             seatNumbers: seatNumbers || [],
             paymentType,
             paymentStatus: staffMode ? 'APPROVED' : 'PENDING_APPROVAL',
             receiptUrl: receiptUrl || null,
+            bankReference: bankReference || '',
             receipts: initialReceipts,
             paidAmount: staffMode ? amount : 0,
             staffNotes: notes || '',
@@ -261,7 +275,7 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
                 snapshot.forEach((docSnap) => docSnap.ref.delete());
             });
 
-        return res.json({ bookingId: bookingDoc.id, bookingRef });
+        return res.json({ bookingId: bookingDoc.id, bookingRef, status: staffMode ? 'confirmed' : 'pending' });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to create booking.' });

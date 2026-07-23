@@ -234,13 +234,13 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
           </div>
           <div className="seat-legend">
             <div className="legend-item">
-              <div className="legend-dot avail"></div> Available
+              <div className="legend-dot avail"></div> Tersedia
             </div>
             <div className="legend-item">
-              <div className="legend-dot selected"></div> Selected
+              <div className="legend-dot selected"></div> Dipilih
             </div>
             <div className="legend-item">
-              <div className="legend-dot booked"></div> Taken
+              <div className="legend-dot booked"></div> Telah ditempah
             </div>
           </div>
         </div>
@@ -301,9 +301,9 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
               </button>
             )}
             <div className="seat-legend">
-              <div className="legend-item"><div className="legend-dot avail"></div> Available</div>
-              <div className="legend-item"><div className="legend-dot selected"></div> Selected</div>
-              <div className="legend-item"><div className="legend-dot booked"></div> Taken</div>
+              <div className="legend-item"><div className="legend-dot avail"></div> Tersedia</div>
+              <div className="legend-item"><div className="legend-dot selected"></div> Dipilih</div>
+              <div className="legend-item"><div className="legend-dot booked"></div> Telah ditempah</div>
             </div>
           </div>
         </div>

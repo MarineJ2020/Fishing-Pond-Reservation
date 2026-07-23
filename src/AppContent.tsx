@@ -26,7 +26,7 @@ import { useAuth } from './hooks/useAuth';
 import { useCountdown } from './hooks/useCountdown';
 import { useSEO } from './hooks/useSEO';
 import { fmt, formatDate } from './utils';
-import { formatSeatList, pondDisplayName } from './utils/seatLabel';
+import { formatSeat, pondDisplayName } from './utils/seatLabel';
 import { countOutstanding, hasOutstandingBalance } from './utils/booking';
 import { trackEvent } from './utils/analytics';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindowState } from './utils/competition';
@@ -43,6 +43,21 @@ const renderHeadline = (text: string): React.ReactNode => {
   return parts.map((part, i) => (i % 2 === 1 ? <span key={i}>{part}</span> : part));
 };
 
+const bookingPancangList = (booking: Booking): string => {
+  const selections = booking.pondSelections?.length
+    ? booking.pondSelections
+    : [{ pondCode: booking.pondCode, seats: booking.seats }];
+  return selections.flatMap((selection) => selection.seats.map(
+    (seatNum) => formatSeat(selection.pondCode, seatNum),
+  )).join(', ');
+};
+
+const bookingStatusLabel = (status: Booking['status']): string => {
+  if (status === 'confirmed') return 'Disahkan';
+  if (status === 'rejected') return 'Dibatalkan';
+  return 'Menunggu Semakan';
+};
+
 const AppContent: React.FC = () => {
   const {
     db,
@@ -50,15 +65,18 @@ const AppContent: React.FC = () => {
     selectedPond,
     selectedCompetitionId,
     selectedSeats,
+    selectedPondSeats,
     payType,
     receiptData,
     user,
     adminProxyName,
     adminProxyEmail,
     adminProxyPhone,
+    bankReference,
     setPond,
     setSelectedCompetitionId,
     toggleSeat,
+    removeSeat,
     setSeats,
     setPayType,
     setReceiptData,
@@ -66,6 +84,7 @@ const AppContent: React.FC = () => {
     setAdminProxyName,
     setAdminProxyEmail,
     setAdminProxyPhone,
+    setBankReference,
     submitBooking,
     updateDB,
     reloadDB
@@ -73,7 +92,7 @@ const AppContent: React.FC = () => {
   const { addToast, setAuthModalOpen, authModalOpen } = useUI();
   const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToProfile, goToConfirmed, goToBookingDetail, goToCMS } = useNavigation();
   const location = useLocation();
-  const { login, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady } = useAuth();
+  const { login, resetPassword, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady } = useAuth();
   const [completeProfileOpen, setCompleteProfileOpen] = useState(false);
   useSEO(currentSection, db.settings);
 
@@ -107,7 +126,6 @@ const AppContent: React.FC = () => {
   const [seatModalOpen, setSeatModalOpen] = useState(false);
   const [choiceOpen, setChoiceOpen] = useState(false);
   const [rulesPdfPreview, setRulesPdfPreview] = useState<string | null>(null);
-  const choiceProceedRef = useRef<() => void>(() => {});
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
   const [myBookingsSort, setMyBookingsSort] = useState<'latest' | 'oldest'>('latest');
   // Set directly from submitBooking()'s return value — db.bookings[0] isn't
@@ -141,7 +159,12 @@ const AppContent: React.FC = () => {
       const bookingCompetitionId = booking.competitionId || db.comp?.id || '';
       if (bookingCompetitionId !== activeCompetitionId) return;
       if (booking.status !== 'pending' && booking.status !== 'confirmed') return;
-      booking.seats.forEach((seatNum) => occupied.add(`${booking.pondId}-${seatNum}`));
+      const selections = booking.pondSelections?.length
+        ? booking.pondSelections
+        : [{ pondId: booking.pondId, seats: booking.seats }];
+      selections.forEach((selection) => {
+        selection.seats.forEach((seatNum) => occupied.add(`${selection.pondId}-${seatNum}`));
+      });
     });
 
     const scopedPonds = db.ponds.map((pond) => {
@@ -155,7 +178,7 @@ const AppContent: React.FC = () => {
         .slice(0, cap)
         .map((seat) => ({
           ...seat,
-          status: occupied.has(`${pond.id}-${seat.num}`) ? 'booked' : 'available'
+          status: occupied.has(`${pond.id}-${seat.num}`) ? ('booked' as const) : ('available' as const)
         }));
 
       return {
@@ -188,7 +211,12 @@ const AppContent: React.FC = () => {
         const bookingCompId = booking.competitionId || db.comp?.id || '';
         if (bookingCompId !== compId) return;
         if (booking.status !== 'pending' && booking.status !== 'confirmed') return;
-        booking.seats.forEach((seatNum: number) => occupied.add(`${booking.pondId}-${seatNum}`));
+        const selections = booking.pondSelections?.length
+          ? booking.pondSelections
+          : [{ pondId: booking.pondId, seats: booking.seats }];
+        selections.forEach((selection) => {
+          selection.seats.forEach((seatNum: number) => occupied.add(`${selection.pondId}-${seatNum}`));
+        });
       });
       const scopedPonds = db.ponds.filter((pond) => {
         if (!allowedPondIds.length) return true;
@@ -228,7 +256,7 @@ const AppContent: React.FC = () => {
       const end = new Date(c.endDate || c.startDate).getTime();
       return end >= now;
     });
-    return upcoming || sortedUpcomingComps[0] || null;
+    return upcoming || null;
   }, [sortedUpcomingComps]);
   const secondCompetition = useMemo(() => {
     if (!featuredCompetition) return null;
@@ -244,6 +272,19 @@ const AppContent: React.FC = () => {
   const activePond = selectedPond
     ? bookablePonds.find((p) => p.id === selectedPond) ?? null
     : null;
+  const selectedPancangs = useMemo(() => Object.entries(selectedPondSeats).flatMap(([pondIdRaw, seats]) => {
+    const pond = db.ponds.find((candidate) => candidate.id === Number(pondIdRaw));
+    if (!pond) return [];
+    return seats.map((seatNum) => ({
+      pondId: pond.id,
+      seatNum,
+      label: formatSeat(pond.code, seatNum),
+      pondName: pondDisplayName(pond),
+    }));
+  }), [db.ponds, selectedPondSeats]);
+  const selectedSeatCount = selectedPancangs.length;
+  const selectedSeatLabels = selectedPancangs.map((selection) => selection.label);
+  const selectedSeatNumbers = selectedPancangs.map((selection) => selection.seatNum);
 
   useEffect(() => {
     const updateCountdown = () => {
@@ -306,7 +347,6 @@ const AppContent: React.FC = () => {
   // fast first click after page load.
   const openBookingChoice = (proceed: () => void) => {
     if (!dbLoading && !db.settings.whatsapp) { proceed(); return; }
-    choiceProceedRef.current = proceed;
     setChoiceOpen(true);
   };
 
@@ -331,12 +371,16 @@ const AppContent: React.FC = () => {
       addToast('Sila sahkan email anda dahulu sebelum menempah.', 'error');
       return;
     }
-    if (!selectedSeats.length) {
+    if (!selectedSeatCount) {
       addToast('Select at least one peg', 'error');
       return;
     }
     if (!receiptData) {
       addToast('Upload your payment receipt', 'error');
+      return;
+    }
+    if (!bankReference.trim()) {
+      addToast('Sila masukkan No. Rujukan Bank.', 'error');
       return;
     }
     if (!selectedPond) return;
@@ -449,7 +493,9 @@ const AppContent: React.FC = () => {
     goHome();
   };
 
-  const userBookings = user ? db.bookings.filter(b => b.userId === user.uid || b.userId === user.email) : [];
+  const userBookings = user ? db.bookings.filter(
+    (booking) => booking.userId === user.uid || booking.userId === user.email || booking.createdByUid === user.uid,
+  ) : [];
   const outstandingCount = countOutstanding(userBookings);
   const sortedUserBookings = [...userBookings].sort((a, b) => {
     const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
@@ -821,17 +867,16 @@ const AppContent: React.FC = () => {
     };
     const padCD = (n: number) => n.toString().padStart(2, '0');
 
-    const featuredName = featuredCompetition?.name || 'Pertandingan Hadapan';
-    const featuredDate = formatEventDate(featuredCompetition?.startDate);
-    const featuredTime = formatEventTime(featuredCompetition?.startDate);
-    const featuredPondsCount = featuredCompetition?.activePondIds?.length || totalPonds || 0;
-    const featuredSlots = featuredCompetition?.id
-      ? competitionAvailableSeats.get(featuredCompetition.id) ?? availablePegs
-      : availablePegs;
+    const featuredName = featuredCompetition?.name || 'Ikuti perkembangan untuk acara akan datang';
+    const featuredDate = featuredCompetition ? formatEventDate(featuredCompetition.startDate) : '—';
+    const featuredTime = featuredCompetition ? formatEventTime(featuredCompetition.startDate) : '—';
+    const featuredPondsCount = featuredCompetition ? (featuredCompetition.activePondIds?.length || totalPonds || 0) : '—';
     const samplePrice = featuredCompetition?.pricePerPeg ?? db.ponds[0]?.seats[0]?.price;
-    const featuredFee = samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami';
+    const featuredFee = featuredCompetition ? (samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami') : '—';
     const featuredPrize = (featuredCompetition?.prizes?.[0] as any);
-    const featuredPrizeText = featuredPrize?.prize || (featuredPrize?.amount ? `RM${featuredPrize.amount}` : 'Cabutan bertuah & hadiah lumayan');
+    const featuredPrizeText = featuredCompetition
+      ? (featuredPrize?.prize || (featuredPrize?.amount ? `RM${featuredPrize.amount}` : 'Cabutan bertuah & hadiah lumayan'))
+      : '—';
     const isCountdownReady = !!featuredCompetition && featuredCountdown.status !== 'idle';
     const showLive = featuredCountdown.status === 'live';
     const showEnded = featuredCountdown.status === 'ended';
@@ -887,7 +932,7 @@ const AppContent: React.FC = () => {
             <h2 className="kks-headline">{renderHeadline(settings.competitionsTitle || '')}</h2>
           </div>
 
-          {featuredCompetition ? (
+          {(
             <>
               <div className="kks-countdown">
                 <div className="kks-countdown-label">
@@ -913,33 +958,34 @@ const AppContent: React.FC = () => {
                     <div className="kks-event-title">
                       <div className="kks-eyebrow">Acara Pilihan</div>
                       <h3>{featuredName}</h3>
+                      {featuredCompetition && <p className="kks-ticket-hot">🔥 TIKET LARIS TERJUAL! 🔥</p>}
                     </div>
                     <span className={`kks-badge${showLive ? ' is-live' : ''}`}>
-                      {showLive ? '🔴 Live' : showEnded ? 'Selesai' : 'Pendaftaran Dibuka'}
+                      {showLive ? '🔴 Live' : showEnded ? 'Selesai' : featuredCompetition ? 'Pendaftaran Dibuka' : 'Akan Datang'}
                     </span>
                   </div>
                   <div className="kks-event-body">
-                    <div className="kks-event-grid">
+                    <div className={`kks-event-grid${featuredCompetition ? '' : ' is-disabled'}`}>
                       <div className="kks-event-metric"><small>Tarikh</small><strong>{featuredDate}</strong></div>
                       <div className="kks-event-metric"><small>Masa</small><strong>{featuredTime}</strong></div>
                       <div className="kks-event-metric"><small>Kolam Dibuka</small><strong>{featuredPondsCount}</strong></div>
-                      <div className="kks-event-metric"><small>Pancang Tersedia</small><strong>{featuredSlots}</strong></div>
                     </div>
-                    <div className="kks-event-prize">
+                    <div className={`kks-event-prize${featuredCompetition ? '' : ' is-disabled'}`}>
                       <div><small>Yuran</small><strong>{featuredFee}</strong></div>
                       <div><small>Hadiah</small><strong>{featuredPrizeText}</strong></div>
                     </div>
                     <div className="kks-event-actions">
                       <button
                         className="btn btn-navy"
+                        disabled={!featuredCompetition}
                         onClick={() => openBookingChoice(() => {
                           if (featuredCompetition?.id) selectCompetition(featuredCompetition.id);
                           setPondPickerOpen(true);
                         })}
                       >
-                        Tempah Slot
+                        Tempah Pancang
                       </button>
-                      <a className="btn btn-light" onClick={() => handleNavigation('rules')}>Syarat Acara</a>
+                      <button className="btn btn-light" type="button" disabled={!featuredCompetition} onClick={() => handleNavigation('rules')}>Syarat Acara</button>
                     </div>
                   </div>
                 </article>
@@ -965,10 +1011,6 @@ const AppContent: React.FC = () => {
                 </aside>
               </div>
             </>
-          ) : (
-            <div className="kks-empty-state">
-              <p>Tiada pertandingan semasa atau akan datang buat masa ini. Nantikan pertandingan baru!</p>
-            </div>
           )}
         </div>
       </section>
@@ -1115,22 +1157,17 @@ const AppContent: React.FC = () => {
         const bookingClosedMsg = bookingWindowLabel(selectedCompetition);
         const hasCompetition = Boolean(selectedCompetition?.id) && !competitionEnded && bookingOpen;
         const hasPond = Boolean(bookedPond);
-        const hasSeats = selectedSeats.length > 0;
+        const hasSeats = selectedSeatCount > 0;
         const currentPricePerPeg = Math.max(0, selectedCompetition?.pricePerPeg ?? bookedPond?.seats?.[0]?.price ?? 0);
-        const subtotal = selectedSeats.length * currentPricePerPeg;
+        const subtotal = selectedSeatCount * currentPricePerPeg;
         const payableNow = payType === 'deposit' ? Math.ceil(subtotal * 0.5) : subtotal;
         const balanceDue = subtotal - payableNow;
         const samplePrice = db.ponds[0]?.seats[0]?.price || 0;
-        // Booking hero event-info card (V5) — derived from the selected competition.
-        const heroFeeVal = selectedCompetition?.pricePerPeg ?? samplePrice;
-        const heroFee = heroFeeVal ? `RM${heroFeeVal} / Joran` : 'Hubungi kami';
-        const heroSlots = competitionScopedPonds.reduce((sum, p) => sum + p.seats.filter((s) => s.status === 'available').length, 0);
-        const heroDate = formatDate(selectedCompetition?.startDate, { weekday: true }) || 'Akan diumumkan';
         // The details phase is only meaningful once seats are picked; if seats get
         // reset (e.g. pond/competition change) we fall back to the seat phase.
         const detailsPhase = bookingPhase === 'details' && hasSeats && hasCompetition;
         const goToDetails = () => {
-          if (!selectedSeats.length) return;
+          if (!selectedSeatCount) return;
           setBookingPhase('details');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         };
@@ -1155,27 +1192,6 @@ const AppContent: React.FC = () => {
 
         return (
           <div className="bk-page">
-            <section className="bk-hero">
-              <div className="bk-hero-inner bk-hero-grid">
-                <div className="bk-hero-copy">
-                  <div className="bk-eyebrow">Tempahan Pertandingan</div>
-                  <h1 className="bk-hero-title">Pilih Spot <span>Macam Pro</span></h1>
-                  <p>Pilih pertandingan, kolam dan tempat duduk dengan yakin. Peta pancang dibuka dalam popup supaya mudah dikawal di telefon.</p>
-                </div>
-                {hasCompetition && (
-                  <aside className="bk-hero-card" aria-label="Maklumat event dipilih">
-                    <div className="bk-hero-card-eyebrow">Event Dipilih</div>
-                    <h3>{selectedCompetition?.name}</h3>
-                    <div className="bk-hero-card-stats">
-                      <div><small>Tarikh</small><strong>{heroDate}</strong></div>
-                      <div><small>Pancang Tersedia</small><strong>{heroSlots}</strong></div>
-                      <div><small>Yuran</small><strong>{heroFee}</strong></div>
-                    </div>
-                  </aside>
-                )}
-              </div>
-            </section>
-
             <section className="bk-shell">
               <div className="bk-progress" aria-label="Kemajuan tempahan">
                 <div className={stepClass(step1 as any)}><span>1</span>Pilih Pertandingan</div>
@@ -1193,7 +1209,7 @@ const AppContent: React.FC = () => {
                         <div className="bk-panel-head">
                           <div className="bk-eyebrow">Langkah 01</div>
                           <h2>Pilih Pertandingan</h2>
-                          <p>Menukar pertandingan akan reset pilihan kolam, peg, dan resit bayaran.</p>
+                          <p>Menukar pertandingan akan reset pilihan kolam, pancang, dan resit bayaran.</p>
                         </div>
                         <div className="bk-panel-body">
                           <div className="bk-choice-grid">
@@ -1295,7 +1311,6 @@ const AppContent: React.FC = () => {
                                       onClick={() => { if (!disabled) { setPond(pond.id); setSeatModalOpen(true); } }}
                                     >
                                       <strong>{pondDisplayName(pond)}</strong>
-                                      <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} pancang tersedia`}</small>
                                     </button>
                                   );
                                 })}
@@ -1317,13 +1332,22 @@ const AppContent: React.FC = () => {
                                 <div className="bk-seatprev-main">
                                   <div className="bk-seat-icon"><i className="fa-solid fa-chair"></i></div>
                                   <div>
-                                    <h3>{hasSeats ? `${pondDisplayName(bookedPond)} — ${selectedSeats.length} tempat dipilih` : 'Belum pilih tempat'}</h3>
+                                    <h3>{hasSeats ? `${selectedSeatCount} pancang dipilih` : 'Belum pilih pancang'}</h3>
                                     <p>{hasSeats
-                                      ? `Pancang: ${formatSeatList(bookedPond?.code, selectedSeats)}. Jumlah yuran RM${subtotal}.`
+                                      ? `Pancang boleh dipilih daripada kolam yang berbeza. Jumlah yuran RM${subtotal}.`
                                       : hasPond ? 'Klik "Buka Peta Pancang" untuk pilih satu atau lebih tempat.' : 'Pilih kolam dahulu untuk membuka peta pancang.'}</p>
+                                    {hasSeats && (
+                                      <div className="bk-selected-pancangs" aria-label="Pancang dipilih">
+                                        {selectedPancangs.map((selection) => (
+                                          <button key={`${selection.pondId}-${selection.seatNum}`} type="button" onClick={() => removeSeat(selection.pondId, selection.seatNum)}>
+                                            {selection.label}<span aria-hidden="true">×</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
                                     <div className="bk-tags">
                                       <span className="bk-tag"><i className="fa-solid fa-water"></i> {bookedPond ? pondDisplayName(bookedPond) : 'Belum pilih kolam'}</span>
-                                      <span className="bk-tag sel"><i className="fa-solid fa-ticket"></i> {hasSeats ? `${selectedSeats.length} pancang` : 'Tiada pancang'}</span>
+                                      <span className="bk-tag sel"><i className="fa-solid fa-ticket"></i> {hasSeats ? `${selectedSeatCount} pancang` : 'Tiada pancang'}</span>
                                     </div>
                                   </div>
                                 </div>
@@ -1347,11 +1371,13 @@ const AppContent: React.FC = () => {
                         <BookingForm
                           user={user}
                           pond={bookedPond}
-                          selectedSeats={selectedSeats}
+                          selectedSeats={selectedSeatNumbers}
+                          selectedSeatLabels={selectedSeatLabels}
                           pricePerPeg={currentPricePerPeg}
                           isSubmitting={bookingSubmitting}
                           payType={payType}
                           receiptData={receiptData}
+                          bankReference={bankReference}
                           settings={db.settings}
                           adminProxyName={adminProxyName}
                           adminProxyEmail={adminProxyEmail}
@@ -1360,6 +1386,7 @@ const AppContent: React.FC = () => {
                           onSetPayType={setPayType}
                           onHandleReceiptChange={handleReceiptChange}
                           onClearReceipt={() => setReceiptData(null, null)}
+                          onBankReferenceChange={setBankReference}
                           onSubmitBooking={handleSubmitBooking}
                           onOpenAuth={() => setAuthModalOpen(true)}
                           onAdminProxyNameChange={setAdminProxyName}
@@ -1382,9 +1409,9 @@ const AppContent: React.FC = () => {
                   </div>
                   <div className="bk-summary-body">
                     <div className="bk-summary-line"><span>Pertandingan</span><strong>{hasCompetition ? selectedCompetition?.name : 'Belum dipilih'}</strong></div>
-                    <div className="bk-summary-line"><span>Kolam</span><strong>{bookedPond ? pondDisplayName(bookedPond) : 'Belum dipilih'}</strong></div>
-                    <div className="bk-summary-line"><span>Pancang</span><strong>{selectedSeats.length ? formatSeatList(bookedPond?.code, selectedSeats) : 'Belum dipilih'}</strong></div>
-                    <div className="bk-summary-line"><span>Bilangan</span><strong>{selectedSeats.length} pancang</strong></div>
+                    <div className="bk-summary-line"><span>Kolam</span><strong>{selectedPancangs.length ? Array.from(new Set(selectedPancangs.map((selection) => selection.pondName))).join(', ') : (bookedPond ? pondDisplayName(bookedPond) : 'Belum dipilih')}</strong></div>
+                    <div className="bk-summary-line"><span>Pancang</span><strong>{selectedSeatLabels.length ? selectedSeatLabels.join(', ') : 'Belum dipilih'}</strong></div>
+                    <div className="bk-summary-line"><span>Bilangan</span><strong>{selectedSeatCount} pancang</strong></div>
                     <div className="bk-summary-line"><span>Bayaran</span><strong>{payType === 'deposit' ? 'Deposit 50%' : 'Penuh'}</strong></div>
                     {payType === 'deposit' && hasSeats && (
                       <div className="bk-summary-line"><span>Baki Bayaran</span><strong>RM{balanceDue}</strong></div>
@@ -1404,7 +1431,7 @@ const AppContent: React.FC = () => {
                       </button>
                     ) : (
                       <button className="btn btn-light w-full" type="button" onClick={goToSeats}>
-                        <i className="fa-solid fa-chair"></i> Tukar Tempat
+                        <i className="fa-solid fa-chair"></i> Tukar Pancang
                       </button>
                     )}
                     {hasPond && !detailsPhase && (
@@ -1422,7 +1449,7 @@ const AppContent: React.FC = () => {
               <div className="bk-mobile-continue">
                 <div>
                   <small>Pancang Dipilih</small>
-                  <strong>{pondDisplayName(bookedPond)} · {selectedSeats.length} pancang · RM{payableNow}</strong>
+                  <strong>{selectedSeatCount} pancang · RM{payableNow}</strong>
                 </div>
                 <button className={`btn btn-red${hintCls('continue')}`} type="button" onClick={goToDetails}>
                   <i className="fa-solid fa-arrow-right"></i> Teruskan
@@ -1437,7 +1464,6 @@ const AppContent: React.FC = () => {
                   <div className="bk-seat-modal-head">
                     <div>
                       <div className="bk-eyebrow">Pilihan Pancang</div>
-                      <h2>{pondDisplayName(bookedPond)}</h2>
                     </div>
                     <button className="bk-icon-btn" type="button" onClick={() => setSeatModalOpen(false)} aria-label="Tutup popup">
                       <i className="fa-solid fa-xmark"></i>
@@ -1461,7 +1487,6 @@ const AppContent: React.FC = () => {
                               onClick={() => { if (!disabled) setPond(pond.id); }}
                             >
                               <strong>{pondDisplayName(pond)}</strong>
-                              <small>{closed ? 'Ditutup' : full ? 'Penuh' : `${avail} pancang tersedia`}</small>
                             </button>
                           );
                         })}
@@ -1474,7 +1499,13 @@ const AppContent: React.FC = () => {
                   <div className="bk-seat-modal-foot">
                     <div>
                       <small>Pilihan Semasa</small>
-                      <strong>{selectedSeats.length ? `${selectedSeats.length} pancang · RM${subtotal}` : 'Belum pilih pancang'}</strong>
+                      <div className="bk-selected-pancangs">
+                        {selectedPancangs.length ? selectedPancangs.map((selection) => (
+                          <button key={`${selection.pondId}-${selection.seatNum}`} type="button" onClick={() => removeSeat(selection.pondId, selection.seatNum)}>
+                            {selection.label}<span aria-hidden="true">×</span>
+                          </button>
+                        )) : <strong>Belum pilih pancang</strong>}
+                      </div>
                     </div>
                     <button className={`btn btn-red${hasSeats ? ' bk-hint' : ''}`} type="button" disabled={!hasSeats} onClick={() => setSeatModalOpen(false)}>
                       <i className="fa-solid fa-check"></i> Sahkan Pancang
@@ -1530,7 +1561,7 @@ const AppContent: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px', marginBottom: '28px' }}>
               <div>
                 <div style={{ fontFamily: 'var(--fd)', fontSize: '28px', fontWeight: 800, letterSpacing: '.5px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  My Bookings
+                  Tempahan Saya
                   {outstandingCount > 0 && (
                     <span
                       title={`${outstandingCount} tempahan menunggu pembayaran baki`}
@@ -1559,7 +1590,7 @@ const AppContent: React.FC = () => {
                   </select>
                 )}
                 <button className="btn btn-primary" onClick={() => goToBook()} style={{ borderRadius: '12px' }}>
-                  <i className="fa-solid fa-plus"></i> New Booking
+                  <i className="fa-solid fa-plus"></i> TEMPAHAN BARU
                 </button>
               </div>
             </div>
@@ -1578,12 +1609,16 @@ const AppContent: React.FC = () => {
                   <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '3px' }}>{fmt(b.createdAt)}</div>
                 </div>
                 <div>
-                  <div className="booking-pond">{b.pondName}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--gold)', marginTop: '2px', fontWeight: 600 }}>{b.competitionName || selectedCompetition?.name || db.comp.name}</div>
+                  <div className="booking-pond">{b.competitionName || selectedCompetition?.name || db.comp.name}</div>
+                  <div className="booking-customer-info">
+                    <strong>{b.userName}</strong>
+                    <span>{b.bookingPhone || b.userPhone || '-'}</span>
+                    {b.userEmail && <span>{b.userEmail}</span>}
+                  </div>
                   <div className="booking-meta">
-                    <span>📍 Pancang: {b.seats.join(', ')}</span>
-                    <span>💰 RM {b.paidAmount ?? b.amount}</span>
-                    <span>{b.paymentType === 'deposit' ? '💳 Deposit' : '💳 Full'}</span>
+                    <span>📍 Pancang: {bookingPancangList(b)}</span>
+                    <span>💰 Jumlah: RM {b.totalAmount ?? b.amount}</span>
+                    <span>{b.paymentType === 'deposit' ? '💳 Deposit' : '💳 Bayaran Penuh'}</span>
                     {hasOutstandingBalance(b) && (
                       <span style={{ color: 'var(--red)', fontWeight: 700 }}>⚠ Baki RM {b.balanceDue}</span>
                     )}
@@ -1592,7 +1627,7 @@ const AppContent: React.FC = () => {
                 <div>
                   <span className={`status-badge st-${b.status}`}>
                     <i className={`fa-solid fa-${b.status === 'pending' ? 'clock' : b.status === 'confirmed' ? 'check-circle' : 'xmark-circle'}`}></i>{' '}
-                    {b.status.charAt(0).toUpperCase() + b.status.slice(1)}
+                    {bookingStatusLabel(b.status)}
                   </span>
                 </div>
               </div>
@@ -1634,39 +1669,30 @@ const AppContent: React.FC = () => {
         return (
           <div className="confirm-page">
             <div className="confirm-icon">🎣</div>
-            <div style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '6px' }}>BOOKING SUBMITTED</div>
+            <div style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '6px' }}>TEMPAHAN TELAH DIHANTAR</div>
             <div className="confirm-id">{lastBooking?.bookingRef || lastBooking?.id || 'CB1234567'}</div>
             <div className="confirm-detail">
               {lastBooking ? (
                 <>
-                  <strong>{lastBooking.pondName}</strong><br />
-                  Competition: {lastBooking.competitionName || selectedCompetition?.name || db.comp.name}<br />
-                  Pancang: {lastBooking.seats.join(', ')}<br />
-                  Amount: RM {lastBooking.amount} ({lastBooking.paymentType === 'deposit' ? '50% deposit' : 'full payment'})<br />
+                  Pertandingan: {lastBooking.competitionName || selectedCompetition?.name || db.comp.name}<br />
+                  Pancang: {bookingPancangList(lastBooking)}<br />
+                  Jumlah Bayaran: RM {lastBooking.amount} ({lastBooking.paymentType === 'deposit' ? 'Deposit' : 'Bayaran Penuh'})<br />
                   <br />
-                  {lastBooking.status === 'confirmed' ? (
-                    <>Booking is <strong>completed</strong>.</>
-                  ) : (
-                    <>
-                      Booking is <strong>pending verification</strong>.<br />
-                      Staff will confirm via email to <strong>{lastBooking.userEmail || 'your registered email'}</strong>.
-                    </>
-                  )}
+                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami di +6017-9735002.
                 </>
               ) : (
                 <>
-                  <strong>Pond Name</strong><br />
-                  Pegs: 1, 2<br />
-                  Amount: RM 100 (full payment)<br />
+                  Pertandingan: -<br />
+                  Pancang: -<br />
+                  Jumlah Bayaran: RM 0 (Bayaran Penuh)<br />
                   <br />
-                  Booking is <strong>pending verification</strong>.<br />
-                  Staff will confirm via email.
+                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami di +6017-9735002.
                 </>
               )}
             </div>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '28px', flexWrap: 'wrap' }}>
-              <button className="btn btn-primary" onClick={() => goToMyBookings()}>View My Bookings</button>
-              <button className="btn btn-ghost" onClick={() => goHome()}>Back to Home</button>
+              <button className="btn btn-primary" onClick={() => goToMyBookings()}>SEMAK TEMPAHAN SAYA</button>
+              <button className="btn btn-ghost" onClick={() => goHome()}>KEMBALI KE HALAMAN UTAMA</button>
             </div>
           </div>
         );
@@ -1692,6 +1718,7 @@ const AppContent: React.FC = () => {
           user.role === 'STAFF' || user.role === 'ADMIN'
           || booking.userId === user.uid
           || booking.userId === user.email
+          || booking.createdByUid === user.uid
         );
         if (!canView) {
           return (
@@ -1794,6 +1821,7 @@ const AppContent: React.FC = () => {
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         onLogin={handleLogin}
+        onResetPassword={resetPassword}
         onRegister={handleRegister}
         onGoogleLogin={handleGoogleLogin}
         onResendVerification={resendVerification}
@@ -1854,7 +1882,7 @@ const AppContent: React.FC = () => {
       <BookingChoiceModal
         open={choiceOpen}
         onClose={() => setChoiceOpen(false)}
-        onWebsite={() => choiceProceedRef.current()}
+        onWebsite={() => goToBook()}
         whatsapp={db.settings.whatsapp}
         message="Hi KKS, saya berminat untuk menempah slot pertandingan."
       />

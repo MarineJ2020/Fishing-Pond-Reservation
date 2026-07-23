@@ -198,6 +198,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
 
   const statusLabel = cdStatus === 'upcoming' ? 'Akan Datang' : cdStatus === 'live' ? 'Live' : 'Tamat';
   const cdLabel = cdStatus === 'upcoming' ? 'Bermula dalam' : cdStatus === 'live' ? 'Tamat dalam' : 'Status Event';
+  const hasOngoingEvent = cdStatus === 'live';
 
   return (
     <div className="kl-page">
@@ -205,11 +206,11 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
       <section className="kl-hero">
         <div className="kl-hero-inner">
           <div className="kl-hero-copy">
-            <div className="kl-eyebrow">Keputusan Langsung</div>
-            <h1>Live <span>Ranking</span></h1>
-            <p>Lihat kedudukan peserta secara langsung. Nama event dan masa berbaki dipaparkan di sini.</p>
+            <div className="kl-eyebrow">Live Ranking</div>
+            <h1>Keputusan <span>Langsung</span></h1>
+            <p>Semak kedudukan semasa, rekod tangkapan terkini dan keputusan peserta sepanjang pertandingan berlangsung.</p>
           </div>
-          <aside className={`kl-live-box ${cdStatus}`}>
+          {hasOngoingEvent && <aside className={`kl-live-box ${cdStatus}`}>
             <div className="kl-live-head">
               <div>
                 <small>Live Event</small>
@@ -219,18 +220,14 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             </div>
             <div className="kl-cd">
               <div className="kl-cd-label">{cdLabel}</div>
-              {cdStatus === 'ended' ? (
-                <div className="kl-cd-ended">Pertandingan telah tamat</div>
-              ) : (
-                <div className="kl-cd-grid">
-                  <div className="kl-cd-item"><strong>{cdBlocks.d}</strong><small>Hari</small></div>
-                  <div className="kl-cd-item"><strong>{cdBlocks.h}</strong><small>Jam</small></div>
-                  <div className="kl-cd-item"><strong>{cdBlocks.m}</strong><small>Minit</small></div>
-                  <div className="kl-cd-item"><strong>{cdBlocks.s}</strong><small>Saat</small></div>
-                </div>
-              )}
+              <div className="kl-cd-grid">
+                <div className="kl-cd-item"><strong>{cdBlocks.d}</strong><small>Hari</small></div>
+                <div className="kl-cd-item"><strong>{cdBlocks.h}</strong><small>Jam</small></div>
+                <div className="kl-cd-item"><strong>{cdBlocks.m}</strong><small>Minit</small></div>
+                <div className="kl-cd-item"><strong>{cdBlocks.s}</strong><small>Saat</small></div>
+              </div>
             </div>
-          </aside>
+          </aside>}
         </div>
       </section>
 
@@ -256,7 +253,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
       })()}
 
       {/* DASHBOARD */}
-      <section className="kl-dash">
+      {hasOngoingEvent && <section className="kl-dash">
         <div className="kl-dash-grid">
           {/* Ranking panel */}
           <section className="kl-panel">
@@ -266,7 +263,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 <h2>Kedudukan Terkini</h2>
               </div>
               <span className={`kl-status-pill ${cdStatus}`}>
-                <span className="dot"></span> {cdStatus === 'live' ? 'Live Update' : statusLabel}
+                <span className="dot"></span> {cdStatus === 'live' ? 'LANGSUNG' : statusLabel}
               </span>
             </div>
 
@@ -355,7 +352,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             <section className="kl-panel">
               <div className="kl-panel-head">
                 <div>
-                  <div className="kl-eyebrow">Prize List</div>
+                  <div className="kl-eyebrow">Senarai Hadiah</div>
                   <h3>Hadiah Event</h3>
                 </div>
               </div>
@@ -375,10 +372,10 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             </section>
           </aside>
         </div>
-      </section>
+      </section>}
 
       {/* PAST RESULTS */}
-      <section className="kl-past">
+      {endedComps.length > 0 && <section className="kl-past">
         <div className="kl-past-head">
           <div>
             <div className="kl-eyebrow">Keputusan Event Lepas</div>
@@ -387,8 +384,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
           <p>Pilih event di sebelah kiri untuk lihat keputusan penuh. Keputusan dikira automatik daripada berat akhir yang direkodkan.</p>
         </div>
 
-        {endedComps.length ? (
-          <div className="kl-past-layout">
+        <div className="kl-past-layout">
             <div className="kl-past-left">
               <section className="kl-card">
                 <div className="kl-card-head">
@@ -457,12 +453,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               )}
             </section>
           </div>
-        ) : (
-          <div className="kl-no-data" style={{ borderRadius: 'var(--radius)', background: 'var(--white)', border: '1px solid var(--line)' }}>
-            Tiada event lepas buat masa ini.
-          </div>
-        )}
-      </section>
+      </section>}
     </div>
   );
 };

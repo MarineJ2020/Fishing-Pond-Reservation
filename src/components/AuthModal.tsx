@@ -7,6 +7,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLogin: (email: string, pass: string) => Promise<boolean>;
+  onResetPassword: (email: string) => Promise<boolean>;
   onRegister: (name: string, email: string, phone: string, pass: string) => Promise<boolean>;
   onGoogleLogin: () => Promise<boolean>;
   onResendVerification: () => Promise<boolean>;
@@ -22,7 +23,7 @@ const GoogleIcon = () => (
   </svg>
 );
 
-const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegister, onGoogleLogin, onResendVerification }) => {
+const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onResetPassword, onRegister, onGoogleLogin, onResendVerification }) => {
   const [tab, setTab] = useState<'login' | 'register'>('login');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPass, setLoginPass] = useState('');
@@ -37,6 +38,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
   const [phoneToConfirm, setPhoneToConfirm] = useState<string | null>(null);
   const [showLoginPass, setShowLoginPass] = useState(false);
   const [showRegPass, setShowRegPass] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   const handleLogin = async () => {
     setLoading(true);
@@ -71,6 +73,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
     setLoading(true);
     await onGoogleLogin();
     setLoading(false);
+  };
+
+  const handleResetPassword = async () => {
+    setLoading(true);
+    const success = await onResetPassword(loginEmail);
+    setLoading(false);
+    if (success) setResetSent(true);
   };
 
   const handleClose = () => {
@@ -139,6 +148,17 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onRegis
                 <i className={`fa-solid ${showLoginPass ? 'fa-eye-slash' : 'fa-eye'}`}></i>
               </button>
             </div>
+            <button
+              type="button"
+              className="auth-forgot-link"
+              onClick={handleResetPassword}
+              disabled={loading}
+            >
+              Lupa Kata Laluan?
+            </button>
+            {resetSent && (
+              <div className="auth-reset-note">Semak inbox atau folder spam untuk pautan menetapkan kata laluan baharu.</div>
+            )}
             <button className="form-submit" onClick={handleLogin} disabled={loading}>Log Masuk</button>
             <div className="modal-switch">Belum ada akaun? <a onClick={() => setTab('register')}>Daftar sekarang</a></div>
           </div>

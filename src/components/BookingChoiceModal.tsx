@@ -42,7 +42,7 @@ const BookingChoiceModal: React.FC<BookingChoiceModalProps> = ({ open, onClose, 
             onClick={() => { onClose(); onWebsite(); }}
           >
             <span className="v5-choice-ico"><i className="fa-solid fa-laptop"></i></span>
-            <strong>Tempah di Website</strong>
+            <strong>Tempah di Website (24Jam)</strong>
             <small>Pilih pertandingan, kolam &amp; pancang sendiri — siap dalam beberapa minit.</small>
           </button>
 
@@ -57,17 +57,16 @@ const BookingChoiceModal: React.FC<BookingChoiceModalProps> = ({ open, onClose, 
               <span className="v5-choice-ico"><i className="fa-brands fa-whatsapp"></i></span>
               <strong>WhatsApp Kami</strong>
               <small>Tak pasti? Hubungi admin KKS untuk bantuan tempahan.</small>
+              <small className="v5-choice-hours">Waktu Operasi : 9:00 pagi &ndash; 5:30 petang</small>
             </a>
           ) : (
             <button className="v5-choice-route wa" type="button" disabled>
               <span className="v5-choice-ico"><i className="fa-brands fa-whatsapp"></i></span>
               <strong>WhatsApp Kami</strong>
               <small>Nombor WhatsApp belum ditetapkan.</small>
+              <small className="v5-choice-hours">Waktu Operasi : 9:00 pagi &ndash; 5:30 petang</small>
             </button>
           )}
-        </div>
-        <div className="v5-choice-hours" style={{ marginTop: '14px', textAlign: 'center', fontSize: '.82rem', color: 'var(--text-muted)' }}>
-          Waktu Operasi : 9:00 pagi &ndash; 5:30 petang
         </div>
       </div>
     </div>

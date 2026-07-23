@@ -36,6 +36,15 @@ export interface BookingReceipt {
   submittedAt: string;
 }
 
+export interface BookingPondSelection {
+  pondId: number;
+  pondName: string;
+  pondCode?: string;
+  pondDate?: string;
+  seats: number[];
+  seatIds?: string[];
+}
+
 export interface Booking {
   id: string;
   bookingRef?: string;
@@ -58,11 +67,15 @@ export interface Booking {
   pondDate: string;
   seats: number[];
   seatIds?: string[];
+  /** All pancang grouped by pond. Present when one booking spans multiple ponds. */
+  pondSelections?: BookingPondSelection[];
   paymentType: 'full' | 'deposit' | 'baki';
   amount: number;
   totalAmount: number;
   receiptData: string;
   receiptName: string;
+  /** Customer-entered bank transfer/reference number. */
+  bankReference?: string;
   receipts?: BookingReceipt[];
   paidAmount?: number;
   balanceDue?: number;
@@ -71,6 +84,8 @@ export interface Booking {
   createdAt: string;
   updatedAt?: string;
   createdByStaff?: boolean;
+  /** UID of the staff/admin account that created a proxy customer booking. */
+  createdByUid?: string;
   checkedIn?: boolean;
   /** Seat numbers that have individually checked in (subset of `seats`). */
   checkedInSeats?: number[];
@@ -167,7 +182,7 @@ export interface Competition {
   status?: 'ACTIVE' | 'INACTIVE';
 }
 
-export type SeoPageKey = 'home' | 'book' | 'live' | 'confirmed';
+export type SeoPageKey = 'home' | 'book' | 'live';
 
 export interface SeoPageMeta {
   title: string;

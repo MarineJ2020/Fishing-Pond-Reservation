@@ -27,3 +27,6 @@ dist /
 
 # Generated at build time by scripts/copy-seo-template.mjs
 functions/src/template.html
+
+# Local release verification checklist
+/7222026_update.md

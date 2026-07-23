@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react';
 import { User, Pond, Settings } from '../types';
-import { formatSeat } from '../utils/seatLabel';
 import PhoneNumberField from './PhoneNumberField';
 import { formatMyPhone, isValidMyPhoneRest } from '../utils/phone';
 
@@ -8,10 +7,12 @@ interface BookingFormProps {
   user: User | null;
   pond: Pond | null;
   selectedSeats: number[];
+  selectedSeatLabels: string[];
   pricePerPeg: number;
   isSubmitting?: boolean;
   payType: 'full' | 'deposit';
   receiptData: string | null;
+  bankReference: string;
   settings: Settings;
   adminProxyName: string;
   adminProxyEmail: string;
@@ -20,6 +21,7 @@ interface BookingFormProps {
   onSetPayType: (type: 'full' | 'deposit') => void;
   onHandleReceiptChange: (file: File) => void;
   onClearReceipt: () => void;
+  onBankReferenceChange: (value: string) => void;
   onSubmitBooking: () => void;
   onOpenAuth: () => void;
   onAdminProxyNameChange: (v: string) => void;
@@ -33,12 +35,13 @@ interface BookingFormProps {
 
 const BookingForm: React.FC<BookingFormProps> = ({
   user,
-  pond,
   selectedSeats,
+  selectedSeatLabels,
   pricePerPeg,
   isSubmitting = false,
   payType,
   receiptData,
+  bankReference,
   settings,
   adminProxyName,
   adminProxyEmail,
@@ -47,6 +50,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   onSetPayType,
   onHandleReceiptChange,
   onClearReceipt,
+  onBankReferenceChange,
   onSubmitBooking,
   onOpenAuth,
   onAdminProxyNameChange,
@@ -123,6 +127,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
     !isSubmitting &&
     selectedSeats.length > 0 &&
     !!receiptData &&
+    bankReference.trim() !== '' &&
     termsConfirmed &&
     !needsVerification &&
     (isAdmin ? adminProxyName.trim() !== '' : true) &&
@@ -226,7 +231,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
       <label className="form-label">Pancang Dipilih</label>
       <div className="selected-pills">
         {selectedSeats.length ? (
-          selectedSeats.map(n => <span key={n} className="seat-pill">{formatSeat(pond?.code, n)}</span>)
+          selectedSeatLabels.map(label => <span key={label} className="seat-pill">{label}</span>)
         ) : (
           <div style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>Belum pilih pancang</div>
         )}
@@ -302,6 +307,17 @@ const BookingForm: React.FC<BookingFormProps> = ({
           <span style={{ marginLeft: 'auto', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={onClearReceipt}>✕</span>
         </div>
       )}
+      <label className="form-label" htmlFor="bank-reference">NO.RUJUKAN BANK <span style={{ color: 'var(--red)' }}>*</span></label>
+      <input
+        id="bank-reference"
+        className="form-input"
+        type="text"
+        autoComplete="off"
+        required
+        value={bankReference}
+        onChange={(event) => onBankReferenceChange(event.target.value)}
+        placeholder="Masukkan nombor rujukan transaksi"
+      />
       <label className="form-label">Nota (pilihan)</label>
       <textarea
         className="form-input"
