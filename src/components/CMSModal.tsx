@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
-import { checkInBooking, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
+import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
 import {
   createPond as createPondFirestore,
   deletePond as deletePondFirestore,
@@ -162,6 +162,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [forceCancelText, setForceCancelText] = useState('');
   const [checkinResult, setCheckinResult] = useState<any>(null);
   const [checkinLoading, setCheckinLoading] = useState(false);
+  const [checkinCompetitionId, setCheckinCompetitionId] = useState('');
   // Seat number decoded from a scanned per-seat QR (highlights that row); null
   // for legacy QR/manual search where the seat isn't known ahead of time.
   const [checkinScannedSeat, setCheckinScannedSeat] = useState<number | null>(null);
@@ -204,12 +205,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Results / Live page state
   const [resultsCompId, setResultsCompId] = useState<string>(comp.id || '');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
-  const [pendingWeights, setPendingWeights] = useState<Record<string, string>>({});
-  const [savingEntry, setSavingEntry] = useState<string | null>(null);
-  const [manualEntry, setManualEntry] = useState({ anglerName: '', pondId: '', seatNum: '', weight: '' });
   const [scanOpen, setScanOpen] = useState(false);
-  const [pendingScan, setPendingScan] = useState<ScaleScanApproved | null>(null);
-  const [anglerSuggestOpen, setAnglerSuggestOpen] = useState(false);
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
   const [prizesEditMode, setPrizesEditMode] = useState(false);
   const [pondMapUploading, setPondMapUploading] = useState(false);
@@ -309,9 +305,28 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   }, [isOpen, page]);
 
   useEffect(() => {
-    if (!resultsCompId && comp.id) setResultsCompId(comp.id);
-    else if (!resultsCompId && competitions.length) setResultsCompId(competitions[0].id || '');
-  }, [comp.id, competitions]);
+    if (page !== 'results') return;
+    const available = competitions.length ? competitions : (comp.id ? [comp] : []);
+    const nearestUpcoming = available
+      .filter((competition) => getCompetitionPhase(competition) === 'upcoming')
+      .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
+    const live = available.find((competition) => getCompetitionPhase(competition) === 'live');
+    const fallback = nearestUpcoming || live || available[0];
+    if (fallback?.id) setResultsCompId(fallback.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  useEffect(() => {
+    if (page !== 'checkin') return;
+    const available = competitions.length ? competitions : (comp.id ? [comp] : []);
+    const nearestUpcoming = available
+      .filter((competition) => getCompetitionPhase(competition) === 'upcoming')
+      .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
+    const live = available.find((competition) => getCompetitionPhase(competition) === 'live');
+    const fallback = live || nearestUpcoming || available[0];
+    if (fallback?.id) setCheckinCompetitionId(fallback.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   // Sync compEdit when switching competition on prizes page
   useEffect(() => {
@@ -342,24 +357,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     if (page !== 'audit-log') return;
     getAuditLog().then(setAuditLogEntries);
   }, [page]);
-
-  // Weight submission is keyed to the participant, not a peg. When the admin
-  // picks/types a participant name that matches a booking in this competition,
-  // auto-derive their pond + seat from the booking so no peg selection is needed.
-  useEffect(() => {
-    if (page !== 'results') return;
-    const name = manualEntry.anglerName.trim();
-    if (!name) return;
-    const bk = bookings.find(b =>
-      b.status !== 'rejected' &&
-      b.userName === name &&
-      ((b.competitionId || comp.id || '') === (resultsCompId || comp.id || ''))
-    );
-    if (!bk) return;
-    const pondDocId = ponds.find(p => p.id === bk.pondId)?._docId || bk.pondId.toString();
-    const seat = String(bk.seats[0] || '');
-    setManualEntry(m => (m.pondId === pondDocId && m.seatNum === seat) ? m : ({ ...m, pondId: pondDocId, seatNum: seat }));
-  }, [manualEntry.anglerName, resultsCompId, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setCompList(competitions.length ? competitions : (comp.name ? [comp] : []));
@@ -1112,6 +1109,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setCheckinLoading(true);
     try {
       await checkInBooking({
+        bookingId: checkinResult.id,
         bookingRef: checkinResult.bookingRef || checkinResult.id,
         amount: checkinResult.amount,
         method: 'manual',
@@ -1122,7 +1120,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const seatsToMark = seatNum != null ? [seatNum] : allSeats;
       const nextCheckedIn = Array.from(new Set([...priorSeats, ...seatsToMark]));
       const allDone = allSeats.length > 0 && nextCheckedIn.length >= allSeats.length;
-      setCheckinResult((prev: any) => ({ ...prev, checkedInSeats: nextCheckedIn, checkedIn: allDone }));
+      const checkedAt = new Date().toISOString();
+      const nextTimes = {
+        ...(checkinResult.checkedInSeatTimes || {}),
+        ...Object.fromEntries(seatsToMark.map((seat) => [String(seat), checkedAt])),
+      };
+      setCheckinResult((prev: any) => ({ ...prev, checkedInSeats: nextCheckedIn, checkedIn: allDone, checkedInAt: checkedAt, checkedInSeatTimes: nextTimes }));
+      await reloadDB();
       const bookingRef = checkinResult.bookingRef || checkinResult.id;
       await logAuditEvent({
         action: 'booking.checkin', actionLabel: 'Check-In Peserta', entityType: 'booking',
@@ -1131,9 +1135,37 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
     } catch (err) {
       console.error('Check-in failed:', err);
+      window.alert(`Check-in gagal: ${err instanceof Error ? err.message : 'Ralat tidak diketahui.'}`);
     }
     setCheckinLoading(false);
     setCheckinActiveSeat(null);
+  };
+
+  const handleCancelCheckin = async (booking: Booking, seatNum: number) => {
+    setCheckinLoading(true);
+    try {
+      await cancelBookingCheckIn({ bookingId: booking.id, seatNum });
+      await reloadDB();
+      if (checkinResult?.id === booking.id) {
+        setCheckinResult((prev: Booking | null) => prev ? {
+          ...prev,
+          checkedIn: false,
+          checkedInSeats: (prev.checkedInSeats || []).filter((seat) => seat !== seatNum),
+          checkedInSeatTimes: Object.fromEntries(
+            Object.entries(prev.checkedInSeatTimes || {}).filter(([seat]) => seat !== String(seatNum)),
+          ),
+        } : prev);
+      }
+      await logAuditEvent({
+        action: 'booking.checkin_cancel', actionLabel: 'Batalkan Check-In', entityType: 'booking',
+        entityId: booking.id, entityLabel: `${booking.bookingRef || booking.id} · peg ${seatNum}`,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    } catch (err) {
+      console.error('Failed to cancel check-in:', err);
+      window.alert(`Gagal membatalkan check-in: ${err instanceof Error ? err.message : 'Ralat tidak diketahui.'}`);
+    }
+    setCheckinLoading(false);
   };
 
   const handleContactSettingsSave = async () => {
@@ -1424,25 +1456,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setQrImgUploading(false);
   };
 
-  const handleSaveScore = async (booking: { id: string; userName: string; pondId: number; pondName: string; seats: number[] }) => {
-    const weight = parseFloat(pendingWeights[booking.id] || '');
-    if (isNaN(weight) || weight < 0) return;
-    setSavingEntry(booking.id);
-    try {
-      await saveScoreEntry({
-        competitionId: resultsCompId,
-        bookingId: booking.id,
-        anglerName: booking.userName,
-        pondId: booking.pondId,
-        pondName: booking.pondName,
-        seatNum: booking.seats[0] || 0,
-        weight,
-      });
-      setScoreEntries(await getScoresForCompetition(resultsCompId));
-    } catch (err) { console.error(err); }
-    setSavingEntry(null);
-  };
-
   const handleDeleteEntry = async (id: string) => {
     try {
       const entry = scoreEntries.find(e => e.id === id);
@@ -1552,44 +1565,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     } catch (err) {
       console.error('Failed to save scanned weight:', err);
     }
-    setSaving(false);
-    if (savedAnglerName) {
-      const continueForSameAngler = window.confirm(
-        `Berjaya simpan timbang untuk ${savedAnglerName}. Hantar satu lagi rekod untuk pemancing sama?`,
-      );
-      if (continueForSameAngler) {
-        setScanOpen(true);
-      }
-    }
-  };
-
-  const handleManualSave = async () => {
-    if (!manualEntry.anglerName || !pendingScan) return;
-    setSaving(true);
-    let savedAnglerName = '';
-    try {
-      const pond = ponds.find(p => (p._docId || p.id.toString()) === manualEntry.pondId);
-      // OCR already ran on the original frame; compress the stored copy only.
-      const webp = await compressBlobToWebp(pendingScan.photoBlob, pendingScan.photoFileName);
-      const photoUrl = await uploadImageToFirebaseStorage(webp, 'fishing-pond-weights', webp.name);
-      savedAnglerName = manualEntry.anglerName;
-      await saveScoreEntry({
-        competitionId: resultsCompId,
-        anglerName: manualEntry.anglerName,
-        pondId: pond?.id || 0,
-        pondName: pond?.name || '',
-        seatNum: parseInt(manualEntry.seatNum) || 0,
-        weight: pendingScan.weight,
-        photoUrl,
-        ocrConfidence: pendingScan.ocrConfidence,
-        ocrRawText: pendingScan.ocrRawText,
-        ocrUserVerified: !pendingScan.userEdited,
-        capturedBy: user?.uid || user?.email || 'unknown',
-      });
-      setScoreEntries(await getScoresForCompetition(resultsCompId));
-      setManualEntry({ anglerName: '', pondId: '', seatNum: '', weight: '' });
-      setPendingScan(null);
-    } catch (err) { console.error(err); }
     setSaving(false);
     if (savedAnglerName) {
       const continueForSameAngler = window.confirm(
@@ -2735,7 +2710,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <td>
                           RM {b.paidAmount ?? b.amount}{(b.totalAmount ?? b.amount) !== (b.paidAmount ?? b.amount) && <span style={{ color: 'var(--text-muted)' }}> / {b.totalAmount ?? b.amount}</span>}
                           {(b.balanceDue ?? 0) > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {b.balanceDue}</div>}
-                          {(b.receipts?.some(receipt => receipt.url) || b.receiptData) && <button className="btn btn-sm btn-ghost" style={{ marginTop: 6 }} onClick={() => setReceiptHistoryBooking(b)}>Receipt</button>}
+                          {(b.receipts?.some(receipt => receipt.url) || b.receiptData) && (
+                            <div style={{ display: 'block', marginTop: 6 }}>
+                              <button className="btn btn-sm btn-ghost" onClick={() => setReceiptHistoryBooking(b)}>Receipt</button>
+                            </div>
+                          )}
                         </td>
                         <td>
                           {b.status === 'rejected'
@@ -2845,7 +2824,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 >
                                   <span style={{ fontWeight: 700 }}>{seatLabel}</span>
                                   {seatCheckedIn ? (
-                                    <span style={{ color: 'var(--green-dark, #16a34a)', fontWeight: 700, fontSize: '0.85rem' }}>✓ Sudah Check-In</span>
+                                    <span style={{ color: 'var(--green-dark, #16a34a)', fontWeight: 700, fontSize: '0.85rem' }}>✓ Checked-in</span>
                                   ) : (
                                     <button
                                       className="btn btn-sm btn-green"
@@ -2876,6 +2855,77 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                 );
               })()}
+              <div className="card" style={{ marginTop: 18 }}>
+                <div className="card-header"><div className="card-title">Senarai Check in</div></div>
+                <div className="card-body">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                    <label className="form-label" style={{ margin: 0 }}>Pilih Pertandingan</label>
+                    <select
+                      className="form-input"
+                      style={{ maxWidth: 360 }}
+                      value={checkinCompetitionId}
+                      onChange={(event) => setCheckinCompetitionId(event.target.value)}
+                    >
+                      {(competitions.length ? competitions : [comp]).map((competition) => (
+                        <option key={competition.id || competition.name} value={competition.id || ''}>{competition.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Info Peserta</th><th>No. Pancang</th><th>Masa Check in</th><th>Status</th><th>Tindakan</th></tr></thead>
+                      <tbody>
+                        {bookings
+                          .filter((booking) =>
+                            booking.status === 'confirmed'
+                            && (!checkinCompetitionId || (booking.competitionId || comp.id || '') === checkinCompetitionId))
+                          .flatMap((booking) => booking.seats.map((seat) => ({ booking, seat })))
+                          .map(({ booking, seat }) => {
+                            const checked = (booking.checkedInSeats || []).includes(seat);
+                            const pondCode = booking.pondCode || ponds.find((pond) => pond.id === booking.pondId)?.code;
+                            const checkedAt = booking.checkedInSeatTimes?.[String(seat)] || (checked ? booking.checkedInAt : '');
+                            return (
+                              <tr key={`${booking.id}-${seat}`}>
+                                <td className="td-name">
+                                  {booking.userName}
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{booking.userEmail || booking.userId || '-'}</div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{booking.bookingPhone || booking.userPhone || '-'}</div>
+                                </td>
+                                <td>{formatSeat(pondCode, seat)}</td>
+                                <td>{checkedAt ? formatDate(checkedAt, { time: true }) : '-'}</td>
+                                <td><span className={`badge badge-${checked ? 'approved' : 'pending'}`}>{checked ? 'Checked in' : 'Pending'}</span></td>
+                                <td>
+                                  {checked
+                                    ? (
+                                      <button
+                                        className="btn btn-sm btn-danger"
+                                        disabled={checkinLoading}
+                                        onClick={() => setConfirmDialog({
+                                          title: 'Batalkan Check in',
+                                          message: `Batalkan check in untuk ${booking.userName}, pancang ${formatSeat(pondCode, seat)}?`,
+                                          confirmLabel: 'Batalkan Check in',
+                                          tone: 'danger',
+                                          onConfirm: () => handleCancelCheckin(booking, seat),
+                                        })}
+                                      >
+                                        Batalkan Check in
+                                      </button>
+                                    )
+                                    : <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>-</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        {bookings.filter((booking) =>
+                          booking.status === 'confirmed'
+                          && (!checkinCompetitionId || (booking.competitionId || comp.id || '') === checkinCompetitionId)).length === 0 && (
+                          <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 22 }}>Tiada peserta untuk pertandingan ini.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
           {page === 'results' && (() => {
@@ -2899,7 +2949,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       className="form-input"
                       style={{ flex: '1', minWidth: '200px', maxWidth: '360px' }}
                       value={resultsCompId}
-                      onChange={(e) => { setResultsCompId(e.target.value); setScoreEntries([]); setPendingWeights({}); }}
+                      onChange={(e) => { setResultsCompId(e.target.value); setScoreEntries([]); }}
                     >
                       {compsEndedLast.map(c => (
                         <option key={c.id || c.name} value={c.id || ''} style={{ color: getCompetitionPhase(c) === 'ended' ? '#9aa3ad' : undefined }}>
@@ -2911,163 +2961,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                 </div>
 
-                {/* Manual Entry Form */}
+                {/* The scan flow identifies the participant, derives pond/peg, and saves. */}
                 <div className="card" style={{ marginBottom: '16px' }}>
                   <div className="card-header"><div className="card-title">Tambah Rekod Manual</div></div>
                   <div className="card-body">
-                    {(() => {
-                      const query = manualEntry.anglerName.toLowerCase();
-                      const seen = new Set<string>();
-                      const knownAnglers = bookings
-                        .filter(b => b.userName)
-                        .reduce<{ name: string; email: string; userId: string }[]>((acc, b) => {
-                          const key = b.userId || b.userName;
-                          if (!seen.has(key)) {
-                            seen.add(key);
-                            acc.push({ name: b.userName, email: b.userId, userId: b.userId });
-                          }
-                          return acc;
-                        }, []);
-                      const suggestions = query.length >= 1
-                        ? knownAnglers.filter(a =>
-                            a.name.toLowerCase().includes(query) ||
-                            a.email.toLowerCase().includes(query)
-                          ).slice(0, 8)
-                        : [];
-                      // Weight is recorded per participant; pond + peg are derived from
-                      // their booking rather than picked manually.
-                      const derivedBooking = bookings.find(b =>
-                        b.status !== 'rejected' &&
-                        b.userName === manualEntry.anglerName.trim() &&
-                        ((b.competitionId || comp.id || '') === (resultsCompId || comp.id || ''))
-                      );
-                      const derivedPond = derivedBooking ? ponds.find(p => p.id === derivedBooking.pondId) : null;
-                      return (
-                        <div className="form-grid">
-                          <div className="form-group" style={{ position: 'relative' }}>
-                            <label className="form-label">Nama Peserta</label>
-                            <input
-                              className="form-input"
-                              value={manualEntry.anglerName}
-                              autoComplete="off"
-                              onChange={(e) => { setManualEntry(m => ({ ...m, anglerName: e.target.value })); setAnglerSuggestOpen(true); }}
-                              onFocus={() => setAnglerSuggestOpen(true)}
-                              onBlur={() => setTimeout(() => setAnglerSuggestOpen(false), 160)}
-                              placeholder="Nama Pemancing"
-                            />
-                            {anglerSuggestOpen && suggestions.length > 0 && (
-                              <div style={{
-                                position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
-                                background: 'var(--white)', border: '1px solid var(--border)',
-                                borderRadius: '0 0 8px 8px', boxShadow: '0 8px 24px rgba(0,0,0,.12)',
-                                overflow: 'hidden', marginTop: '2px',
-                              }}>
-                                {suggestions.map(a => (
-                                  <div
-                                    key={a.userId}
-                                    onMouseDown={() => {
-                                      const bk = bookings.find(b =>
-                                        b.status !== 'rejected' &&
-                                        b.userId === a.userId &&
-                                        ((b.competitionId || comp.id || '') === (resultsCompId || comp.id || ''))
-                                      );
-                                      const pondDocId = bk ? (ponds.find(p => p.id === bk.pondId)?._docId || bk.pondId.toString()) : '';
-                                      setManualEntry(m => ({ ...m, anglerName: a.name, pondId: pondDocId, seatNum: String(bk?.seats[0] || '') }));
-                                      setAnglerSuggestOpen(false);
-                                    }}
-                                    style={{
-                                      padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
-                                      display: 'flex', flexDirection: 'column', gap: '2px',
-                                    }}
-                                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--gold-pale)')}
-                                    onMouseLeave={e => (e.currentTarget.style.background = '')}
-                                  >
-                                    <span style={{ fontWeight: 600, fontSize: '0.86rem' }}>{a.name}</span>
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--fm)' }}>
-                                      {a.email}{a.userId !== a.email ? ` · ID: ${a.userId}` : ''}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                      <div className="form-group">
-                        <label className="form-label">Kolam {derivedBooking && derivedBooking.seats.length > 1 ? '(auto)' : '& Peg (auto)'}</label>
-                        {derivedBooking ? (
-                          <div className="form-input" style={{ display: 'flex', alignItems: 'center', background: 'var(--cream)', cursor: 'default' }}>
-                            {derivedPond ? pondDisplayName(derivedPond) : `Kolam #${derivedBooking.pondId}`}
-                            {derivedBooking.seats.length <= 1 && <> · {bookingSeatList(derivedBooking)}</>}
-                          </div>
-                        ) : (
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '12px 0', lineHeight: 1.4 }}>
-                            {manualEntry.anglerName
-                              ? 'Peserta ini tiada tempahan disahkan dalam pertandingan ini.'
-                              : 'Pilih peserta — kolam & peg akan diisi automatik daripada tempahannya.'}
-                          </div>
-                        )}
-                      </div>
-                      {derivedBooking && derivedBooking.seats.length > 1 && (
-                        <div className="form-group">
-                          <label className="form-label">Peg</label>
-                          <select
-                            className="form-input"
-                            value={manualEntry.seatNum}
-                            onChange={(e) => setManualEntry(m => ({ ...m, seatNum: e.target.value }))}
-                          >
-                            {derivedBooking.seats.map((seat) => (
-                              <option key={seat} value={seat}>
-                                {formatSeat(derivedBooking.pondCode || derivedPond?.code, seat)}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
                       <div className="form-group">
                         <label className="form-label">Berat (kg)</label>
-                        {pendingScan ? (
-                          <div style={{
-                            display: 'flex', alignItems: 'center', gap: 10,
-                            padding: '8px 12px', border: '1px solid var(--border)',
-                            borderRadius: 6, background: 'var(--gold-pale, #fefbe8)',
-                          }}>
-                            <span style={{ fontSize: 22, fontWeight: 700 }}>
-                              {pendingScan.weight.toFixed(2)} kg
-                            </span>
-                            <span style={{
-                              fontSize: 11, padding: '2px 8px', borderRadius: 999,
-                              background: pendingScan.ocrConfidence >= 80 ? '#10b981' : '#f59e0b',
-                              color: '#fff', fontWeight: 600,
-                            }}>
-                              {pendingScan.ocrConfidence}/100
-                            </span>
-                            <button
-                              type="button"
-                              className="btn btn-sm"
-                              style={{ marginLeft: 'auto' }}
-                              onClick={() => { setPendingScan(null); setScanOpen(true); }}
-                            >🔄 Imbas Semula</button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            className="btn btn-primary"
-                            style={{ width: '100%' }}
-                            onClick={() => setScanOpen(true)}
-                          >📷 Imbas Timbangan</button>
-                        )}
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ width: '100%' }}
+                          onClick={() => setScanOpen(true)}
+                        >📷 Imbas Timbangan</button>
                       </div>
-                        </div>
-                      );
-                    })()}
-                    <div className="form-actions" style={{ marginTop: '12px' }}>
-                      <button
-                        className="btn btn-primary"
-                        disabled={saving || !manualEntry.anglerName || !pendingScan}
-                        onClick={handleManualSave}
-                      >
-                        {saving ? 'Menyimpan...' : '+ Tambah Rekod'}
-                      </button>
-                    </div>
                   </div>
                 </div>
 

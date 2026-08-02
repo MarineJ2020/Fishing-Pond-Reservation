@@ -67,6 +67,8 @@ interface Props {
    * picker as a fallback to QR scanning.
    */
   listBookings: () => ScannedBookingFull[];
+  /** Booking/seat already selected in the parent Results form. */
+  initialSelection?: { booking: ScannedBookingFull; seatNum: number } | null;
 }
 
 type Step =
@@ -203,6 +205,7 @@ const ScaleScanModal: React.FC<Props> = ({
   decimalPlaces,
   lookupBookingFull,
   listBookings,
+  initialSelection,
 }) => {
   const [step, setStep] = useState<Step>('identify');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -284,6 +287,10 @@ const ScaleScanModal: React.FC<Props> = ({
       setLiveQrBusy(false);
     } else {
       prewarmOcr();
+      if (initialSelection?.booking && initialSelection.seatNum) {
+        setConfirmedBooking(toLite(initialSelection.booking, initialSelection.seatNum));
+        setStep('capture');
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -327,7 +334,10 @@ const ScaleScanModal: React.FC<Props> = ({
       b.anglerName.toLowerCase().includes(q)
       || b.bookingId.toLowerCase().includes(q)
       || (b.bookingRef && b.bookingRef.toLowerCase().includes(q))
-      || b.pondName.toLowerCase().includes(q),
+      || b.pondName.toLowerCase().includes(q)
+      || b.seats.some((seat) =>
+        String(seat).includes(q)
+        || formatSeat(b.pondCode, seat).toLowerCase().includes(q)),
     );
   }, [bookingsForPicker, manualSearch]);
 
@@ -776,7 +786,7 @@ const ScaleScanModal: React.FC<Props> = ({
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="Cari nama / ID tempahan / kolam…"
+                  placeholder="Cari nama / no. pancang / ID tempahan…"
                   value={manualSearch}
                   onChange={(e) => setManualSearch(e.target.value)}
                   autoFocus

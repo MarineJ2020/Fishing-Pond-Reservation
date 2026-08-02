@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { User, Pond, Settings } from '../types';
 import PhoneNumberField from './PhoneNumberField';
-import { formatMyPhone, isValidMyPhoneRest } from '../utils/phone';
+import { formatMyPhone } from '../utils/phone';
 
 interface BookingFormProps {
   user: User | null;
@@ -70,7 +70,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   const [phoneRest, setPhoneRest] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const contactPhoneValid = isValidMyPhoneRest(phonePrefix, phoneRest);
+  const contactPhoneValid = phoneRest.length > 0;
   const handlePhonePrefixChange = (v: string) => {
     setPhonePrefix(v);
     onContactPhoneChange(formatMyPhone(v, phoneRest));
@@ -130,7 +130,6 @@ const BookingForm: React.FC<BookingFormProps> = ({
     bankReference.trim() !== '' &&
     termsConfirmed &&
     !needsVerification &&
-    (isAdmin ? adminProxyName.trim() !== '' : true) &&
     (isAdminProxyMode ? adminProxyPhone.trim() !== '' : contactPhoneValid);
 
   const handleResend = async () => {
@@ -182,6 +181,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
             onRestChange={handlePhoneRestChange}
             label="Nombor Telefon untuk Tempahan Ini"
             required
+            unlimitedDigits
           />
           <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: 1.5 }}>
             Masukkan nombor telefon yang boleh dihubungi untuk tempahan ini.
@@ -195,7 +195,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
           <div style={{ fontSize: '.72rem', color: 'var(--gold)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700, marginBottom: '10px' }}>🛠 Tempahan atas nama pelanggan</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
-              <label className="form-label" style={{ marginBottom: '4px', display: 'block' }}>Nama Pelanggan <span style={{ color: 'var(--red)' }}>*</span></label>
+              <label className="form-label" style={{ marginBottom: '4px', display: 'block' }}>Nama Pelanggan</label>
               <input
                 className="form-input"
                 placeholder="Nama penuh pelanggan"
@@ -214,13 +214,16 @@ const BookingForm: React.FC<BookingFormProps> = ({
               />
             </div>
             <div>
-              <label className="form-label" style={{ marginBottom: '4px', display: 'block' }}>Nombor Telefon Pelanggan <span style={{ color: 'var(--red)' }}>*</span></label>
+              <label className="form-label" style={{ marginBottom: '4px', display: 'block' }}>
+                Nombor Telefon Pelanggan {isAdminProxyMode && <span style={{ color: 'var(--red)' }}>*</span>}
+              </label>
               <input
                 className="form-input"
                 type="tel"
+                inputMode="numeric"
                 placeholder="+60 12-345 6789"
                 value={adminProxyPhone}
-                onChange={e => onAdminProxyPhoneChange(e.target.value)}
+                onChange={e => onAdminProxyPhoneChange(e.target.value.replace(/\D/g, ''))}
               />
             </div>
           </div>

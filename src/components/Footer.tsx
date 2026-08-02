@@ -8,9 +8,6 @@ interface FooterProps {
 }
 
 const Footer: React.FC<FooterProps> = ({ settings, onNavigate }) => {
-  const whatsappDigits = (settings.whatsapp || settings.phone || '').replace(/[^0-9]/g, '');
-  const whatsappHref = whatsappDigits ? `https://wa.me/${whatsappDigits}` : '#';
-
   return (
     <footer className="kks-footer">
       <div className="kks-footer-container">
@@ -33,17 +30,10 @@ const Footer: React.FC<FooterProps> = ({ settings, onNavigate }) => {
           <div className="kks-footer-col">
             <h4>Hubungi Kami</h4>
             <p>
+              {settings.phone && <strong className="kks-footer-phone">{settings.phone}</strong>}
               {settings.email && <>{settings.email}<br /></>}
-              {settings.phone && <>{settings.phone}<br /></>}
-              {settings.whatsapp && settings.whatsapp !== settings.phone && <>{settings.whatsapp}<br /></>}
               Waktu Operasi : 9:00 pagi &ndash; 5:30 petang
             </p>
-          </div>
-
-          <div className="kks-footer-cta">
-            <a className="btn btn-whatsapp" href={whatsappHref} target="_blank" rel="noopener noreferrer">
-              <i className="fa-brands fa-whatsapp"></i> WhatsApp Us
-            </a>
           </div>
         </div>
         <div className="kks-footer-copy">

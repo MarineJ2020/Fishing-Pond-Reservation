@@ -271,8 +271,28 @@ const buildBooking = (
     bookingRef: data.bookingRef || undefined,
     createdByStaff: data.createdByStaff === true,
     createdByUid: data.createdByUid || undefined,
+    checkedIn: data.checkedIn === true,
+    checkedInSeats: Array.isArray(data.checkedInSeats)
+      ? data.checkedInSeats.map((seat: any) => Number(seat)).filter(Number.isFinite)
+      : [],
+    checkedInAt: normalizeTimestamp(data.checkedInAt) || undefined,
+    checkedInSeatTimes: data.checkedInSeatTimes && typeof data.checkedInSeatTimes === 'object'
+      ? Object.fromEntries(
+          Object.entries(data.checkedInSeatTimes).map(([seat, value]) => [seat, normalizeTimestamp(value) || String(value || '')]),
+        )
+      : {},
     balanceReminderSentAt: normalizeTimestamp(data.balanceReminderSentAt) || undefined,
     receiptReuploadUsed: data.receiptReuploadUsed === true,
+    staffRemarks: Array.isArray(data.staffRemarks)
+      ? data.staffRemarks
+          .map((remark: any) => ({
+            text: String(remark?.text || '').trim(),
+            byUid: remark?.byUid || undefined,
+            byName: remark?.byName || undefined,
+            at: normalizeTimestamp(remark?.at) || String(remark?.at || ''),
+          }))
+          .filter((remark: any) => remark.text)
+      : [],
   };
 };
 
@@ -1279,7 +1299,10 @@ export const approveDepositWithProofDirect = async (bookingId: string, proofUrl:
   if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
   const booking = snap.data() as any;
 
-  const receipts = deriveReceiptsFromBooking(booking);
+  // A staff-uploaded proof replaces the decision on any currently pending
+  // customer receipt. Preserve it in history, but make it non-actionable.
+  const receipts = deriveReceiptsFromBooking(booking).map((receipt) =>
+    receipt.status === 'pending' ? { ...receipt, status: 'rejected' as const } : receipt);
   const amount = Number(depositAmount ?? booking.amount) || 0;
   const acceptedReceipt = {
     url: proofUrl,

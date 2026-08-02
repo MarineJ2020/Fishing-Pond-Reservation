@@ -8,6 +8,7 @@ interface PhoneNumberFieldProps {
   onRestChange: (v: string) => void;
   label?: string;
   required?: boolean;
+  unlimitedDigits?: boolean;
 }
 
 /** Malaysia-convention phone input: 01X prefix selector + the rest of the digits. */
@@ -18,6 +19,7 @@ const PhoneNumberField: React.FC<PhoneNumberFieldProps> = ({
   onRestChange,
   label = 'Nombor Telefon',
   required,
+  unlimitedDigits = false,
 }) => {
   const maxLen = phoneRestLength(prefix);
   return (
@@ -42,9 +44,13 @@ const PhoneNumberField: React.FC<PhoneNumberFieldProps> = ({
           className="form-input"
           style={{ flex: 1 }}
           value={rest}
-          onChange={(e) => onRestChange(e.target.value.replace(/\D/g, '').slice(0, maxLen))}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, '');
+            onRestChange(unlimitedDigits ? digits : digits.slice(0, maxLen));
+          }}
           placeholder={maxLen === 8 ? '1234 5678' : '345 6789'}
-          maxLength={maxLen}
+          maxLength={unlimitedDigits ? undefined : maxLen}
+          inputMode="numeric"
         />
       </div>
     </div>

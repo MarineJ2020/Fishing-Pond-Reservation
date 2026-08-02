@@ -4,6 +4,7 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   sendPasswordResetEmail,
+  fetchSignInMethodsForEmail,
   signOut,
   onAuthStateChanged,
   User as FirebaseUser,
@@ -101,15 +102,19 @@ export const useAuth = () => {
       return false;
     }
     try {
+      const methods = await fetchSignInMethodsForEmail(auth, normalizedEmail);
+      if (methods.includes('google.com') && !methods.includes('password')) {
+        return 'google' as const;
+      }
       await sendPasswordResetEmail(auth, normalizedEmail);
       addToast('Pautan reset kata laluan telah dihantar. Sila semak email anda.', 'success');
-      return true;
+      return 'sent' as const;
     } catch (error) {
       console.error(error);
       // Keep the response neutral so the login form does not reveal whether an
       // email address is registered.
       addToast('Jika email itu berdaftar, pautan reset akan dihantar sebentar lagi.', 'info');
-      return true;
+      return 'neutral' as const;
     }
   }, [addToast]);
 

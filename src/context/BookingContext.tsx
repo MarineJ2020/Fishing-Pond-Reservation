@@ -303,8 +303,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       bankReference: bankReference.trim(),
       bookingRef,
       notes: bookingNotes,
-      createdByStaff: isAdminProxy,
-      ...(isAdminProxy && user.uid ? { createdByUid: user.uid } : {}),
+      createdByStaff: isStaff,
+      ...(isStaff && user.uid ? { createdByUid: user.uid } : {}),
     };
 
     const result = await createBookingApi(payload);
@@ -346,10 +346,10 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       receiptName: receiptFile.name,
       bankReference: bankReference.trim(),
       notes: bookingNotes,
-      status: isAdminProxy ? 'confirmed' : 'pending',
+      status: isStaff ? 'confirmed' : 'pending',
       createdAt: new Date().toISOString(),
-      createdByStaff: isAdminProxy,
-      createdByUid: isAdminProxy ? user.uid : undefined,
+      createdByStaff: isStaff,
+      createdByUid: isStaff ? user.uid : undefined,
     };
 
     const newDb = { ...db, bookings: [booking, ...db.bookings] };

@@ -511,21 +511,31 @@ app.post('/rejectBooking', verifyToken, requireStaff, async (req, res) => {
 });
 
 app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
-    const { bookingRef, amount, method, seatNum } = req.body;
-    if (!bookingRef || amount == null || !method) {
-        return res.status(400).json({ error: 'bookingRef, amount and method are required.' });
+    const { bookingId, bookingRef, amount, method, seatNum } = req.body;
+    if ((!bookingId && !bookingRef) || amount == null || !method) {
+        return res.status(400).json({ error: 'bookingId or bookingRef, amount and method are required.' });
     }
 
     try {
-        const bookingQuery = await adminDb.collection('bookings').where('bookingRef', '==', bookingRef).limit(1).get();
-        if (bookingQuery.empty) {
+        let bookingDoc = null;
+        if (bookingId) {
+            const directSnap = await adminDb.collection('bookings').doc(bookingId).get();
+            if (directSnap.exists) bookingDoc = directSnap;
+        }
+        if (!bookingDoc && bookingRef) {
+            const bookingQuery = await adminDb.collection('bookings').where('bookingRef', '==', bookingRef).limit(1).get();
+            if (!bookingQuery.empty) bookingDoc = bookingQuery.docs[0];
+        }
+        if (!bookingDoc) {
             return res.status(404).json({ error: 'Booking not found.' });
         }
 
-        const bookingDoc = bookingQuery.docs[0];
         const booking = bookingDoc.data();
         const allSeats = Array.isArray(booking.seats) ? booking.seats : [];
         const priorCheckedIn = Array.isArray(booking.checkedInSeats) ? booking.checkedInSeats : [];
+        const priorTimes = booking.checkedInSeatTimes && typeof booking.checkedInSeatTimes === 'object'
+            ? booking.checkedInSeatTimes
+            : {};
         const isFirstArrival = priorCheckedIn.length === 0;
 
         // A specific seat only marks that one seat checked in. Omitting seatNum
@@ -533,13 +543,19 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
         // seat in the booking at once, matching the old whole-booking check-in.
         const seatsToMark = seatNum != null ? [seatNum] : allSeats;
         const nextCheckedIn = Array.from(new Set([...priorCheckedIn, ...seatsToMark]));
+        const checkedInAt = new Date();
+        const nextTimes = { ...priorTimes };
+        seatsToMark.forEach((seat) => {
+            if (!nextTimes[String(seat)]) nextTimes[String(seat)] = checkedInAt.toISOString();
+        });
         const fullyCheckedIn = allSeats.length > 0 && nextCheckedIn.length >= allSeats.length;
 
         await bookingDoc.ref.update({
             checkedInSeats: nextCheckedIn,
             checkedIn: fullyCheckedIn,
-            checkedInAt: new Date(),
-            updatedAt: new Date(),
+            checkedInAt,
+            checkedInSeatTimes: nextTimes,
+            updatedAt: checkedInAt,
             updatedBy: req.user.uid,
         });
 
@@ -555,10 +571,43 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
             });
         }
 
-        return res.json({ success: true, checkedInSeats: nextCheckedIn, checkedIn: fullyCheckedIn });
+        return res.json({ success: true, checkedInSeats: nextCheckedIn, checkedIn: fullyCheckedIn, checkedInAt: checkedInAt.toISOString(), checkedInSeatTimes: nextTimes });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to check in booking.' });
+    }
+});
+
+app.post('/cancelBookingCheckIn', verifyToken, requireStaff, async (req, res) => {
+    const { bookingId, seatNum } = req.body;
+    if (!bookingId || seatNum == null) {
+        return res.status(400).json({ error: 'bookingId and seatNum are required.' });
+    }
+
+    try {
+        const bookingDoc = await adminDb.collection('bookings').doc(bookingId).get();
+        if (!bookingDoc.exists) return res.status(404).json({ error: 'Booking not found.' });
+        const booking = bookingDoc.data();
+        const priorCheckedIn = Array.isArray(booking.checkedInSeats) ? booking.checkedInSeats : [];
+        const nextCheckedIn = priorCheckedIn.filter((seat) => Number(seat) !== Number(seatNum));
+        const nextTimes = booking.checkedInSeatTimes && typeof booking.checkedInSeatTimes === 'object'
+            ? { ...booking.checkedInSeatTimes }
+            : {};
+        delete nextTimes[String(seatNum)];
+        const allSeats = Array.isArray(booking.seats) ? booking.seats : [];
+        const fullyCheckedIn = allSeats.length > 0 && nextCheckedIn.length >= allSeats.length;
+
+        await bookingDoc.ref.update({
+            checkedInSeats: nextCheckedIn,
+            checkedIn: fullyCheckedIn,
+            checkedInSeatTimes: nextTimes,
+            updatedAt: new Date(),
+            updatedBy: req.user.uid,
+        });
+        return res.json({ success: true, checkedInSeats: nextCheckedIn, checkedIn: fullyCheckedIn, checkedInSeatTimes: nextTimes });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to cancel check-in.' });
     }
 });
 

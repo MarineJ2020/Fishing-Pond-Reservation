@@ -7,7 +7,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLogin: (email: string, pass: string) => Promise<boolean>;
-  onResetPassword: (email: string) => Promise<boolean>;
+  onResetPassword: (email: string) => Promise<false | 'sent' | 'neutral' | 'google'>;
   onRegister: (name: string, email: string, phone: string, pass: string) => Promise<boolean>;
   onGoogleLogin: () => Promise<boolean>;
   onResendVerification: () => Promise<boolean>;
@@ -39,6 +39,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
   const [showLoginPass, setShowLoginPass] = useState(false);
   const [showRegPass, setShowRegPass] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [googleAccountEmail, setGoogleAccountEmail] = useState('');
 
   const handleLogin = async () => {
     setLoading(true);
@@ -77,17 +78,52 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
 
   const handleResetPassword = async () => {
     setLoading(true);
-    const success = await onResetPassword(loginEmail);
+    const result = await onResetPassword(loginEmail);
     setLoading(false);
-    if (success) setResetSent(true);
+    if (result === 'google') {
+      setGoogleAccountEmail(loginEmail.trim());
+      setResetSent(false);
+    } else if (result) {
+      setResetSent(true);
+    }
   };
 
   const handleClose = () => {
     setVerificationEmail('');
+    setGoogleAccountEmail('');
     onClose();
   };
 
   if (!isOpen) return null;
+
+  if (googleAccountEmail) {
+    return (
+      <div className="modal-overlay open">
+        <div className="modal" style={{ maxWidth: '420px' }}>
+          <div className="modal-header">
+            <div className="modal-title">Akaun Google</div>
+            <button className="modal-close" onClick={handleClose}>×</button>
+          </div>
+          <div className="modal-body" style={{ textAlign: 'center', padding: '32px 24px' }}>
+            <GoogleIcon />
+            <p style={{ margin: '18px 0 8px', lineHeight: 1.6 }}>
+              Email <strong style={{ wordBreak: 'break-all' }}>{googleAccountEmail}</strong> didaftarkan menggunakan akaun Google.
+            </p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', lineHeight: 1.6 }}>
+              Sila gunakan butang <strong>Teruskan dengan Google</strong> untuk log masuk. Akaun ini tidak menggunakan kata laluan laman web.
+            </p>
+            <button
+              className="form-submit"
+              style={{ marginTop: '20px' }}
+              onClick={() => setGoogleAccountEmail('')}
+            >
+              Kembali ke Log Masuk
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (verificationEmail) {
     return (

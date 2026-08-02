@@ -35,8 +35,14 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
     : (booking.receiptData ? [{ url: booking.receiptData, amount: booking.amount, status: 'pending' as const, submittedAt: booking.createdAt || '' }] : []);
   const pendingIndex = receipts.findIndex((r) => r.status === 'pending');
   const pendingReceipt = pendingIndex >= 0 ? receipts[pendingIndex] : null;
-  const manualAmount = pendingReceipt?.amount ?? (booking.balanceDue || booking.amount);
+  // A later accepted manual proof supersedes an earlier wrong/pending receipt.
+  // Keep that older proof in history, but do not offer Sahkan/Tolak for it.
+  const pendingWasSuperseded = pendingIndex >= 0
+    && receipts.slice(pendingIndex + 1).some((receipt) => receipt.status === 'accepted');
+  const reviewableReceipt = pendingWasSuperseded ? null : pendingReceipt;
+  const manualAmount = reviewableReceipt?.amount ?? (booking.balanceDue || booking.amount);
   const remarks = booking.staffRemarks || [];
+  const canRecordManualPayment = booking.status === 'pending' || (booking.balanceDue ?? 0) > 0;
 
   const handleClose = () => { setManualMode(false); setRemarkText(''); onClose(); };
   const handleAddRemark = () => {
@@ -74,14 +80,14 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
             </div>
           )}
 
-          {pendingReceipt ? (
+          {reviewableReceipt ? (
             <div style={{ background: 'var(--cream, #f7f7f5)', borderRadius: 10, padding: '14px', marginBottom: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontWeight: 700 }}>Resit #{pendingIndex + 1} · RM {pendingReceipt.amount}</span>
-                {pendingReceipt.url && <button className="btn btn-sm btn-ghost" onClick={() => onViewReceipt(pendingReceipt.url)}>Lihat Resit</button>}
+                <span style={{ fontWeight: 700 }}>Resit #{pendingIndex + 1} · RM {reviewableReceipt.amount}</span>
+                {reviewableReceipt.url && <button className="btn btn-sm btn-ghost" onClick={() => onViewReceipt(reviewableReceipt.url)}>Lihat Resit</button>}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-                Dihantar: {pendingReceipt.submittedAt ? formatDate(pendingReceipt.submittedAt, { time: true }) : '-'}
+                Dihantar: {reviewableReceipt.submittedAt ? formatDate(reviewableReceipt.submittedAt, { time: true }) : '-'}
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button className="btn btn-green" disabled={saving} onClick={() => onApprove(booking.id, pendingIndex)}>✓ Sahkan</button>
@@ -92,7 +98,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '14px' }}>Tiada resit menunggu semakan untuk tempahan ini.</div>
           )}
 
-          {!manualMode ? (
+          {canRecordManualPayment && (!manualMode ? (
             <button className="btn btn-ghost btn-sm" onClick={() => setManualMode(true)}>
               Bayaran diterima di luar sistem? Rekod secara manual
             </button>
@@ -116,7 +122,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
                 {saving ? 'Memuat naik...' : '📷 Muat Naik Bukti & Sahkan'}
               </button>
             </div>
-          )}
+          ))}
 
           <div style={{ marginTop: '18px', paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
             <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>

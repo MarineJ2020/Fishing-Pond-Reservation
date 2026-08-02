@@ -27,6 +27,14 @@ export const useNavigation = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const navigateFromTop = useCallback((path: string) => {
+    navigate(path);
+    // React Router preserves the previous document scroll position. Booking
+    // entry links must always land at the beginning of the new page on both
+    // desktop and mobile.
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+  }, [navigate]);
+
   const bookingMatch = BOOKING_PATH_RE.exec(location.pathname);
   const bookingDetailId = bookingMatch ? decodeURIComponent(bookingMatch[1]) : null;
 
@@ -36,20 +44,19 @@ export const useNavigation = () => {
 
   const goToSection = useCallback((section: string) => {
     const path = SECTION_TO_PATH[section] ?? `/${section}`;
-    navigate(path);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [navigate]);
+    navigateFromTop(path);
+  }, [navigateFromTop]);
 
-  const goHome = useCallback(() => navigate('/'), [navigate]);
-  const goToBook = useCallback(() => navigate('/book'), [navigate]);
-  const goToLive = useCallback(() => navigate('/live'), [navigate]);
-  const goToMyBookings = useCallback(() => navigate('/my-bookings'), [navigate]);
-  const goToProfile = useCallback(() => navigate('/profile'), [navigate]);
-  const goToConfirmed = useCallback(() => navigate('/confirmed'), [navigate]);
-  const goToCMS = useCallback(() => navigate('/cms'), [navigate]);
+  const goHome = useCallback(() => navigateFromTop('/'), [navigateFromTop]);
+  const goToBook = useCallback(() => navigateFromTop('/book'), [navigateFromTop]);
+  const goToLive = useCallback(() => navigateFromTop('/live'), [navigateFromTop]);
+  const goToMyBookings = useCallback(() => navigateFromTop('/my-bookings'), [navigateFromTop]);
+  const goToProfile = useCallback(() => navigateFromTop('/profile'), [navigateFromTop]);
+  const goToConfirmed = useCallback(() => navigateFromTop('/confirmed'), [navigateFromTop]);
+  const goToCMS = useCallback(() => navigateFromTop('/cms'), [navigateFromTop]);
   const goToBookingDetail = useCallback(
-    (id: string) => navigate(`/bookings/${encodeURIComponent(id)}`),
-    [navigate],
+    (id: string) => navigateFromTop(`/bookings/${encodeURIComponent(id)}`),
+    [navigateFromTop],
   );
 
   return {

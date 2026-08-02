@@ -855,21 +855,25 @@ const AppContent: React.FC = () => {
       || (settings.location ? `https://www.google.com/maps?q=${encodeURIComponent(settings.location)}&output=embed` : '');
 
     const formatEventDate = (iso?: string) => formatDate(iso, { weekday: true }) || 'Tarikh akan diumumkan';
-    const formatEventTime = (iso?: string) => {
+    const formatEventClock = (iso?: string) => {
       if (!iso) return '—';
       const d = new Date(iso);
       if (Number.isNaN(d.getTime())) return '—';
       const h = d.getHours();
       const m = d.getMinutes();
-      const period = h < 12 ? 'Pagi' : h < 15 ? 'Tengahari' : h < 19 ? 'Petang' : 'Malam';
       const h12 = ((h + 11) % 12) + 1;
-      return `${h12}.${m.toString().padStart(2, '0')} ${period}`;
+      return `${h12}.${m.toString().padStart(2, '0')}${h < 12 ? 'AM' : 'PM'}`;
+    };
+    const formatEventTime = (start?: string, end?: string) => {
+      const startLabel = formatEventClock(start);
+      const endLabel = formatEventClock(end);
+      return end && endLabel !== '—' ? `${startLabel} - ${endLabel}` : startLabel;
     };
     const padCD = (n: number) => n.toString().padStart(2, '0');
 
     const featuredName = featuredCompetition?.name || 'Ikuti perkembangan untuk acara akan datang';
     const featuredDate = featuredCompetition ? formatEventDate(featuredCompetition.startDate) : '—';
-    const featuredTime = featuredCompetition ? formatEventTime(featuredCompetition.startDate) : '—';
+    const featuredTime = featuredCompetition ? formatEventTime(featuredCompetition.startDate, featuredCompetition.endDate) : '—';
     const featuredPondsCount = featuredCompetition ? (featuredCompetition.activePondIds?.length || totalPonds || 0) : '—';
     const samplePrice = featuredCompetition?.pricePerPeg ?? db.ponds[0]?.seats[0]?.price;
     const featuredFee = featuredCompetition ? (samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami') : '—';
@@ -1000,7 +1004,7 @@ const AppContent: React.FC = () => {
                     <h4>{secondCompetition?.name || 'Next Battle'}</h4>
                     <p>
                       {secondCompetition
-                        ? `${formatEventDate(secondCompetition.startDate)} · ${formatEventTime(secondCompetition.startDate)}`
+                        ? `${formatEventDate(secondCompetition.startDate)} · ${formatEventTime(secondCompetition.startDate, secondCompetition.endDate)}`
                         : 'Paparan ringkas event akan datang supaya peserta boleh banding tarikh, yuran dan kapasiti sebelum tempah.'}
                     </p>
                     <div className="kks-mini-meta">

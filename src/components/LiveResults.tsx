@@ -33,8 +33,24 @@ const fmtTime = (value: any): string => {
   return `${h12}:${m.toString().padStart(2, '0')} ${period}`;
 };
 
+const defaultCompetitionId = (competitions: Competition[], fallback: Competition): string => {
+  const upcoming = competitions
+    .filter((competition) => {
+      const start = new Date(competition.startDate).getTime();
+      return !!competition.id && Number.isFinite(start) && start > Date.now() && !isCompetitionEnded(competition);
+    })
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
+  const live = competitions.find((competition) => {
+    const now = Date.now();
+    return !!competition.id
+      && new Date(competition.startDate).getTime() <= now
+      && new Date(competition.endDate).getTime() > now;
+  });
+  return upcoming?.id || live?.id || fallback.id || competitions[0]?.id || '';
+};
+
 const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bookings, user }) => {
-  const [selectedCompId, setSelectedCompId] = useState(comp.id || '');
+  const [selectedCompId, setSelectedCompId] = useState(() => defaultCompetitionId(competitions, comp));
   const [liveScores, setLiveScores] = useState<ScoreEntry[]>([]);
   const [loadingScores, setLoadingScores] = useState(false);
   const [lastUpdated, setLastUpdated] = useState('');
@@ -47,10 +63,13 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const [pastScores, setPastScores] = useState<ScoreEntry[]>([]);
   const [pastLoading, setPastLoading] = useState(false);
 
-  // Sync selected ID when the default comp changes
+  // When data first arrives, choose the nearest upcoming event by default.
+  // Once a valid selection exists, keep the user's explicit choice.
   useEffect(() => {
-    if (comp.id && !selectedCompId) setSelectedCompId(comp.id);
-  }, [comp.id]);
+    if (selectedCompId && competitions.some((competition) => competition.id === selectedCompId)) return;
+    const nextId = defaultCompetitionId(competitions, comp);
+    if (nextId) setSelectedCompId(nextId);
+  }, [comp, competitions, selectedCompId]);
 
   // Real-time score listener — fires on every score write without polling
   const scoreMapRef = useRef<Map<string, ScoreEntry>>(new Map());

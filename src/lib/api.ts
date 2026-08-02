@@ -58,5 +58,6 @@ export const rejectBookingReceipt = async (payload: { bookingId: string; receipt
 };
 export const approveBooking = async (payload: { bookingId: string }) => postJson('/approveBooking', payload);
 export const rejectBooking = async (payload: { bookingId: string }) => postJson('/rejectBooking', payload);
-export const checkInBooking = async (payload: { bookingRef: string; amount: number; method: string; seatNum?: number }) => postJson('/checkInBooking', payload);
+export const checkInBooking = async (payload: { bookingId: string; bookingRef?: string; amount: number; method: string; seatNum?: number }) => postJson('/checkInBooking', payload);
+export const cancelBookingCheckIn = async (payload: { bookingId: string; seatNum: number }) => postJson('/cancelBookingCheckIn', payload);
 export const updateResult = async (payload: { bookingId: string; totalWeight: number; fishCount: number }) => postJson('/updateResult', payload);

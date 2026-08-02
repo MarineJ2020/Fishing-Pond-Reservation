@@ -3455,6 +3455,18 @@ nav.kks-legacy-v3-nav::before {
 .kks-event-prize small { color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; }
 .kks-event-prize strong { display: block; margin-top: 4px; font-size: 18px; }
 .kks-event-actions { display: grid; grid-template-columns: 1fr auto; gap: 12px; }
+.kks-event-actions .btn:disabled,
+.kks-event-actions .btn:disabled:hover {
+  background: #a8b0b8 !important;
+  border-color: #a8b0b8 !important;
+  color: rgba(255,255,255,.86) !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+  filter: none !important;
+  opacity: .72;
+  pointer-events: none;
+  transform: none !important;
+}
 
 .kks-event-side { display: grid; gap: 18px; }
 .kks-mini-card {
@@ -3595,14 +3607,22 @@ nav.kks-legacy-v3-nav::before {
 .kks-footer-container { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
 .kks-footer-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr .9fr;
+  grid-template-columns: 1.4fr 1fr 1fr;
   gap: 60px; align-items: start;
 }
 .kks-footer-grid > div { display: flex; flex-direction: column; justify-content: flex-start; }
 .kks-footer-grid > .kks-footer-cta { align-items: flex-end; justify-content: center; }
 .kks-footer-logo { margin-bottom: 18px; }
 .kks-footer-logo img { width: 170px; height: auto; }
+.kks-footer-brand > p { text-align: left; }
 .kks-footer p, .kks-footer a { color: rgba(255,255,255,.72); font-size: 14px; line-height: 1.9; }
+.kks-footer-phone {
+  display: block;
+  margin-bottom: 4px;
+  color: #fff;
+  font-size: 20px;
+  line-height: 1.35;
+}
 .kks-footer h4 {
   margin: 0 0 18px; font-size: 13px;
   text-transform: uppercase; letter-spacing: .14em; color: #fff;
@@ -3686,6 +3706,7 @@ nav.kks-legacy-v3-nav::before {
   .kks-map { height: 240px; border-radius: 16px; }
   .kks-footer-grid { grid-template-columns: 1fr; gap: 28px; text-align: center; }
   .kks-footer-grid > div, .kks-footer-grid > .kks-footer-cta { align-items: center; }
+  .kks-footer-brand > p { width: 100%; text-align: left; }
   .kks-footer-logo img { margin: 0 auto; }
   .kks-footer-col a { display: block; }
   .kks-footer .btn { width: 100%; }

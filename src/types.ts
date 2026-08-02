@@ -89,6 +89,10 @@ export interface Booking {
   checkedIn?: boolean;
   /** Seat numbers that have individually checked in (subset of `seats`). */
   checkedInSeats?: number[];
+  /** Most recent check-in time for the booking. */
+  checkedInAt?: string;
+  /** Per-seat check-in times, keyed by the numeric seat label. */
+  checkedInSeatTimes?: Record<string, string>;
   /** Last time a balance-due reminder email was sent to the user (ISO). */
   balanceReminderSentAt?: string;
   /** True once the owner has used their one-time receipt re-upload (correction). */
