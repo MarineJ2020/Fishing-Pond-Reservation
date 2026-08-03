@@ -89,9 +89,15 @@ export interface Booking {
   checkedIn?: boolean;
   /** Seat numbers that have individually checked in (subset of `seats`). */
   checkedInSeats?: number[];
+  /**
+   * Unambiguous per-pond seat keys (`pondId:seatNumber`). Unlike
+   * `checkedInSeats`, this remains correct when one booking contains the same
+   * numeric seat in two different ponds.
+   */
+  checkedInSeatKeys?: string[];
   /** Most recent check-in time for the booking. */
   checkedInAt?: string;
-  /** Per-seat check-in times, keyed by the numeric seat label. */
+  /** Per-seat check-in times, keyed by `pondId:seatNumber` (legacy numeric keys are also read). */
   checkedInSeatTimes?: Record<string, string>;
   /** Last time a balance-due reminder email was sent to the user (ISO). */
   balanceReminderSentAt?: string;

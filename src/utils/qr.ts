@@ -107,15 +107,20 @@ export function buildBookingUrl(bookingId: string): string {
   return `${origin}/bookings/${encodeURIComponent(bookingId)}`;
 }
 
-/** Build the per-seat QR payload: booking-detail URL + `?seat=N`. */
-export function buildSeatQrValue(bookingId: string, seatNum: number): string {
-  return `${buildBookingUrl(bookingId)}?seat=${encodeURIComponent(String(seatNum))}`;
+/** Build the per-seat QR payload, including pond identity when available. */
+export function buildSeatQrValue(bookingId: string, seatNum: number, pondId?: number): string {
+  const url = new URL(buildBookingUrl(bookingId), 'http://placeholder');
+  url.searchParams.set('seat', String(seatNum));
+  if (pondId != null) url.searchParams.set('pond', String(pondId));
+  return url.origin === 'http://placeholder' ? `${url.pathname}${url.search}` : url.toString();
 }
 
 export interface ParsedQrPayload {
   bookingId: string;
   /** Present only when the scanned QR encoded a specific seat. */
   seatNum?: number;
+  /** Present on current multi-pond-safe QR codes. */
+  pondId?: number;
 }
 
 /**
@@ -135,7 +140,10 @@ export function parseQrPayload(raw: string): ParsedQrPayload | null {
       const bookingId = decodeURIComponent(match[1]);
       const seatParam = url.searchParams.get('seat');
       const seatNum = seatParam !== null ? parseInt(seatParam, 10) : NaN;
-      return Number.isFinite(seatNum) ? { bookingId, seatNum } : { bookingId };
+      const pondParam = url.searchParams.get('pond');
+      const pondId = pondParam !== null ? parseInt(pondParam, 10) : NaN;
+      if (!Number.isFinite(seatNum)) return { bookingId };
+      return Number.isFinite(pondId) ? { bookingId, seatNum, pondId } : { bookingId, seatNum };
     }
   } catch {
     // not a URL; fall through to plain id check

@@ -247,7 +247,7 @@ const AppContent: React.FC = () => {
   // Featured event derivation for the new homepage Competition section.
   const sortedUpcomingComps = useMemo(() => {
     return [...competitions]
-      .filter((c) => !!c.startDate)
+      .filter((c) => c.status !== 'INACTIVE' && !!c.startDate)
       .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
   }, [competitions]);
   const featuredCompetition = useMemo(() => {

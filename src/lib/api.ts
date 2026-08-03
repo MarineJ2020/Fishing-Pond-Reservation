@@ -1,7 +1,14 @@
-import { createBookingDocument, acceptBookingReceiptDirect, rejectBookingReceiptDirect, submitBookingReceiptDirect } from './firestore';
+import {
+  acceptBookingReceiptDirect,
+  cancelBookingCheckInDirect,
+  checkInBookingDirect,
+  createBookingDocument,
+  rejectBookingReceiptDirect,
+  submitBookingReceiptDirect,
+} from './firestore';
 import { auth } from '../../lib/firebase';
 
-const baseUrl = import.meta.env.VITE_FUNCTIONS_BASE_URL || '';
+const baseUrl = (import.meta.env.VITE_FUNCTIONS_BASE_URL || '').replace(/\/$/, '');
 
 const getAuthHeader = async () => {
   const currentUser = auth.currentUser;
@@ -58,6 +65,12 @@ export const rejectBookingReceipt = async (payload: { bookingId: string; receipt
 };
 export const approveBooking = async (payload: { bookingId: string }) => postJson('/approveBooking', payload);
 export const rejectBooking = async (payload: { bookingId: string }) => postJson('/rejectBooking', payload);
-export const checkInBooking = async (payload: { bookingId: string; bookingRef?: string; amount: number; method: string; seatNum?: number }) => postJson('/checkInBooking', payload);
-export const cancelBookingCheckIn = async (payload: { bookingId: string; seatNum: number }) => postJson('/cancelBookingCheckIn', payload);
+export const checkInBooking = async (payload: { bookingId: string; bookingRef?: string; amount: number; method: string; seatNum?: number; pondId?: number }) => {
+  if (!baseUrl) return checkInBookingDirect(payload);
+  return postJson('/checkInBooking', payload);
+};
+export const cancelBookingCheckIn = async (payload: { bookingId: string; seatNum: number; pondId?: number }) => {
+  if (!baseUrl) return cancelBookingCheckInDirect(payload);
+  return postJson('/cancelBookingCheckIn', payload);
+};
 export const updateResult = async (payload: { bookingId: string; totalWeight: number; fishCount: number }) => postJson('/updateResult', payload);

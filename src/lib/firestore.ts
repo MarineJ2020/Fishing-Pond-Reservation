@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   Timestamp,
   writeBatch,
+  runTransaction,
   QueryDocumentSnapshot,
   DocumentData,
 } from 'firebase/firestore';
@@ -274,6 +275,9 @@ const buildBooking = (
     checkedIn: data.checkedIn === true,
     checkedInSeats: Array.isArray(data.checkedInSeats)
       ? data.checkedInSeats.map((seat: any) => Number(seat)).filter(Number.isFinite)
+      : [],
+    checkedInSeatKeys: Array.isArray(data.checkedInSeatKeys)
+      ? data.checkedInSeatKeys.map((key: any) => String(key)).filter(Boolean)
       : [],
     checkedInAt: normalizeTimestamp(data.checkedInAt) || undefined,
     checkedInSeatTimes: data.checkedInSeatTimes && typeof data.checkedInSeatTimes === 'object'
@@ -710,14 +714,216 @@ export const createBookingDocument = async (data: any) => {
   // confirmed immediately — no separate approval step. Self-service bookings
   // still go through PENDING_APPROVAL for staff to verify the receipt.
   const isStaffBooking = data.createdByStaff === true;
+  const totalAmount = Number(data.totalAmount ?? data.amount) || 0;
+  const paymentAmount = Number(data.amount) || 0;
+  const paidAmount = isStaffBooking ? paymentAmount : 0;
+  const balanceDue = Math.max(0, totalAmount - paidAmount);
+  const initialReceipts = data.receiptUrl
+    ? [{
+        url: data.receiptUrl,
+        amount: paymentAmount,
+        status: isStaffBooking ? 'accepted' : 'pending',
+        submittedAt: new Date().toISOString(),
+      }]
+    : [];
 
   const bookingsRef = collection(db, 'bookings');
   return await addDoc(bookingsRef, {
     ...data,
+    receipts: initialReceipts,
+    paidAmount,
+    balanceDue,
+    ...(isStaffBooking ? { balanceStage: balanceDue > 0 ? 'pending-balance' : 'fully-paid' } : {}),
     status: isStaffBooking ? 'CONFIRMED' : 'PENDING_APPROVAL',
-    paymentStatus: isStaffBooking ? 'PAID' : 'PENDING',
+    paymentStatus: isStaffBooking ? (balanceDue > 0 ? 'PARTIAL' : 'APPROVED') : 'PENDING',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+  });
+};
+
+interface DirectCheckInPayload {
+  bookingId: string;
+  bookingRef?: string;
+  amount: number;
+  method: string;
+  seatNum?: number;
+  pondId?: number;
+}
+
+interface RawBookingSeatEntry {
+  key: string;
+  pondId: string;
+  seatNum: number;
+}
+
+const rawPondId = (value: any): string => {
+  if (value == null) return '';
+  if (value?.id != null) return String(value.id);
+  if (typeof value?.path === 'string') return value.path.split('/').pop() || '';
+  return String(value);
+};
+
+const rawBookingSeatEntries = (booking: any): RawBookingSeatEntry[] => {
+  const selections = Array.isArray(booking?.pondSelections) && booking.pondSelections.length
+    ? booking.pondSelections
+    : [{
+        pondId: booking?.pondId,
+        seats: Array.isArray(booking?.seatNumbers)
+          ? booking.seatNumbers
+          : (Array.isArray(booking?.seats) ? booking.seats : []),
+      }];
+  const seen = new Set<string>();
+  const entries: RawBookingSeatEntry[] = [];
+  selections.forEach((selection: any) => {
+    const pondId = rawPondId(selection?.pondId);
+    (Array.isArray(selection?.seats) ? selection.seats : []).forEach((rawSeat: any) => {
+      const seatNum = Number(rawSeat);
+      if (!Number.isFinite(seatNum)) return;
+      const key = `${pondId || 'legacy'}:${seatNum}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      entries.push({ key, pondId, seatNum });
+    });
+  });
+  return entries;
+};
+
+const rawPriorCheckInKeys = (booking: any, entries: RawBookingSeatEntry[]): Set<string> => {
+  const keys = new Set<string>(
+    (Array.isArray(booking?.checkedInSeatKeys) ? booking.checkedInSeatKeys : []).map(String),
+  );
+  const legacySeats = new Set<number>(
+    (Array.isArray(booking?.checkedInSeats) ? booking.checkedInSeats : [])
+      .map(Number)
+      .filter(Number.isFinite),
+  );
+  entries.forEach((entry) => {
+    if (legacySeats.has(entry.seatNum)) keys.add(entry.key);
+  });
+  return keys;
+};
+
+const rawMatchingBookingSeats = (
+  entries: RawBookingSeatEntry[],
+  seatNum?: number,
+  pondId?: number,
+): RawBookingSeatEntry[] => {
+  if (seatNum == null) return entries;
+  const matches = entries.filter((entry) => entry.seatNum === Number(seatNum));
+  if (pondId == null) return matches;
+  const exact = matches.filter((entry) => entry.pondId === String(pondId));
+  return exact.length ? exact : (matches.length === 1 ? matches : []);
+};
+
+const rawCheckedSeatNumbers = (entries: RawBookingSeatEntry[], checkedKeys: Set<string>): number[] =>
+  Array.from(new Set(entries.filter((entry) => checkedKeys.has(entry.key)).map((entry) => entry.seatNum)));
+
+/**
+ * Staff check-in through an authenticated Firestore transaction. Production
+ * uses this direct path (the same architecture as booking/receipt writes), so
+ * the HTTP `api` function can remain private at IAM level.
+ */
+export const checkInBookingDirect = async (payload: DirectCheckInPayload) => {
+  if (!auth.currentUser) throw new Error('Sila log masuk dahulu. / Authentication required.');
+  const bookingRef = doc(db, 'bookings', payload.bookingId);
+  const paymentRef = doc(collection(bookingRef, 'payments'));
+  const checkedAt = new Date().toISOString();
+
+  return runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(bookingRef);
+    if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
+    const booking = snap.data() as any;
+    const status = String(booking.status || '').toUpperCase();
+    if (!['APPROVED', 'CONFIRMED', 'LIVE'].includes(status)) {
+      throw new Error('Tempahan mesti disahkan sebelum check-in. / Booking must be confirmed before check-in.');
+    }
+
+    const entries = rawBookingSeatEntries(booking);
+    const targets = rawMatchingBookingSeats(entries, payload.seatNum, payload.pondId);
+    if (!targets.length) throw new Error('Pancang tidak terdapat dalam tempahan ini. / Seat is not part of this booking.');
+    const priorKeys = rawPriorCheckInKeys(booking, entries);
+    const isFirstArrival = priorKeys.size === 0;
+    const nextKeys = new Set(priorKeys);
+    targets.forEach((entry) => nextKeys.add(entry.key));
+    const nextTimes = booking.checkedInSeatTimes && typeof booking.checkedInSeatTimes === 'object'
+      ? { ...booking.checkedInSeatTimes }
+      : {};
+    targets.forEach((entry) => {
+      if (!nextTimes[entry.key]) nextTimes[entry.key] = checkedAt;
+    });
+    const result = {
+      success: true,
+      checkedInSeatKeys: Array.from(nextKeys),
+      checkedInSeats: rawCheckedSeatNumbers(entries, nextKeys),
+      checkedIn: entries.length > 0 && entries.every((entry) => nextKeys.has(entry.key)),
+      checkedInAt: checkedAt,
+      checkedInSeatTimes: nextTimes,
+    };
+
+    transaction.update(bookingRef, {
+      checkedInSeatKeys: result.checkedInSeatKeys,
+      checkedInSeats: result.checkedInSeats,
+      checkedIn: result.checkedIn,
+      checkedInAt: Timestamp.fromDate(new Date(checkedAt)),
+      checkedInSeatTimes: result.checkedInSeatTimes,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null,
+    });
+    if (isFirstArrival) {
+      transaction.set(paymentRef, {
+        amount: Number(payload.amount) || 0,
+        method: payload.method || 'manual',
+        recordedBy: auth.currentUser?.uid || null,
+        createdAt: serverTimestamp(),
+      });
+    }
+    return result;
+  });
+};
+
+export const cancelBookingCheckInDirect = async (payload: { bookingId: string; seatNum: number; pondId?: number }) => {
+  if (!auth.currentUser) throw new Error('Sila log masuk dahulu. / Authentication required.');
+  const bookingRef = doc(db, 'bookings', payload.bookingId);
+
+  return runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(bookingRef);
+    if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
+    const booking = snap.data() as any;
+    const entries = rawBookingSeatEntries(booking);
+    const targets = rawMatchingBookingSeats(entries, payload.seatNum, payload.pondId);
+    if (!targets.length) throw new Error('Pancang tidak terdapat dalam tempahan ini. / Seat is not part of this booking.');
+
+    const nextKeys = rawPriorCheckInKeys(booking, entries);
+    const nextTimes = booking.checkedInSeatTimes && typeof booking.checkedInSeatTimes === 'object'
+      ? { ...booking.checkedInSeatTimes }
+      : {};
+    targets.forEach((entry) => {
+      nextKeys.delete(entry.key);
+      delete nextTimes[entry.key];
+    });
+    const targetSeatNumbers = new Set(targets.map((entry) => entry.seatNum));
+    targetSeatNumbers.forEach((targetSeat) => {
+      if (!entries.some((entry) => entry.seatNum === targetSeat && nextKeys.has(entry.key))) {
+        delete nextTimes[String(targetSeat)];
+      }
+    });
+    const result = {
+      success: true,
+      checkedInSeatKeys: Array.from(nextKeys),
+      checkedInSeats: rawCheckedSeatNumbers(entries, nextKeys),
+      checkedIn: entries.length > 0 && entries.every((entry) => nextKeys.has(entry.key)),
+      checkedInSeatTimes: nextTimes,
+    };
+
+    transaction.update(bookingRef, {
+      checkedInSeatKeys: result.checkedInSeatKeys,
+      checkedInSeats: result.checkedInSeats,
+      checkedIn: result.checkedIn,
+      checkedInSeatTimes: result.checkedInSeatTimes,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || null,
+    });
+    return result;
   });
 };
 

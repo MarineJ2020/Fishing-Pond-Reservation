@@ -11,6 +11,7 @@ import {
     queueWelcomeMail,
     shouldQueueBookingApprovedEmail,
 } from './email-service.js';
+import { buildCancelCheckInState, buildCheckInState } from './booking-seats.js';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -237,6 +238,9 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
 
         const bookingRef = `BKG-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
         const now = new Date();
+        const bookingTotal = Number(totalAmount ?? amount) || 0;
+        const initialPaidAmount = staffMode ? (Number(amount) || 0) : 0;
+        const initialBalanceDue = Math.max(0, bookingTotal - initialPaidAmount);
         // Seed the receipts array with the initial payment receipt. Staff-mode
         // bookings are pre-accepted; self-service start as pending staff review.
         const initialReceipts = receiptUrl
@@ -258,17 +262,19 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
             seatIds: seatIds.map((id) => adminDb.doc(`seats/${id}`)),
             seatNumbers: seatNumbers || [],
             paymentType,
-            paymentStatus: staffMode ? 'APPROVED' : 'PENDING_APPROVAL',
+            paymentStatus: staffMode ? (initialBalanceDue > 0 ? 'PARTIAL' : 'APPROVED') : 'PENDING_APPROVAL',
             receiptUrl: receiptUrl || null,
             bankReference: bankReference || '',
             receipts: initialReceipts,
-            paidAmount: staffMode ? amount : 0,
+            paidAmount: initialPaidAmount,
+            balanceDue: initialBalanceDue,
+            ...(staffMode ? { balanceStage: initialBalanceDue > 0 ? 'pending-balance' : 'fully-paid' } : {}),
             staffNotes: notes || '',
             createdByStaff: staffMode,
             checkedIn: false,
             status: staffMode ? 'APPROVED' : 'PENDING_APPROVAL',
             amount,
-            totalAmount: totalAmount ?? amount,
+            totalAmount: bookingTotal,
             createdAt: now,
             updatedAt: now,
             updatedBy: user.uid,
@@ -528,7 +534,7 @@ app.post('/rejectBooking', verifyToken, requireStaff, async (req, res) => {
 });
 
 app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
-    const { bookingId, bookingRef, amount, method, seatNum } = req.body;
+    const { bookingId, bookingRef, amount, method, seatNum, pondId } = req.body;
     if ((!bookingId && !bookingRef) || amount == null || !method) {
         return res.status(400).json({ error: 'bookingId or bookingRef, amount and method are required.' });
     }
@@ -548,30 +554,27 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
         }
 
         const booking = bookingDoc.data();
-        const allSeats = Array.isArray(booking.seats) ? booking.seats : [];
-        const priorCheckedIn = Array.isArray(booking.checkedInSeats) ? booking.checkedInSeats : [];
-        const priorTimes = booking.checkedInSeatTimes && typeof booking.checkedInSeatTimes === 'object'
-            ? booking.checkedInSeatTimes
-            : {};
-        const isFirstArrival = priorCheckedIn.length === 0;
-
-        // A specific seat only marks that one seat checked in. Omitting seatNum
-        // (legacy callers with no per-seat QR info) falls back to marking every
-        // seat in the booking at once, matching the old whole-booking check-in.
-        const seatsToMark = seatNum != null ? [seatNum] : allSeats;
-        const nextCheckedIn = Array.from(new Set([...priorCheckedIn, ...seatsToMark]));
+        if (!isConfirmedStatus(booking.status)) {
+            return res.status(409).json({ error: 'Booking must be confirmed before check-in.' });
+        }
         const checkedInAt = new Date();
-        const nextTimes = { ...priorTimes };
-        seatsToMark.forEach((seat) => {
-            if (!nextTimes[String(seat)]) nextTimes[String(seat)] = checkedInAt.toISOString();
-        });
-        const fullyCheckedIn = allSeats.length > 0 && nextCheckedIn.length >= allSeats.length;
+        let nextState;
+        try {
+            nextState = buildCheckInState(booking, {
+                seatNum,
+                pondId,
+                checkedAt: checkedInAt.toISOString(),
+            });
+        } catch (error) {
+            return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid booking seat.' });
+        }
 
         await bookingDoc.ref.update({
-            checkedInSeats: nextCheckedIn,
-            checkedIn: fullyCheckedIn,
+            checkedInSeatKeys: nextState.checkedInSeatKeys,
+            checkedInSeats: nextState.checkedInSeats,
+            checkedIn: nextState.checkedIn,
             checkedInAt,
-            checkedInSeatTimes: nextTimes,
+            checkedInSeatTimes: nextState.checkedInSeatTimes,
             updatedAt: checkedInAt,
             updatedBy: req.user.uid,
         });
@@ -579,7 +582,7 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
         // Only log a payment record on the booking's first arrival — otherwise
         // checking in each seat of a group one-by-one would log the full booking
         // amount multiple times in the payments ledger.
-        if (isFirstArrival) {
+        if (nextState.isFirstArrival) {
             await bookingDoc.ref.collection('payments').add({
                 amount,
                 method,
@@ -588,7 +591,14 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
             });
         }
 
-        return res.json({ success: true, checkedInSeats: nextCheckedIn, checkedIn: fullyCheckedIn, checkedInAt: checkedInAt.toISOString(), checkedInSeatTimes: nextTimes });
+        return res.json({
+            success: true,
+            checkedInSeatKeys: nextState.checkedInSeatKeys,
+            checkedInSeats: nextState.checkedInSeats,
+            checkedIn: nextState.checkedIn,
+            checkedInAt: checkedInAt.toISOString(),
+            checkedInSeatTimes: nextState.checkedInSeatTimes,
+        });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to check in booking.' });
@@ -596,7 +606,7 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
 });
 
 app.post('/cancelBookingCheckIn', verifyToken, requireStaff, async (req, res) => {
-    const { bookingId, seatNum } = req.body;
+    const { bookingId, seatNum, pondId } = req.body;
     if (!bookingId || seatNum == null) {
         return res.status(400).json({ error: 'bookingId and seatNum are required.' });
     }
@@ -605,23 +615,22 @@ app.post('/cancelBookingCheckIn', verifyToken, requireStaff, async (req, res) =>
         const bookingDoc = await adminDb.collection('bookings').doc(bookingId).get();
         if (!bookingDoc.exists) return res.status(404).json({ error: 'Booking not found.' });
         const booking = bookingDoc.data();
-        const priorCheckedIn = Array.isArray(booking.checkedInSeats) ? booking.checkedInSeats : [];
-        const nextCheckedIn = priorCheckedIn.filter((seat) => Number(seat) !== Number(seatNum));
-        const nextTimes = booking.checkedInSeatTimes && typeof booking.checkedInSeatTimes === 'object'
-            ? { ...booking.checkedInSeatTimes }
-            : {};
-        delete nextTimes[String(seatNum)];
-        const allSeats = Array.isArray(booking.seats) ? booking.seats : [];
-        const fullyCheckedIn = allSeats.length > 0 && nextCheckedIn.length >= allSeats.length;
+        let nextState;
+        try {
+            nextState = buildCancelCheckInState(booking, { seatNum, pondId });
+        } catch (error) {
+            return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid booking seat.' });
+        }
 
         await bookingDoc.ref.update({
-            checkedInSeats: nextCheckedIn,
-            checkedIn: fullyCheckedIn,
-            checkedInSeatTimes: nextTimes,
+            checkedInSeatKeys: nextState.checkedInSeatKeys,
+            checkedInSeats: nextState.checkedInSeats,
+            checkedIn: nextState.checkedIn,
+            checkedInSeatTimes: nextState.checkedInSeatTimes,
             updatedAt: new Date(),
             updatedBy: req.user.uid,
         });
-        return res.json({ success: true, checkedInSeats: nextCheckedIn, checkedIn: fullyCheckedIn, checkedInSeatTimes: nextTimes });
+        return res.json({ success: true, ...nextState });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to cancel check-in.' });

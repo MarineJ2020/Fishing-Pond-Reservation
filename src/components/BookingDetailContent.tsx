@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Booking } from '../types';
-import { outstandingBalance } from '../utils/booking';
+import { bookingSeatEntries, isBookingSeatCheckedIn, outstandingBalance } from '../utils/booking';
 import { formatDate } from '../utils';
 import { buildSeatQrValue } from '../utils/qr';
 import { formatSeat } from '../utils/seatLabel';
@@ -32,7 +32,25 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
   const [docPreview, setDocPreview] = useState<string | null>(null);
   const receipts = booking.receipts && booking.receipts.length
     ? booking.receipts
-    : (booking.receiptData ? [{ url: booking.receiptData, amount: booking.amount, status: 'pending' as const, submittedAt: booking.createdAt }] : []);
+    : (booking.receiptData ? [{
+        url: booking.receiptData,
+        amount: booking.amount,
+        status: booking.status === 'confirmed' ? 'accepted' as const : 'pending' as const,
+        submittedAt: booking.createdAt,
+      }] : []);
+  const seatEntries = bookingSeatEntries(booking);
+  const pondGroups = Array.from(seatEntries.reduce((groups, entry) => {
+    const current = groups.get(entry.pondId) || {
+      pondId: entry.pondId,
+      pondName: entry.pondName,
+      pondCode: entry.pondCode,
+      pondDate: entry.pondDate,
+      seats: [] as number[],
+    };
+    current.seats.push(entry.seatNum);
+    groups.set(entry.pondId, current);
+    return groups;
+  }, new Map<number, { pondId: number; pondName: string; pondCode?: string; pondDate?: string; seats: number[] }>()).values());
   const balanceDue = outstandingBalance(booking);
   const canSubmitBalance = !!onReceiptSubmitted
     && booking.paymentType === 'deposit'
@@ -87,9 +105,6 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
             <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
               Tunjukkan QR peg anda kepada petugas semasa check-in / proses timbang ikan. Setiap QR sah untuk satu peg sahaja.
             </div>
-            <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--navy)', textAlign: 'center', marginBottom: '12px' }}>
-              {booking.pondName}
-            </div>
             <div
               style={{
                 display: 'grid',
@@ -97,11 +112,11 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
                 gap: '14px',
               }}
             >
-              {booking.seats.map((s) => {
-                const checkedIn = !!booking.checkedInSeats?.includes(s);
+              {seatEntries.map((entry) => {
+                const checkedIn = isBookingSeatCheckedIn(booking, entry);
                 return (
                   <div
-                    key={s}
+                    key={entry.key}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -114,14 +129,15 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
                     }}
                   >
                     <QRCodeSVG
-                      value={buildSeatQrValue(booking.id, s)}
+                      value={buildSeatQrValue(booking.id, entry.seatNum, entry.pondId)}
                       size={160}
                       level="M"
                       marginSize={2}
                       bgColor="#ffffff"
                       fgColor="#112a41"
                     />
-                    <span className="seat-pill">{formatSeat(booking.pondCode, s)}</span>
+                    <span style={{ fontSize: '.76rem', fontWeight: 700, color: 'var(--navy)', textAlign: 'center' }}>{entry.pondName}</span>
+                    <span className="seat-pill">{formatSeat(entry.pondCode, entry.seatNum)}</span>
                     {checkedIn && (
                       <span style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--green-bright, #16a34a)' }}>
                         ✓ Sudah Check-In
@@ -159,11 +175,17 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
       <div style={{ background: 'var(--cream)', padding: '18px', borderRadius: '14px', border: '1px solid var(--line)' }}>
         <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '10px', fontWeight: 700 }}>Butiran Kolam</div>
         <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '6px' }}>🏆 {booking.competitionName || 'Pertandingan'}</div>
-        <div style={{ fontSize: '17px', fontWeight: 800, marginBottom: '6px', fontFamily: 'var(--font-heading)' }}>{booking.pondName}</div>
-        <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '10px' }}>📅 {booking.pondDate}</div>
-        <div className="selected-pills">
-          {booking.seats.map((s) => (
-            <span key={s} className="seat-pill">{booking.pondCode ? `${booking.pondCode}-${s}` : `#${s}`}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {pondGroups.map((group) => (
+            <div key={group.pondId}>
+              <div style={{ fontSize: '17px', fontWeight: 800, marginBottom: '4px', fontFamily: 'var(--font-heading)' }}>{group.pondName}</div>
+              {group.pondDate && <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '8px' }}>{group.pondDate}</div>}
+              <div className="selected-pills">
+                {group.seats.map((seatNum) => (
+                  <span key={`${group.pondId}-${seatNum}`} className="seat-pill">{formatSeat(group.pondCode, seatNum)}</span>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </div>

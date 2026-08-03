@@ -2,16 +2,84 @@ import { Booking } from '../types';
 
 /**
  * Outstanding (unpaid) balance for a booking. Only deposit bookings can carry a
- * balance; full-payment and rejected bookings always return 0. Derived from the
- * accepted-receipt total vs. the full price.
+ * balance; full-payment and rejected bookings always return 0. `baki` is the
+ * staff-assisted continuation of a deposit booking. Derived from the accepted
+ * receipt total vs. the full price.
  */
 export function outstandingBalance(b: Booking): number {
-  if (b.paymentType !== 'deposit' || b.status === 'rejected') return 0;
-  const total = b.totalAmount || 0;
+  if (!['deposit', 'baki'].includes(b.paymentType) || b.status === 'rejected') return 0;
+  const total = b.totalAmount ?? b.amount ?? 0;
   const paid = typeof b.paidAmount === 'number'
     ? b.paidAmount
-    : (b.receipts || []).filter((r) => r.status === 'accepted').reduce((s, r) => s + r.amount, 0);
+    : (b.receipts?.length
+        ? b.receipts.filter((r) => r.status === 'accepted').reduce((s, r) => s + r.amount, 0)
+        : (b.status === 'confirmed' && b.receiptData ? b.amount : 0));
   return Math.max(0, total - paid);
+}
+
+export interface BookingSeatEntry {
+  key: string;
+  pondId: number;
+  pondName: string;
+  pondCode?: string;
+  pondDate?: string;
+  seatNum: number;
+  seatId?: string;
+}
+
+/** Stable identity for one peg inside a potentially multi-pond booking. */
+export function bookingSeatKey(pondId: number, seatNum: number): string {
+  return `${pondId}:${seatNum}`;
+}
+
+/**
+ * Flatten every pond selection into display/check-in rows. Legacy bookings
+ * without `pondSelections` fall back to their original primary pond fields.
+ */
+export function bookingSeatEntries(b: Booking): BookingSeatEntry[] {
+  const selections = b.pondSelections?.length
+    ? b.pondSelections
+    : [{
+        pondId: b.pondId,
+        pondName: b.pondName,
+        pondCode: b.pondCode,
+        pondDate: b.pondDate,
+        seats: b.seats || [],
+        seatIds: b.seatIds,
+      }];
+
+  const seen = new Set<string>();
+  const entries: BookingSeatEntry[] = [];
+  selections.forEach((selection) => {
+    selection.seats.forEach((seatNum, index) => {
+      const key = bookingSeatKey(selection.pondId, seatNum);
+      if (seen.has(key)) return;
+      seen.add(key);
+      entries.push({
+        key,
+        pondId: selection.pondId,
+        pondName: selection.pondName,
+        pondCode: selection.pondCode,
+        pondDate: selection.pondDate,
+        seatNum,
+        seatId: selection.seatIds?.[index],
+      });
+    });
+  });
+  return entries;
+}
+
+/** New bookings use seat keys; numeric seats remain a legacy fallback. */
+export function isBookingSeatCheckedIn(b: Booking, entry: BookingSeatEntry): boolean {
+  if (b.checkedInSeatKeys?.length) return b.checkedInSeatKeys.includes(entry.key);
+  return !!b.checkedInSeats?.includes(entry.seatNum);
+}
+
+/** Resolve the per-seat time while supporting legacy numeric time keys. */
+export function bookingSeatCheckInTime(b: Booking, entry: BookingSeatEntry): string {
+  return b.checkedInSeatTimes?.[entry.key]
+    || b.checkedInSeatTimes?.[String(entry.seatNum)]
+    || (isBookingSeatCheckedIn(b, entry) ? b.checkedInAt || '' : '');
 }
 
 /** True when a booking still has money owing. */

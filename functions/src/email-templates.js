@@ -45,6 +45,7 @@ const seatLabel = (seat, pondCode) => {
 const selectionList = (booking) => {
     if (Array.isArray(booking.pondSelections) && booking.pondSelections.length) {
         return booking.pondSelections.map((selection) => ({
+            pondId: selection?.pondId ?? booking.pondId,
             pondName: selection?.pondName || booking.pondName || 'Kolam',
             pondCode: selection?.pondCode || booking.pondCode || '',
             pondDate: selection?.pondDate || booking.pondDate || booking.eventDate || '',
@@ -52,6 +53,7 @@ const selectionList = (booking) => {
         }));
     }
     return [{
+        pondId: booking.pondId,
         pondName: booking.pondName || booking.competitionName || 'Kolam',
         pondCode: booking.pondCode || '',
         pondDate: booking.pondDate || booking.eventDate || '',
@@ -123,7 +125,10 @@ export const renderBookingReceivedEmail = ({ booking }) => {
 const qrTable = ({ bookingId, booking, appUrl }) => {
     const cells = selectionList(booking).flatMap((selection) => selection.seats.map((seat) => {
         const label = seatLabel(seat, selection.pondCode);
-        const qrValue = `${appUrl}/bookings/${encodeURIComponent(bookingId)}?seat=${encodeURIComponent(String(seat))}`;
+        const pondQuery = selection.pondId != null
+            ? `&pond=${encodeURIComponent(String(selection.pondId?.id ?? selection.pondId))}`
+            : '';
+        const qrValue = `${appUrl}/bookings/${encodeURIComponent(bookingId)}?seat=${encodeURIComponent(String(seat))}${pondQuery}`;
         const imageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrValue)}`;
         return `<td style="padding:8px;text-align:center;vertical-align:top;">
             <img src="${imageUrl}" alt="QR Peg ${escapeHtml(label)}" width="150" height="150" style="width:150px;height:150px;display:block;margin:0 auto;border:1px solid #eee;border-radius:8px;padding:6px;background:#fff;" />

@@ -125,6 +125,17 @@ export const useAuth = () => {
     }
 
     try {
+      const existingMethods = await fetchSignInMethodsForEmail(auth, email.trim());
+      if (existingMethods.length > 0) {
+        const googleOnly = existingMethods.includes('google.com') && !existingMethods.includes('password');
+        addToast(
+          googleOnly
+            ? 'Email ini telah didaftarkan menggunakan Google. Sila log masuk dengan Google.'
+            : 'Email ini telah didaftarkan. Sila log masuk atau gunakan Lupa Kata Laluan.',
+          'error',
+        );
+        return false;
+      }
       const credential = await createUserWithEmailAndPassword(auth, email, pass);
       const user = credential.user;
       await setDoc(doc(firestoreDb, 'users', user.uid), {
@@ -148,7 +159,12 @@ export const useAuth = () => {
       return true;
     } catch (error) {
       console.error(error);
-      addToast('Registration failed. Please try again.', 'error');
+      const errorCode = (error as { code?: string })?.code;
+      if (errorCode === 'auth/email-already-in-use') {
+        addToast('Email ini telah didaftarkan. Sila log masuk atau gunakan akaun Google yang berkaitan.', 'error');
+      } else {
+        addToast('Registration failed. Please try again.', 'error');
+      }
       return false;
     }
   }, [addToast]);

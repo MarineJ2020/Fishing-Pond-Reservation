@@ -10,8 +10,8 @@ const multiPondBooking = {
     bookingRef: 'KKS-TEST',
     amount: 100,
     pondSelections: [
-        { pondName: 'Kolam Utara', pondCode: 'A', pondDate: '2026-08-10', seats: [1, 2] },
-        { pondName: 'Kolam Selatan', pondCode: 'B', pondDate: '2026-08-11', seats: [7] },
+        { pondId: 1, pondName: 'Kolam Utara', pondCode: 'A', pondDate: '2026-08-10', seats: [1, 2] },
+        { pondId: 2, pondName: 'Kolam Selatan', pondCode: 'B', pondDate: '2026-08-11', seats: [7] },
     ],
 };
 
@@ -34,6 +34,8 @@ test('approved email creates one QR for every selected peg', () => {
     assert.equal((approved.html.match(/api\.qrserver\.com/g) || []).length, 3);
     assert.match(approved.html, /Kolam Utara &middot; A-1/);
     assert.match(approved.html, /Kolam Selatan &middot; B-7/);
+    assert.match(approved.html, /pond%3D1/);
+    assert.match(approved.html, /pond%3D2/);
 });
 
 test('booking-controlled fields are HTML escaped', () => {

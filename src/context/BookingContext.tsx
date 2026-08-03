@@ -332,6 +332,17 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       receiptData: receiptUrl,
       receiptName: receiptFile.name,
       bankReference: bankReference.trim(),
+      receipts: [{
+        url: receiptUrl,
+        amount: payAmt,
+        status: isStaff ? 'accepted' : 'pending',
+        submittedAt: new Date().toISOString(),
+      }],
+      paidAmount: isStaff ? payAmt : 0,
+      balanceDue: Math.max(0, tot - (isStaff ? payAmt : 0)),
+      balanceStage: isStaff
+        ? (tot > payAmt ? 'pending-balance' : 'fully-paid')
+        : undefined,
       notes: bookingNotes,
       status: isStaff ? 'confirmed' : 'pending',
       createdAt: new Date().toISOString(),

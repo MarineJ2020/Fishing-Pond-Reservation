@@ -33,7 +33,13 @@ import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage
 import { asset, LANDING_ASSETS } from '../config/landingAssets';
 import { SeoSnippetPreview, SocialCardPreview } from './SeoPreview';
 import { requestBalanceReminderEmail } from '../lib/email';
-import { balanceReminderInfo } from '../utils/booking';
+import {
+  balanceReminderInfo,
+  bookingSeatCheckInTime,
+  bookingSeatEntries,
+  BookingSeatEntry,
+  isBookingSeatCheckedIn,
+} from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta } from '../utils/competition';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
@@ -165,7 +171,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Seat number decoded from a scanned per-seat QR (highlights that row); null
   // for legacy QR/manual search where the seat isn't known ahead of time.
   const [checkinScannedSeat, setCheckinScannedSeat] = useState<number | null>(null);
-  const [checkinActiveSeat, setCheckinActiveSeat] = useState<number | null>(null);
+  const [checkinScannedPondId, setCheckinScannedPondId] = useState<number | null>(null);
+  const [checkinActiveSeat, setCheckinActiveSeat] = useState<string | null>(null);
   const [checkinLiveScanOn, setCheckinLiveScanOn] = useState(false);
   const [checkinLiveScanBusy, setCheckinLiveScanBusy] = useState(false);
   // Raw text of a scanned QR that didn't match any booking — shown so staff know
@@ -270,7 +277,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // QR viewer for Semua Tempahan: grid of per-seat QR codes for one booking, plus
   // a second, higher-stacked overlay for the single enlarged QR the admin clicked.
   const [qrPreviewBooking, setQrPreviewBooking] = useState<Booking | null>(null);
-  const [enlargedQrSeat, setEnlargedQrSeat] = useState<number | null>(null);
+  const [enlargedQrSeat, setEnlargedQrSeat] = useState<BookingSeatEntry | null>(null);
   const closeQrPreview = () => { setQrPreviewBooking(null); setEnlargedQrSeat(null); };
   // Reusable confirmation dialog for decision actions (accept/reject/check-in/remind).
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -1011,10 +1018,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       if (found) {
         setCheckinResult(found);
         setCheckinScannedSeat(parsed?.seatNum ?? null);
+        setCheckinScannedPondId(parsed?.pondId ?? null);
         setCheckinScannedRaw(null);
       } else {
         setCheckinResult(null);
         setCheckinScannedSeat(null);
+        setCheckinScannedPondId(null);
         setCheckinScannedRaw(decoded);
       }
       return;
@@ -1061,11 +1070,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         // Show what was scanned (if anything) rather than a disappearing alert.
         setCheckinResult(null);
         setCheckinScannedSeat(null);
+        setCheckinScannedPondId(null);
         setCheckinScannedRaw(decoded || '(tiada QR dikesan dalam imej)');
         return;
       }
       setCheckinResult(found);
       setCheckinScannedSeat(parsed?.seatNum ?? null);
+      setCheckinScannedPondId(parsed?.pondId ?? null);
       setCheckinScannedRaw(null);
     } catch (err) {
       console.error('Failed to scan check-in QR:', err);
@@ -1073,37 +1084,29 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
   };
 
-  // Checks in one specific seat of the found booking. Omitting seatNum falls
+  // Checks in one specific pond/seat entry. Omitting it falls
   // back to checking in every seat at once (legacy path — kept for safety, the
   // UI always passes a specific seat now).
-  const handlePerformCheckin = async (seatNum?: number) => {
+  const handlePerformCheckin = async (entry?: BookingSeatEntry) => {
     if (!checkinResult) return;
-    setCheckinActiveSeat(seatNum ?? null);
+    setCheckinActiveSeat(entry?.key ?? null);
     setCheckinLoading(true);
     try {
-      await checkInBooking({
+      const result = await checkInBooking({
         bookingId: checkinResult.id,
         bookingRef: checkinResult.bookingRef || checkinResult.id,
         amount: checkinResult.amount,
         method: 'manual',
-        seatNum,
+        seatNum: entry?.seatNum,
+        pondId: entry?.pondId,
       });
-      const allSeats: number[] = checkinResult.seats || [];
-      const priorSeats: number[] = checkinResult.checkedInSeats || [];
-      const seatsToMark = seatNum != null ? [seatNum] : allSeats;
-      const nextCheckedIn = Array.from(new Set([...priorSeats, ...seatsToMark]));
-      const allDone = allSeats.length > 0 && nextCheckedIn.length >= allSeats.length;
-      const checkedAt = new Date().toISOString();
-      const nextTimes = {
-        ...(checkinResult.checkedInSeatTimes || {}),
-        ...Object.fromEntries(seatsToMark.map((seat) => [String(seat), checkedAt])),
-      };
-      setCheckinResult((prev: any) => ({ ...prev, checkedInSeats: nextCheckedIn, checkedIn: allDone, checkedInAt: checkedAt, checkedInSeatTimes: nextTimes }));
+      setCheckinResult((prev: Booking | null) => prev ? { ...prev, ...result } : prev);
       await reloadDB();
       const bookingRef = checkinResult.bookingRef || checkinResult.id;
       await logAuditEvent({
         action: 'booking.checkin', actionLabel: 'Check-In Peserta', entityType: 'booking',
-        entityId: checkinResult.id, entityLabel: seatNum != null ? `${bookingRef} · peg ${seatNum}` : bookingRef,
+        entityId: checkinResult.id,
+        entityLabel: entry ? `${bookingRef} · peg ${formatSeat(entry.pondCode, entry.seatNum)}` : bookingRef,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
     } catch (err) {
@@ -1114,24 +1117,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setCheckinActiveSeat(null);
   };
 
-  const handleCancelCheckin = async (booking: Booking, seatNum: number) => {
+  const handleCancelCheckin = async (booking: Booking, entry: BookingSeatEntry) => {
     setCheckinLoading(true);
     try {
-      await cancelBookingCheckIn({ bookingId: booking.id, seatNum });
+      const result = await cancelBookingCheckIn({ bookingId: booking.id, seatNum: entry.seatNum, pondId: entry.pondId });
       await reloadDB();
       if (checkinResult?.id === booking.id) {
         setCheckinResult((prev: Booking | null) => prev ? {
           ...prev,
-          checkedIn: false,
-          checkedInSeats: (prev.checkedInSeats || []).filter((seat) => seat !== seatNum),
-          checkedInSeatTimes: Object.fromEntries(
-            Object.entries(prev.checkedInSeatTimes || {}).filter(([seat]) => seat !== String(seatNum)),
-          ),
+          ...result,
         } : prev);
       }
       await logAuditEvent({
         action: 'booking.checkin_cancel', actionLabel: 'Batalkan Check-In', entityType: 'booking',
-        entityId: booking.id, entityLabel: `${booking.bookingRef || booking.id} · peg ${seatNum}`,
+        entityId: booking.id, entityLabel: `${booking.bookingRef || booking.id} · peg ${formatSeat(entry.pondCode, entry.seatNum)}`,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
     } catch (err) {
@@ -2783,17 +2782,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 )}
               </div>
               {checkinResult && (() => {
-                const allSeats: number[] = checkinResult.seats || [];
-                const checkedInSeats: number[] = checkinResult.checkedInSeats || [];
-                const allDone = allSeats.length > 0 && checkedInSeats.length >= allSeats.length;
-                const pondCode = checkinResult.pondCode || ponds.find(p => p.id === checkinResult.pondId)?.code;
+                const allSeatEntries = bookingSeatEntries(checkinResult);
+                const allDone = allSeatEntries.length > 0
+                  && allSeatEntries.every((entry) => isBookingSeatCheckedIn(checkinResult, entry));
                 return (
                   <div className="checkin-result">
                     <div className="checkin-result-header"><h3>✓ Tempahan Dijumpai</h3><span className={`badge badge-${checkinResult.status === 'confirmed' ? 'approved' : checkinResult.status}`}>{checkinResult.status}</span></div>
                     <div className="checkin-result-body">
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.bookingRef || checkinResult.id}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
-                      <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{checkinResult.pondName}</span></div>
+                      <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{bookingPondList(checkinResult)}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingSeatList(checkinResult)}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Jumlah</span><span className="checkin-detail-val">RM {checkinResult.amount}</span></div>
                       {checkinResult.status !== 'confirmed' && <div className="warning-banner">⚠️ Tempahan ini belum disahkan.</div>}
@@ -2801,13 +2799,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <div style={{ marginTop: 12 }}>
                           <div className="checkin-detail-key" style={{ marginBottom: 6 }}>Check-In Setiap Peg</div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {allSeats.map((seat) => {
-                              const seatCheckedIn = checkedInSeats.includes(seat);
-                              const isScanned = checkinScannedSeat === seat;
-                              const seatLabel = formatSeat(pondCode, seat);
+                            {allSeatEntries.map((entry) => {
+                              const seatCheckedIn = isBookingSeatCheckedIn(checkinResult, entry);
+                              const isScanned = checkinScannedSeat === entry.seatNum
+                                && (checkinScannedPondId == null || checkinScannedPondId === entry.pondId);
+                              const seatLabel = formatSeat(entry.pondCode, entry.seatNum);
                               return (
                                 <div
-                                  key={seat}
+                                  key={entry.key}
                                   style={{
                                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
                                     padding: '10px 12px', borderRadius: 8,
@@ -2815,7 +2814,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                     background: seatCheckedIn ? 'var(--green-pale, #eafaf0)' : 'var(--white)',
                                   }}
                                 >
-                                  <span style={{ fontWeight: 700 }}>{seatLabel}</span>
+                                  <span style={{ fontWeight: 700 }}>{entry.pondName} · {seatLabel}</span>
                                   {seatCheckedIn ? (
                                     <span style={{ color: 'var(--green-dark, #16a34a)', fontWeight: 700, fontSize: '0.85rem' }}>✓ Checked-in</span>
                                   ) : (
@@ -2824,13 +2823,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                       disabled={checkinLoading}
                                       onClick={() => setConfirmDialog({
                                         title: 'Check-In Peserta',
-                                        message: `Sahkan check-in untuk ${checkinResult.userName} (${pondDisplayName({ name: checkinResult.pondName, code: pondCode } as any)}, peg ${seatLabel})?`,
+                                        message: `Sahkan check-in untuk ${checkinResult.userName} (${pondDisplayName({ name: entry.pondName, code: entry.pondCode } as any)}, peg ${seatLabel})?`,
                                         confirmLabel: 'Check-In',
                                         tone: 'primary',
-                                        onConfirm: () => handlePerformCheckin(seat),
+                                        onConfirm: () => handlePerformCheckin(entry),
                                       })}
                                     >
-                                      {checkinLoading && checkinActiveSeat === seat ? '⏳ Memproses...' : 'Check-In'}
+                                      {checkinLoading && checkinActiveSeat === entry.key ? '⏳ Memproses...' : 'Check-In'}
                                     </button>
                                   )}
                                 </div>
@@ -2872,19 +2871,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           .filter((booking) =>
                             booking.status === 'confirmed'
                             && (!checkinCompetitionId || (booking.competitionId || comp.id || '') === checkinCompetitionId))
-                          .flatMap((booking) => booking.seats.map((seat) => ({ booking, seat })))
-                          .map(({ booking, seat }) => {
-                            const checked = (booking.checkedInSeats || []).includes(seat);
-                            const pondCode = booking.pondCode || ponds.find((pond) => pond.id === booking.pondId)?.code;
-                            const checkedAt = booking.checkedInSeatTimes?.[String(seat)] || (checked ? booking.checkedInAt : '');
+                          .flatMap((booking) => bookingSeatEntries(booking).map((entry) => ({ booking, entry })))
+                          .map(({ booking, entry }) => {
+                            const checked = isBookingSeatCheckedIn(booking, entry);
+                            const checkedAt = bookingSeatCheckInTime(booking, entry);
                             return (
-                              <tr key={`${booking.id}-${seat}`}>
+                              <tr key={`${booking.id}-${entry.key}`}>
                                 <td className="td-name">
                                   {booking.userName}
                                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{booking.userEmail || booking.userId || '-'}</div>
                                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{booking.bookingPhone || booking.userPhone || '-'}</div>
                                 </td>
-                                <td>{formatSeat(pondCode, seat)}</td>
+                                <td>{formatSeat(entry.pondCode, entry.seatNum)}</td>
                                 <td>{checkedAt ? formatDate(checkedAt, { time: true }) : '-'}</td>
                                 <td><span className={`badge badge-${checked ? 'approved' : 'pending'}`}>{checked ? 'Checked in' : 'Pending'}</span></td>
                                 <td>
@@ -2895,10 +2893,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                         disabled={checkinLoading}
                                         onClick={() => setConfirmDialog({
                                           title: 'Batalkan Check in',
-                                          message: `Batalkan check in untuk ${booking.userName}, pancang ${formatSeat(pondCode, seat)}?`,
+                                          message: `Batalkan check in untuk ${booking.userName}, pancang ${formatSeat(entry.pondCode, entry.seatNum)}?`,
                                           confirmLabel: 'Batalkan Check in',
                                           tone: 'danger',
-                                          onConfirm: () => handleCancelCheckin(booking, seat),
+                                          onConfirm: () => handleCancelCheckin(booking, entry),
                                         })}
                                       >
                                         Batalkan Check in
@@ -4202,15 +4200,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             </div>
             <div className="modal-body">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '14px' }}>
-                {qrPreviewBooking.seats.map((s) => (
+                {bookingSeatEntries(qrPreviewBooking).map((entry) => (
                   <button
-                    key={s}
+                    key={entry.key}
                     type="button"
-                    onClick={() => setEnlargedQrSeat(s)}
+                    onClick={() => setEnlargedQrSeat(entry)}
                     style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', background: '#fff', padding: '12px', borderRadius: '10px', border: '1px solid var(--line)', cursor: 'zoom-in' }}
                   >
-                    <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, s)} size={120} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
-                    <span className="seat-pill">{formatSeat(qrPreviewBooking.pondCode, s)}</span>
+                    <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, entry.seatNum, entry.pondId)} size={120} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
+                    <span className="seat-pill">{formatSeat(entry.pondCode, entry.seatNum)}</span>
                   </button>
                 ))}
               </div>
@@ -4221,14 +4219,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       )}
 
       {/* Enlarged single QR — stacks above the grid, click anywhere to close back to the grid */}
-      {qrPreviewBooking && enlargedQrSeat != null && createPortal(
+      {qrPreviewBooking && enlargedQrSeat && createPortal(
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(6px)', cursor: 'zoom-out' }}
           onClick={() => setEnlargedQrSeat(null)}
         >
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', background: '#fff', padding: '28px', borderRadius: '18px' }}>
-            <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, enlargedQrSeat)} size={280} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
-            <span className="seat-pill">{formatSeat(qrPreviewBooking.pondCode, enlargedQrSeat)}</span>
+            <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, enlargedQrSeat.seatNum, enlargedQrSeat.pondId)} size={280} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
+            <span className="seat-pill">{formatSeat(enlargedQrSeat.pondCode, enlargedQrSeat.seatNum)}</span>
           </div>
         </div>,
         document.body,

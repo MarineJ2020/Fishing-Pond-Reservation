@@ -407,8 +407,8 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             <div className="kl-past-left">
               <section className="kl-card">
                 <div className="kl-card-head">
-                  <div className="kl-eyebrow">Past Event</div>
-                  <h3>Pilih Event Lepas</h3>
+                  <div className="kl-eyebrow">ACARA LEPAS</div>
+                  <h3>PILIH ACARA LEPAS</h3>
                 </div>
                 <div className="kl-event-select">
                   {endedComps.map(c => (
@@ -432,7 +432,6 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             <section className="kl-winner-table">
               <div className="kl-selected-head">
                 <div>
-                  <div className="kl-eyebrow">Selected Event</div>
                   <h3>{selectedPastComp?.name || '—'}</h3>
                   <p>
                     {fmtLongDate(selectedPastComp?.startDate)}
@@ -440,7 +439,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                     {pastPonds ? ` · ${pastPonds} Kolam` : ''}
                   </p>
                 </div>
-                <span className="kl-selected-badge"><i className="fa-solid fa-circle-check"></i> Result Published</span>
+                <span className="kl-selected-badge"><i className="fa-solid fa-circle-check"></i> KEPUTUSAN DITERBITKAN</span>
               </div>
 
               <div className="kl-winner-summary">
@@ -450,7 +449,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               </div>
 
               <div className="kl-table-head">
-                <div>Rank</div><div>Peserta</div><div>Berat</div><div>Hadiah</div>
+                <div>Kedudukan</div><div>Peserta</div><div>Berat</div><div>Hadiah</div>
               </div>
               {pastLoading ? (
                 <div className="kl-no-data">Memuatkan keputusan…</div>
