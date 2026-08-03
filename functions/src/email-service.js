@@ -1,0 +1,107 @@
+import { adminDb } from './auth-utils.js';
+import {
+    renderBalanceReminderEmail,
+    renderBookingApprovedEmail,
+    renderBookingReceivedEmail,
+    renderVerificationEmail,
+    renderWelcomeEmail,
+} from './email-templates.js';
+
+export const APP_URL = process.env.APP_URL || 'https://kolamkelisayang.web.app';
+export const STAFF_CC = 'hello@kolamkelisayang.com.my';
+const MAIL_COLLECTION = 'mail';
+
+const isEmail = (value) => typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+export const isConfirmedStatus = (status) =>
+    ['APPROVED', 'CONFIRMED', 'LIVE'].includes(String(status || '').toUpperCase());
+
+export const initialBookingEmailKind = (status) =>
+    isConfirmedStatus(status) ? 'booking_approved' : 'booking_received';
+
+export const shouldQueueBookingApprovedEmail = (beforeStatus, afterStatus) =>
+    !isConfirmedStatus(beforeStatus) && isConfirmedStatus(afterStatus);
+
+export const resolveBookingRecipient = async (booking) => {
+    if (isEmail(booking.userEmail)) return booking.userEmail.trim();
+    if (isEmail(booking.userId)) return booking.userId.trim();
+    if (booking.userId && typeof booking.userId.get === 'function') {
+        const userSnap = await booking.userId.get();
+        const email = userSnap.exists ? userSnap.data()?.email : '';
+        if (isEmail(email)) return email.trim();
+    }
+    return '';
+};
+
+const mailMetadata = ({ kind, bookingId, userId, anchorMs }) => ({
+    kind,
+    retryable: true,
+    ...(bookingId ? { bookingId } : {}),
+    ...(userId ? { userId } : {}),
+    ...(anchorMs ? { anchorMs } : {}),
+    queuedAt: new Date(),
+});
+
+export const createMailJob = async ({ id, to, message, kind, bookingId, userId, anchorMs }) => {
+    if (!isEmail(to)) return { created: false, reason: 'missing-recipient' };
+    const ref = id
+        ? adminDb.collection(MAIL_COLLECTION).doc(id)
+        : adminDb.collection(MAIL_COLLECTION).doc();
+    try {
+        await ref.create({
+            to,
+            cc: [STAFF_CC],
+            message,
+            metadata: mailMetadata({ kind, bookingId, userId, anchorMs }),
+            createdAt: new Date(),
+        });
+        return { created: true, id: ref.id };
+    } catch (error) {
+        if (error?.code === 6 || error?.code === 'already-exists') {
+            return { created: false, id: ref.id, reason: 'already-exists' };
+        }
+        throw error;
+    }
+};
+
+export const queueWelcomeMail = ({ uid, email, name }) => createMailJob({
+    id: `welcome_${uid}`,
+    to: email,
+    kind: 'welcome',
+    userId: uid,
+    message: renderWelcomeEmail({ name, appUrl: APP_URL }),
+});
+
+export const queueVerificationMail = ({ uid, email, link, requestWindow }) => createMailJob({
+    id: `verification_${uid}_${requestWindow}`,
+    to: email,
+    kind: 'verification',
+    userId: uid,
+    message: renderVerificationEmail({ link }),
+});
+
+export const queueBookingLifecycleMail = async ({ bookingId, booking, kind }) => {
+    const recipient = await resolveBookingRecipient(booking);
+    const message = kind === 'booking_approved'
+        ? renderBookingApprovedEmail({ bookingId, booking, appUrl: APP_URL })
+        : renderBookingReceivedEmail({ booking });
+    return createMailJob({
+        id: `${kind}_${bookingId}`,
+        to: recipient,
+        kind,
+        bookingId,
+        message,
+    });
+};
+
+export const queueBalanceReminderMail = async ({ bookingId, booking, balanceDue, id, anchorMs }) => {
+    const recipient = await resolveBookingRecipient(booking);
+    return createMailJob({
+        id,
+        to: recipient,
+        kind: 'balance_reminder',
+        bookingId,
+        anchorMs,
+        message: renderBalanceReminderEmail({ bookingId, booking, balanceDue, appUrl: APP_URL }),
+    });
+};

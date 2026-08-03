@@ -2,8 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import * as functions from 'firebase-functions';
 import { adminAuth, adminDb, verifyToken, requireStaff } from './auth-utils.js';
-// Email sending has moved to the client-side `mail` Firestore collection,
-// which is consumed by the "Trigger Email from Firestore" Firebase extension.
+import {
+    initialBookingEmailKind,
+    isConfirmedStatus,
+    queueBalanceReminderMail,
+    queueBookingLifecycleMail,
+    queueVerificationMail,
+    queueWelcomeMail,
+    shouldQueueBookingApprovedEmail,
+} from './email-service.js';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -40,6 +47,16 @@ const sumAccepted = (receipts) =>
     (Array.isArray(receipts) ? receipts : [])
         .filter((r) => r?.status === 'accepted')
         .reduce((sum, r) => sum + (Number(r?.amount) || 0), 0);
+
+const paidAmountForBooking = (booking) => {
+    if (typeof booking?.paidAmount === 'number') return booking.paidAmount;
+    const receipts = Array.isArray(booking?.receipts) ? booking.receipts : [];
+    if (receipts.length) return sumAccepted(receipts);
+    // Legacy/direct staff bookings store only receiptUrl + amount.
+    return booking?.receiptUrl && isConfirmedStatus(booking.status)
+        ? (Number(booking.amount) || 0)
+        : 0;
+};
 
 // Mirrors computeBalanceStage in src/lib/firestore.ts — kept in sync manually
 // since this endpoint currently isn't the live path (VITE_FUNCTIONS_BASE_URL
@@ -744,28 +761,10 @@ export const backfillUserRoleClaims = functions.https.onCall(async (_data, conte
     };
 });
 
-// Sends the email-verification link via the Zoho-backed Trigger Email extension
-// (instead of Firebase's default noreply@...firebaseapp.com sender) by queueing
-// a branded doc in the `mail` collection. Admin SDK writes bypass Firestore rules.
+// Clients can request verification, but only trusted server code controls the
+// recipient and rendered message. Deterministic one-minute ids rate-limit spam.
 const CONTINUE_URL = process.env.APP_URL || 'https://kolamkelisayang.web.app';
-const STAFF_CC = 'hello@kolamkelisayang.com.my';
-
-const renderVerificationEmail = (link) => `
-    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#222;max-width:620px;margin:0 auto;padding:24px;background:#fff;">
-      <div style="border-top:4px solid #b91c1c;padding-top:16px;">
-        <h2 style="margin:0 0 14px;color:#112a41;font-size:22px;">Sahkan Email Anda</h2>
-        <p>Salam sejahtera,</p>
-        <p>Terima kasih kerana mendaftar dengan Kolam Keli Sayang. Sila klik butang di bawah untuk mengesahkan alamat email anda dan mengaktifkan akaun.</p>
-        <p style="text-align:center;margin:24px 0;">
-          <a href="${link}" style="display:inline-block;background:#b91c1c;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">Sahkan Email</a>
-        </p>
-        <p style="font-size:12px;color:#666;">Jika butang tidak berfungsi, salin pautan ini ke pelayar anda:<br/><a href="${link}" style="color:#112a41;">${link}</a></p>
-        <p style="font-size:12px;color:#888;">Jika anda tidak mendaftar, abaikan email ini.</p>
-        <hr style="border:none;border-top:1px solid #eee;margin:24px 0 12px;" />
-        <p style="font-size:12px;color:#888;margin:0;">Kolam Keli Sayang &middot; hello@kolamkelisayang.com.my</p>
-      </div>
-    </div>
-`;
+const VERIFICATION_WINDOW_MS = 60 * 1000;
 
 export const requestEmailVerification = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
@@ -781,39 +780,125 @@ export const requestEmailVerification = functions.https.onCall(async (data, cont
     }
 
     try {
+        const requestWindow = Math.floor(Date.now() / VERIFICATION_WINDOW_MS);
         const link = await adminAuth.generateEmailVerificationLink(userRecord.email, {
             url: CONTINUE_URL,
             handleCodeInApp: false,
         });
-
-        await adminDb.collection('mail').add({
-            to: userRecord.email,
-            cc: [STAFF_CC],
-            message: {
-                subject: 'Sahkan Email Anda - Kolam Keli Sayang',
-                html: renderVerificationEmail(link),
-            },
+        const result = await queueVerificationMail({
+            uid: context.auth.uid,
+            email: userRecord.email,
+            link,
+            requestWindow,
         });
-
-        return { sent: true };
+        if (!result.created) {
+            throw new functions.https.HttpsError('resource-exhausted', 'Please wait before requesting another email.');
+        }
+        return { queued: true, mailId: result.id };
     } catch (error) {
+        if (error instanceof functions.https.HttpsError) throw error;
         console.error('requestEmailVerification failed:', error);
         throw new functions.https.HttpsError('internal', 'Failed to send verification email.');
     }
 });
 
 // ── Balance-reminder scheduler ──────────────────────────────────────────────
+export const requestWelcomeEmail = functions.https.onCall(async (_data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+    }
+    const [userRecord, profileSnap] = await Promise.all([
+        adminAuth.getUser(context.auth.uid),
+        adminDb.collection('users').doc(context.auth.uid).get(),
+    ]);
+    if (!userRecord.email) {
+        throw new functions.https.HttpsError('failed-precondition', 'No email on account.');
+    }
+    const profile = profileSnap.exists ? profileSnap.data() : {};
+    const result = await queueWelcomeMail({
+        uid: context.auth.uid,
+        email: userRecord.email,
+        name: profile?.name || userRecord.displayName || userRecord.email.split('@')[0],
+    });
+    return { queued: result.created, alreadyQueued: result.reason === 'already-exists', mailId: result.id };
+});
+
+const callableIsStaff = async (context) => {
+    const tokenRole = String(context.auth?.token?.role || '').toUpperCase();
+    if (tokenRole === 'ADMIN' || tokenRole === 'STAFF') return true;
+    if (!context.auth) return false;
+    const profile = await adminDb.collection('users').doc(context.auth.uid).get();
+    const role = profile.exists ? String(profile.data()?.role || '').toUpperCase() : '';
+    return role === 'ADMIN' || role === 'STAFF';
+};
+
+export const requestBalanceReminder = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+    }
+    if (!await callableIsStaff(context)) {
+        throw new functions.https.HttpsError('permission-denied', 'Staff role required.');
+    }
+    const bookingId = typeof data?.bookingId === 'string' ? data.bookingId.trim() : '';
+    if (!bookingId) {
+        throw new functions.https.HttpsError('invalid-argument', 'bookingId is required.');
+    }
+    const bookingSnap = await adminDb.collection('bookings').doc(bookingId).get();
+    if (!bookingSnap.exists) {
+        throw new functions.https.HttpsError('not-found', 'Booking not found.');
+    }
+    const booking = bookingSnap.data();
+    const totalAmount = Number(booking.totalAmount) || 0;
+    const paidAmount = paidAmountForBooking(booking);
+    const balanceDue = Math.max(0, totalAmount - paidAmount);
+    if (balanceDue <= 0) {
+        throw new functions.https.HttpsError('failed-precondition', 'Booking has no outstanding balance.');
+    }
+    const result = await queueBalanceReminderMail({
+        bookingId,
+        booking,
+        balanceDue,
+        id: `balance_manual_${bookingId}_${Date.now()}`,
+    });
+    if (!result.created) {
+        throw new functions.https.HttpsError('failed-precondition', 'No valid recipient email for this booking.');
+    }
+    return { queued: true, mailId: result.id };
+});
+
+// Persisted booking state drives email creation, so browser disconnects cannot
+// lose notifications. Deterministic ids make event retries idempotent.
+export const queueInitialBookingEmail = functions.firestore
+    .document('bookings/{bookingId}')
+    .onCreate(async (snapshot, context) => {
+        const booking = snapshot.data();
+        const kind = initialBookingEmailKind(booking.status);
+        const result = await queueBookingLifecycleMail({ bookingId: context.params.bookingId, booking, kind });
+        if (!result.created && result.reason === 'missing-recipient') {
+            console.warn(`No email recipient for booking ${context.params.bookingId}.`);
+        }
+        return null;
+    });
+
+export const queueBookingApprovedEmail = functions.firestore
+    .document('bookings/{bookingId}')
+    .onUpdate(async (change, context) => {
+        if (!shouldQueueBookingApprovedEmail(change.before.data().status, change.after.data().status)) {
+            return null;
+        }
+        await queueBookingLifecycleMail({
+            bookingId: context.params.bookingId,
+            booking: change.after.data(),
+            kind: 'booking_approved',
+        });
+        return null;
+    });
+
 // Deposit bookings that still owe a balance get an email nudge every 7 days until
 // the balance receipt is uploaded. Mirrors the client-side timing in
 // src/utils/booking.ts (BALANCE_REMINDER_DAYS). Admin SDK writes bypass rules.
 const BALANCE_REMINDER_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const APP_URL = process.env.APP_URL || 'https://kolamkelisayang.web.app';
-
-const esc = (v) =>
-    String(v ?? '')
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 // Firestore values may be a Timestamp, a Date, or an ISO string (direct-write path).
 const toMillis = (value) => {
@@ -823,29 +908,6 @@ const toMillis = (value) => {
     const t = new Date(value).getTime();
     return Number.isFinite(t) ? t : 0;
 };
-
-const renderBalanceReminderEmail = ({ bookingUrl, bookingRef, pondName, seats, balanceDue }) => `
-    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#222;max-width:620px;margin:0 auto;padding:24px;background:#fff;">
-      <div style="border-top:4px solid #b91c1c;padding-top:16px;">
-        <h2 style="margin:0 0 14px;color:#112a41;font-size:22px;">Peringatan: Baki Bayaran Tertunggak</h2>
-        <p>Salam sejahtera,</p>
-        <p>Tempahan deposit anda masih menunggu <strong style="color:#b91c1c;">baki bayaran</strong>. Sila muat naik resit bayaran baki anda untuk mengesahkan tempahan dan mengekalkan tempat anda.</p>
-        <table style="width:100%;border-collapse:collapse;margin:14px 0;">
-          <tr><td style="padding:6px 0;color:#666;width:40%;">No. Rujukan</td><td style="padding:6px 0;font-weight:700;">${esc(bookingRef) || '-'}</td></tr>
-          <tr><td style="padding:6px 0;color:#666;">Kolam</td><td style="padding:6px 0;font-weight:700;">${esc(pondName)}</td></tr>
-          <tr><td style="padding:6px 0;color:#666;">Peg</td><td style="padding:6px 0;font-weight:700;">${(seats || []).map((n) => `#${esc(n)}`).join(', ') || '-'}</td></tr>
-          <tr><td style="padding:6px 0;color:#666;">Baki Tertunggak</td><td style="padding:6px 0;font-weight:700;color:#b91c1c;">RM ${Number(balanceDue || 0).toFixed(2)}</td></tr>
-        </table>
-        <p style="text-align:center;margin:24px 0;">
-          <a href="${esc(bookingUrl)}" style="display:inline-block;background:#b91c1c;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">Muat Naik Resit Baki</a>
-        </p>
-        <p style="font-size:12px;color:#666;">Pautan terus: <a href="${esc(bookingUrl)}" style="color:#112a41;">${esc(bookingUrl)}</a></p>
-        <p style="font-size:12px;color:#888;">Jika anda telah membuat bayaran, sila abaikan e-mel ini.</p>
-        <hr style="border:none;border-top:1px solid #eee;margin:24px 0 12px;" />
-        <p style="font-size:12px;color:#888;margin:0;">Kolam Keli Sayang &middot; hello@kolamkelisayang.com.my</p>
-      </div>
-    </div>
-`;
 
 export const remindOutstandingBalances = functions.pubsub
     .schedule('every 24 hours')
@@ -865,43 +927,90 @@ export const remindOutstandingBalances = functions.pubsub
 
             const receipts = Array.isArray(booking.receipts) ? booking.receipts : [];
             const totalAmount = Number(booking.totalAmount) || 0;
-            const paidAmount = typeof booking.paidAmount === 'number' ? booking.paidAmount : sumAccepted(receipts);
+            const paidAmount = paidAmountForBooking(booking);
             if (totalAmount <= 0 || paidAmount >= totalAmount) continue; // fully paid / no balance
 
             // If a receipt is awaiting staff review, the ball is in staff's court — skip.
             if (receipts.some((r) => r?.status === 'pending')) continue;
-
-            const recipient = booking.userEmail || booking.userId;
-            if (!recipient || typeof recipient !== 'string' || !recipient.includes('@')) continue;
 
             const depositSubmittedMs = toMillis(receipts[0]?.submittedAt) || toMillis(booking.createdAt);
             const lastReminderMs = toMillis(booking.balanceReminderSentAt);
             const anchorMs = Math.max(depositSubmittedMs, lastReminderMs);
             if (anchorMs === 0 || now - anchorMs < BALANCE_REMINDER_DAYS * DAY_MS) continue;
 
-            const bookingUrl = `${APP_URL}/bookings/${encodeURIComponent(docSnap.id)}`;
             try {
-                await adminDb.collection('mail').add({
-                    to: recipient,
-                    cc: [STAFF_CC],
-                    message: {
-                        subject: `Peringatan Baki Bayaran - ${esc(booking.bookingRef) || docSnap.id}`,
-                        html: renderBalanceReminderEmail({
-                            bookingUrl,
-                            bookingRef: booking.bookingRef,
-                            pondName: booking.pondName || booking.competitionName || 'Tempahan',
-                            seats: booking.seatNumbers || [],
-                            balanceDue: Math.max(0, totalAmount - paidAmount),
-                        }),
-                    },
+                const result = await queueBalanceReminderMail({
+                    bookingId: docSnap.id,
+                    booking,
+                    balanceDue: Math.max(0, totalAmount - paidAmount),
+                    id: `balance_auto_${docSnap.id}_${anchorMs}_${Math.floor((now - anchorMs) / (BALANCE_REMINDER_DAYS * DAY_MS))}`,
+                    anchorMs,
                 });
-                await docSnap.ref.update({ balanceReminderSentAt: new Date() });
-                sent += 1;
+                if (result.created) sent += 1;
             } catch (error) {
                 console.error(`Failed to queue balance reminder for ${docSnap.id}:`, error);
             }
         }
 
         console.log(`remindOutstandingBalances: queued ${sent} reminder(s).`);
+        return null;
+    });
+
+// The Trigger Email extension owns delivery.state. Persist business timestamps
+// only after SMTP reports SUCCESS, and expose a compact status on the booking.
+export const syncMailDeliveryStatus = functions.firestore
+    .document('mail/{mailId}')
+    .onUpdate(async (change) => {
+        const beforeState = change.before.data()?.delivery?.state;
+        const after = change.after.data();
+        const state = after?.delivery?.state;
+        if (!state || state === beforeState) return null;
+
+        const metadata = after.metadata || {};
+        if (metadata.bookingId) {
+            const intendedRecipient = String(after.to || '').trim().toLowerCase();
+            const acceptedRecipients = Array.isArray(after.delivery?.info?.accepted)
+                ? after.delivery.info.accepted.map((email) => String(email).trim().toLowerCase())
+                : [];
+            const recipientAccepted = state === 'SUCCESS' && acceptedRecipients.includes(intendedRecipient);
+            const status = {
+                state,
+                attempts: Number(after.delivery?.attempts) || 0,
+                recipientAccepted,
+                updatedAt: after.delivery?.endTime || new Date(),
+                ...(after.delivery?.error ? { error: String(after.delivery.error).slice(0, 500) } : {}),
+            };
+            const update = { [`emailDelivery.${metadata.kind || 'unknown'}`]: status };
+            if (recipientAccepted && metadata.kind === 'balance_reminder') {
+                update.balanceReminderSentAt = after.delivery?.endTime || new Date();
+            }
+            const bookingRef = adminDb.collection('bookings').doc(metadata.bookingId);
+            const bookingSnap = await bookingRef.get();
+            if (bookingSnap.exists) await bookingRef.update(update);
+        }
+        return null;
+    });
+
+// The extension does not retry terminal ERROR jobs automatically. Retry only
+// server-created, explicitly retryable messages, capped by delivery.attempts.
+export const retryFailedTransactionalEmails = functions.pubsub
+    .schedule('every 15 minutes')
+    .timeZone('Asia/Kuala_Lumpur')
+    .onRun(async () => {
+        const failed = await adminDb.collection('mail')
+            .where('delivery.state', '==', 'ERROR')
+            .get();
+        let retried = 0;
+        for (const docSnap of failed.docs) {
+            const data = docSnap.data();
+            const attempts = Number(data?.delivery?.attempts) || 0;
+            if (data?.metadata?.retryable !== true || attempts >= 3) continue;
+            await docSnap.ref.update({
+                'delivery.state': 'RETRY',
+                'metadata.lastRetryRequestedAt': new Date(),
+            });
+            retried += 1;
+        }
+        console.log(`retryFailedTransactionalEmails: requested ${retried} retry/retries.`);
         return null;
     });

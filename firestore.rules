@@ -70,8 +70,8 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Bookings: publicly readable (client policy). Any signed-in user can create.
-    // Admin manually approves every booking, so no field-level validation here.
+    // Bookings remain publicly readable by current product policy. Direct creates
+    // must belong to the caller; staff/Admin may create proxy bookings.
     match /bookings/{bookingId} {
       // The booking owner is matched by email — bookings store userId/userEmail as
       // the signing email on the no-Functions direct-write path.
@@ -94,7 +94,16 @@ service cloud.firestore {
       }
 
       allow read: if true;
-      allow create: if isSignedIn();
+      // Direct client bookings must be owned by the authenticated identity. This
+      // prevents a forged booking document from making the server email a third party.
+      allow create: if isAdmin() || (
+        isSignedIn()
+        && request.auth.token.email is string
+        && request.resource.data.userEmail == request.auth.token.email
+        && request.resource.data.userId in [request.auth.uid, request.auth.token.email]
+        && (!('createdByStaff' in request.resource.data)
+          || request.resource.data.createdByStaff != true)
+      );
       allow update: if isAdmin() || ownerReceiptUpdate();
       allow delete: if isAdmin();
 
@@ -128,27 +137,11 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Outbound email queue consumed by the "Trigger Email from Firestore" extension
-    // (routed to Zoho Mail Lite SMTP). Writes are constrained so authenticated users
-    // cannot mail third parties using our sender reputation:
-    //   - Staff can queue mail to anyone (needed for the approval flow).
-    //   - Regular users can only queue mail to themselves, CC'd to the staff inbox.
-    // Reads/updates/deletes are denied so queued docs are write-only from the client;
-    // the extension deletes them via TTL after sending.
+    // Outbound email queue consumed by the Trigger Email extension. Only trusted
+    // Cloud Functions/Admin SDK code may create or mutate jobs; clients call
+    // narrow callable functions and can never supply recipients or raw HTML.
     match /mail/{docId} {
-      allow create: if isSignedIn()
-        && request.resource.data.message.subject is string
-        && request.resource.data.message.html is string
-        && request.resource.data.message.html.size() < 100000
-        && (
-          isAdmin()
-          ||
-          (request.auth.token.email == request.resource.data.to
-            && request.resource.data.cc is list
-            && request.resource.data.cc.size() == 1
-            && request.resource.data.cc[0] == 'hello@kolamkelisayang.com.my')
-        );
-      allow read, update, delete: if false;
+      allow read, write: if false;
     }
 
     // Default deny.

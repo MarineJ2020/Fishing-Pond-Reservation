@@ -3,7 +3,6 @@ import { DB, User, Pond, Booking, BookingPondSelection } from '../types';
 import { emptyDB, setDB } from '../data';
 import { loadAppDB } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
-import { queueBookingReceivedEmail } from '../lib/email';
 import { uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel } from '../utils/competition';
@@ -309,18 +308,6 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const result = await createBookingApi(payload);
     if (!result?.bookingId) return null;
-
-    if (notifyEmail) {
-      await queueBookingReceivedEmail({
-        to: notifyEmail,
-        bookingRef: result.bookingRef || bookingRef,
-        amount: payAmt,
-        pondName: primarySelection.pondName,
-        pondCode: primarySelection.pondCode || '',
-        pondDate: primarySelection.pondDate || pond.date,
-        seats: primarySelection.seats,
-      });
-    }
 
     const booking: Booking = {
       id: result.bookingId,

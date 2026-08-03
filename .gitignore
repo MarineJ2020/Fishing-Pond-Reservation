@@ -12,6 +12,10 @@ dist
 /dist/
 dist-ssr
 *.local
+.pnpm-store/
+
+# Firebase extension parameter exports may contain SMTP/API credentials.
+/extensions/*.env
 
 # Editor directories and files
 .vscode/*

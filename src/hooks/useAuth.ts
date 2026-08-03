@@ -14,7 +14,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import app, { auth, db as firestoreDb, googleProvider } from '../../lib/firebase';
 import { useBooking } from '../context/BookingContext';
 import { useUI } from '../context/UIContext';
-import { queueWelcomeEmail } from '../lib/email';
+import { requestWelcomeEmail } from '../lib/email';
 import { trackEvent } from '../utils/analytics';
 import { User } from '../types';
 
@@ -175,10 +175,12 @@ export const useAuth = () => {
         needsPhone = true;
         // First-time Google sign-up — send a branded welcome email via Zoho.
         if (user.email) {
-          await queueWelcomeEmail({
-            to: user.email,
-            name: user.displayName || user.email.split('@')[0],
-          });
+          try {
+            await requestWelcomeEmail();
+          } catch (emailError) {
+            console.error('Failed to request welcome email:', emailError);
+            addToast('Akaun dibuat, tetapi email alu-aluan belum dapat dijadualkan.', 'info');
+          }
         }
       }
       trackEvent(needsPhone ? 'sign_up' : 'login', { method: 'google' });

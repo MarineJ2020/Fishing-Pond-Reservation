@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "echo 'Using precompiled JavaScript functions'",
+    "test": "node --test test/*.test.mjs",
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
     "lint": "echo 'Linting functions...' && exit 0"

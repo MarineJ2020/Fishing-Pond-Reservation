@@ -95,6 +95,14 @@ export interface Booking {
   checkedInSeatTimes?: Record<string, string>;
   /** Last time a balance-due reminder email was sent to the user (ISO). */
   balanceReminderSentAt?: string;
+  /** Server-observed SMTP state for each transactional booking email. */
+  emailDelivery?: Record<string, {
+    state: string;
+    attempts: number;
+    recipientAccepted?: boolean;
+    updatedAt?: string;
+    error?: string;
+  }>;
   /** True once the owner has used their one-time receipt re-upload (correction). */
   receiptReuploadUsed?: boolean;
   /**

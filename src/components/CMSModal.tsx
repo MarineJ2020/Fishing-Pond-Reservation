@@ -19,7 +19,6 @@ import {
   getScoresForCompetition,
   saveScoreEntry,
   deleteScoreEntry,
-  markBalanceReminderSent,
   approveDepositWithProofDirect,
   getUsersPage,
   logAuditEvent,
@@ -33,7 +32,7 @@ import { compressBlobToWebp, compressBlobToJpeg, uploadImageToFirebaseStorage } 
 import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { asset, LANDING_ASSETS } from '../config/landingAssets';
 import { SeoSnippetPreview, SocialCardPreview } from './SeoPreview';
-import { queueBookingApprovedEmail, queueBalanceReminderEmail } from '../lib/email';
+import { requestBalanceReminderEmail } from '../lib/email';
 import { balanceReminderInfo } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta } from '../utils/competition';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
@@ -654,25 +653,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
-  // Accept a single payment receipt. Confirms the booking on its FIRST ever
-  // accepted receipt (see acceptBookingReceiptDirect) — the approval email
-  // fires at that exact moment via the justConfirmed flag.
+  // Accept a single payment receipt. The server-side booking status trigger owns
+  // approval-email creation, so delivery does not depend on this browser staying open.
   const handleAcceptReceipt = async (bookingId: string, receiptIndex: number) => {
     const target = bookings.find(b => b.id === bookingId);
     setSaving(true);
     try {
-      const result = await acceptBookingReceipt({ bookingId, receiptIndex });
-      if (result?.justConfirmed && target?.userEmail) {
-        await queueBookingApprovedEmail({
-          to: target.userEmail,
-          bookingId: target.id,
-          bookingRef: target.bookingRef ?? target.id,
-          pondName: target.pondName,
-          pondCode: target.pondCode || ponds.find(p => p.id === target.pondId)?.code,
-          pondDate: target.pondDate ?? '',
-          seats: target.seats,
-        });
-      }
+      await acceptBookingReceipt({ bookingId, receiptIndex });
       await refetchCurrentBookingList();
       await logAuditEvent({
         action: 'booking.receipt_accept', actionLabel: 'Sahkan Resit', entityType: 'booking',
@@ -706,28 +693,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
-  // Manually email the user a balance-due reminder and reset the 7-day auto-remind clock.
+  // Request a server-rendered balance reminder. The 7-day clock resets only after
+  // the email extension confirms delivery to the booking recipient.
   const handleSendBalanceReminder = async (bookingId: string) => {
     const target = bookings.find(b => b.id === bookingId);
     if (!target) return;
-    const recipient = target.userEmail || target.userId;
-    if (!recipient || !recipient.includes('@')) {
-      window.alert('Tiada alamat email sah untuk tempahan ini. / No valid email address for this booking.');
-      return;
-    }
     setSaving(true);
     try {
-      await queueBalanceReminderEmail({
-        to: recipient,
-        bookingId: target.id,
-        bookingRef: target.bookingRef ?? target.id,
-        pondName: target.pondName,
-        pondCode: target.pondCode || ponds.find(p => p.id === target.pondId)?.code,
-        pondDate: target.pondDate ?? '',
-        seats: target.seats,
-        balanceDue: target.balanceDue ?? 0,
-      });
-      await markBalanceReminderSent(bookingId);
+      await requestBalanceReminderEmail(bookingId);
       await refetchCurrentBookingList();
       await logAuditEvent({
         action: 'booking.balance_reminder', actionLabel: 'Hantar Peringatan Baki', entityType: 'booking',
@@ -2743,6 +2716,26 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               </div>
                             );
                           })()}
+                          {Object.entries(b.emailDelivery || {}).map(([kind, delivery]) => {
+                            const label = kind === 'booking_approved'
+                              ? 'Pengesahan'
+                              : kind === 'booking_received'
+                                ? 'Diterima'
+                                : kind === 'balance_reminder'
+                                  ? 'Peringatan baki'
+                                  : kind;
+                            const delivered = delivery.state === 'SUCCESS' && delivery.recipientAccepted;
+                            const failed = delivery.state === 'ERROR' || (delivery.state === 'SUCCESS' && !delivery.recipientAccepted);
+                            return (
+                              <div
+                                key={kind}
+                                title={delivery.error || `Percubaan: ${delivery.attempts}`}
+                                style={{ marginTop: 4, fontSize: '0.68rem', color: delivered ? 'var(--green)' : failed ? 'var(--red)' : 'var(--text-muted)' }}
+                              >
+                                Email {label}: {delivered ? 'Dihantar' : failed ? 'Gagal' : delivery.state || 'Menunggu'}
+                              </div>
+                            );
+                          })}
                         </td>
                       </tr>
                     ))}

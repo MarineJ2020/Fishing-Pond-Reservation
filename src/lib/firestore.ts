@@ -282,6 +282,15 @@ const buildBooking = (
         )
       : {},
     balanceReminderSentAt: normalizeTimestamp(data.balanceReminderSentAt) || undefined,
+    emailDelivery: data.emailDelivery && typeof data.emailDelivery === 'object'
+      ? Object.fromEntries(Object.entries(data.emailDelivery).map(([kind, delivery]: [string, any]) => [kind, {
+          state: String(delivery?.state || ''),
+          attempts: Number(delivery?.attempts) || 0,
+          recipientAccepted: delivery?.recipientAccepted === true,
+          updatedAt: normalizeTimestamp(delivery?.updatedAt) || undefined,
+          error: delivery?.error ? String(delivery.error) : undefined,
+        }]))
+      : undefined,
     receiptReuploadUsed: data.receiptReuploadUsed === true,
     staffRemarks: Array.isArray(data.staffRemarks)
       ? data.staffRemarks
@@ -1363,16 +1372,6 @@ export const addStaffRemark = async (bookingId: string, text: string, byName?: s
     updatedBy: auth.currentUser?.uid || null,
   }, { merge: true });
   return entry;
-};
-
-// Stamp the time a balance reminder was sent so the 7-day auto-remind window
-// resets. Admin-only write (allowed by the bookings update rule for staff).
-export const markBalanceReminderSent = async (bookingId: string) => {
-  await setDoc(doc(db, 'bookings', bookingId), {
-    balanceReminderSentAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    updatedBy: auth.currentUser?.uid || null,
-  }, { merge: true });
 };
 
 export const rejectBookingReceiptDirect = async (bookingId: string, receiptIndex: number) => {
