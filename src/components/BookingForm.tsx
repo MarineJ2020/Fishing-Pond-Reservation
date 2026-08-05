@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { User, Pond, Settings } from '../types';
 import PhoneNumberField from './PhoneNumberField';
+import QrZoomModal from './QrZoomModal';
 import { formatMyPhone } from '../utils/phone';
 
 interface BookingFormProps {
@@ -68,6 +69,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   // cross-check it against the profile phone. Not prefilled on purpose.
   const [phonePrefix, setPhonePrefix] = useState('012');
   const [phoneRest, setPhoneRest] = useState('');
+  const [qrZoomOpen, setQrZoomOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const contactPhoneValid = phoneRest.length > 0;
@@ -267,11 +269,23 @@ const BookingForm: React.FC<BookingFormProps> = ({
       {(settings.qrBank || settings.qrName || settings.qrAccNo || settings.qrImg) && (
         <div style={{ marginBottom: '16px', padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--border, #e5e0d8)', background: 'var(--cream, #f7f7f5)', display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
           {settings.qrImg && (
-            <img
-              src={settings.qrImg}
-              alt="QR Pembayaran"
-              style={{ width: 110, height: 110, objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--border, #e5e0d8)', background: '#fff', flex: '0 0 auto' }}
-            />
+            <button
+              type="button"
+              onClick={() => setQrZoomOpen(true)}
+              aria-label="Besarkan QR pembayaran"
+              title="Besarkan QR pembayaran"
+              style={{ position: 'relative', width: 110, height: 110, padding: 0, borderRadius: '8px', border: '1px solid var(--border, #e5e0d8)', background: '#fff', flex: '0 0 auto', cursor: 'zoom-in', overflow: 'hidden', display: 'block' }}
+            >
+              <img
+                src={settings.qrImg}
+                alt="QR Pembayaran"
+                style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+              />
+              <span
+                aria-hidden="true"
+                style={{ position: 'absolute', right: 4, bottom: 4, width: 22, height: 22, borderRadius: '6px', background: 'rgba(0,0,0,.62)', color: '#fff', fontSize: '.7rem', lineHeight: '22px', textAlign: 'center', pointerEvents: 'none' }}
+              >⤢</span>
+            </button>
           )}
           <div style={{ flex: '1 1 180px', minWidth: 0 }}>
             <div style={{ fontSize: '.7rem', color: 'var(--text-muted)', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 700, marginBottom: '6px' }}>Bayar Ke</div>
@@ -279,9 +293,27 @@ const BookingForm: React.FC<BookingFormProps> = ({
             {settings.qrName && <div style={{ fontSize: '.82rem', marginTop: '2px' }}>{settings.qrName}</div>}
             {settings.qrAccNo && <div style={{ fontSize: '.82rem', marginTop: '2px', fontFamily: 'monospace', letterSpacing: '.5px' }}>{settings.qrAccNo}</div>}
             <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '6px' }}>Imbas QR atau pemindahan dalam talian, kemudian muat naik resit di bawah.</div>
+            {settings.qrImg && (
+              <button
+                type="button"
+                onClick={() => setQrZoomOpen(true)}
+                style={{ marginTop: '8px', padding: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red)', fontSize: '.74rem', fontWeight: 800, textDecoration: 'underline', textAlign: 'left' }}
+              >
+                🔍 Besarkan &amp; simpan QR
+              </button>
+            )}
           </div>
         </div>
       )}
+
+      <QrZoomModal
+        open={qrZoomOpen}
+        src={settings.qrImg}
+        bank={settings.qrBank}
+        name={settings.qrName}
+        accNo={settings.qrAccNo}
+        onClose={() => setQrZoomOpen(false)}
+      />
 
       <label className="form-label">Muat Naik Resit <span style={{ color: 'var(--red)' }}>*</span></label>
       <div
