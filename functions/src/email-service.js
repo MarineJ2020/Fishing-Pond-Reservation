@@ -3,6 +3,7 @@ import {
     renderBalanceReminderEmail,
     renderBookingApprovedEmail,
     renderBookingReceivedEmail,
+    renderPasswordResetEmail,
     renderVerificationEmail,
     renderWelcomeEmail,
 } from './email-templates.js';
@@ -42,7 +43,10 @@ const mailMetadata = ({ kind, bookingId, userId, anchorMs }) => ({
     queuedAt: new Date(),
 });
 
-export const createMailJob = async ({ id, to, message, kind, bookingId, userId, anchorMs }) => {
+// ccStaff defaults to true (staff keep a copy of booking correspondence) but must
+// be false for anything carrying an account-access link — a password-reset link in
+// the shared staff inbox would be an account-takeover vector.
+export const createMailJob = async ({ id, to, message, kind, bookingId, userId, anchorMs, ccStaff = true }) => {
     if (!isEmail(to)) return { created: false, reason: 'missing-recipient' };
     const ref = id
         ? adminDb.collection(MAIL_COLLECTION).doc(id)
@@ -50,7 +54,7 @@ export const createMailJob = async ({ id, to, message, kind, bookingId, userId, 
     try {
         await ref.create({
             to,
-            cc: [STAFF_CC],
+            ...(ccStaff ? { cc: [STAFF_CC] } : {}),
             message,
             metadata: mailMetadata({ kind, bookingId, userId, anchorMs }),
             createdAt: new Date(),
@@ -78,6 +82,15 @@ export const queueVerificationMail = ({ uid, email, link, requestWindow }) => cr
     kind: 'verification',
     userId: uid,
     message: renderVerificationEmail({ link }),
+});
+
+export const queuePasswordResetMail = ({ uid, email, link, name, requestWindow }) => createMailJob({
+    id: `password_reset_${uid}_${requestWindow}`,
+    to: email,
+    kind: 'password_reset',
+    userId: uid,
+    ccStaff: false,
+    message: renderPasswordResetEmail({ link, name }),
 });
 
 export const queueBookingLifecycleMail = async ({ bookingId, booking, kind }) => {

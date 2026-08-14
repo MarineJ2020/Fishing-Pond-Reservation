@@ -27,7 +27,7 @@ import { useCountdown } from './hooks/useCountdown';
 import { useSEO } from './hooks/useSEO';
 import { fmt, formatDate } from './utils';
 import { formatSeat, pondDisplayName } from './utils/seatLabel';
-import { countOutstanding, hasOutstandingBalance } from './utils/booking';
+import { countOutstanding, outstandingBalance } from './utils/booking';
 import { trackEvent } from './utils/analytics';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindowState } from './utils/competition';
 import { normalizePdfUrl } from './utils/pdfStorage';
@@ -1598,11 +1598,15 @@ const AppContent: React.FC = () => {
                 </button>
               </div>
             </div>
-            {sortedUserBookings.length ? sortedUserBookings.map(b => (
+            {sortedUserBookings.length ? sortedUserBookings.map(b => {
+              // Derived, not b.balanceDue: the server only stamps balanceDue once
+              // staff act on a receipt, so a pending booking would render "Baki RM".
+              const balanceDue = outstandingBalance(b);
+              return (
               <div key={b.id} className="card booking-row" onClick={() => goToBookingDetail(b.id)}>
                 <div>
                   <div className="booking-id" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {hasOutstandingBalance(b) && (
+                    {balanceDue > 0 && (
                       <span
                         title="Baki belum dibayar"
                         style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: 'var(--red)', flex: '0 0 auto' }}
@@ -1623,8 +1627,8 @@ const AppContent: React.FC = () => {
                     <span>📍 Pancang: {bookingPancangList(b)}</span>
                     <span>💰 Jumlah: RM {b.totalAmount ?? b.amount}</span>
                     <span>{b.paymentType === 'deposit' ? '💳 Deposit' : '💳 Bayaran Penuh'}</span>
-                    {hasOutstandingBalance(b) && (
-                      <span style={{ color: 'var(--red)', fontWeight: 700 }}>⚠ Baki RM {b.balanceDue}</span>
+                    {balanceDue > 0 && (
+                      <span style={{ color: 'var(--red)', fontWeight: 700 }}>⚠ Baki RM {balanceDue}</span>
                     )}
                   </div>
                 </div>
@@ -1635,7 +1639,8 @@ const AppContent: React.FC = () => {
                   </span>
                 </div>
               </div>
-            )) : (
+              );
+            }) : (
               <div className="empty-state">
                 <span className="empty-icon">🎣</span>
                 <div className="empty-text">

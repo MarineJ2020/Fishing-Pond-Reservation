@@ -3,7 +3,6 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
-  sendPasswordResetEmail,
   fetchSignInMethodsForEmail,
   signOut,
   onAuthStateChanged,
@@ -14,7 +13,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import app, { auth, db as firestoreDb, googleProvider } from '../../lib/firebase';
 import { useBooking } from '../context/BookingContext';
 import { useUI } from '../context/UIContext';
-import { requestWelcomeEmail } from '../lib/email';
+import { requestPasswordResetEmail, requestWelcomeEmail } from '../lib/email';
 import { trackEvent } from '../utils/analytics';
 import { User } from '../types';
 
@@ -106,7 +105,9 @@ export const useAuth = () => {
       if (methods.includes('google.com') && !methods.includes('password')) {
         return 'google' as const;
       }
-      await sendPasswordResetEmail(auth, normalizedEmail);
+      // Sent via the Zoho-backed Trigger Email extension (branded, Malay) rather
+      // than Firebase Auth's default template — same pattern as verification.
+      await requestPasswordResetEmail(normalizedEmail);
       addToast('Pautan reset kata laluan telah dihantar. Sila semak email anda.', 'success');
       return 'sent' as const;
     } catch (error) {

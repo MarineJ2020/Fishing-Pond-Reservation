@@ -39,6 +39,7 @@ import {
   bookingSeatEntries,
   BookingSeatEntry,
   isBookingSeatCheckedIn,
+  receiptBankReference,
 } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta } from '../utils/competition';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
@@ -702,16 +703,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   // Request a server-rendered balance reminder. The 7-day clock resets only after
   // the email extension confirms delivery to the booking recipient.
-  const handleSendBalanceReminder = async (bookingId: string) => {
-    const target = bookings.find(b => b.id === bookingId);
-    if (!target) return;
+  // Takes the row's Booking, not just its id: "Semua Tempahan" renders the
+  // server-paginated `allEntries`, so looking the booking up in the `bookings`
+  // prop used to miss and abandon the send silently.
+  const handleSendBalanceReminder = async (target: Booking) => {
     setSaving(true);
     try {
-      await requestBalanceReminderEmail(bookingId);
+      await requestBalanceReminderEmail(target.id);
       await refetchCurrentBookingList();
       await logAuditEvent({
         action: 'booking.balance_reminder', actionLabel: 'Hantar Peringatan Baki', entityType: 'booking',
-        entityId: bookingId, entityLabel: target.bookingRef || bookingId,
+        entityId: target.id, entityLabel: target.bookingRef || target.id,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
     } catch (err) {
@@ -745,13 +747,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   // ── Confirmation-dialog wrappers ─────────────────────────────────────────
   // Each opens the shared confirm dialog; the real work runs only on confirm.
-  const askSendReminder = (bookingId: string) => {
+  const askSendReminder = (booking: Booking) => {
     setConfirmDialog({
       title: 'Hantar Peringatan',
       message: 'Hantar e-mel peringatan baki bayaran kepada pengguna sekarang? Kiraan auto-peringat akan ditetapkan semula ke 7 hari.',
       confirmLabel: 'Hantar',
       tone: 'primary',
-      onConfirm: () => handleSendBalanceReminder(bookingId),
+      onConfirm: () => handleSendBalanceReminder(booking),
     });
   };
 
@@ -2711,7 +2713,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 <span style={{ fontSize: '0.7rem', color: overdue ? 'var(--red)' : 'var(--text-muted)', fontWeight: overdue ? 700 : 400 }}>
                                   📧 Auto-peringat {overdue ? 'tertunggak' : `dalam ${reminderLabel(info)}`}
                                 </span>
-                                <button className="btn btn-sm btn-ghost" disabled={saving} title="Hantar peringatan baki sekarang" style={{ alignSelf: 'flex-start' }} onClick={() => askSendReminder(b.id)}>Hantar Peringatan</button>
+                                <button className="btn btn-sm btn-ghost" disabled={saving} title="Hantar peringatan baki sekarang" style={{ alignSelf: 'flex-start' }} onClick={() => askSendReminder(b)}>Hantar Peringatan</button>
                               </div>
                             );
                           })()}
@@ -4066,6 +4068,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <strong>Receipt #{index + 1}</strong>
                         <div style={{ marginTop: 4, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Tarikh diterima: {receipt.submittedAt ? formatDate(receipt.submittedAt, { time: true }) : '-'}</div>
                         <div style={{ marginTop: 2, fontSize: '0.78rem', color: 'var(--text-muted)' }}>RM {receipt.amount} · {receipt.status === 'accepted' ? 'Disahkan' : receipt.status === 'rejected' ? 'Ditolak' : 'Menunggu Semakan'}</div>
+                        <div style={{ marginTop: 2, fontSize: '0.78rem', color: 'var(--text-muted)' }}>No. Rujukan Bank: <strong style={{ fontFamily: 'monospace' }}>{receiptBankReference(receiptHistoryBooking, receipt, index) || '-'}</strong></div>
                       </div>
                       {receipt.url && <button className="btn btn-sm btn-primary" onClick={() => handleViewReceipt(receipt.url)}>Lihat Receipt</button>}
                     </div>
@@ -4193,12 +4196,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       {/* QR viewer grid for one booking (Semua Tempahan) */}
       {qrPreviewBooking && createPortal(
         <div className="modal-overlay open" style={{ zIndex: 1300 }} onClick={closeQrPreview}>
-          <div className="modal" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+          {/* flex column + a scrollable body: a booking with many pegs renders more
+              QR tiles than fit in the 92vh-capped .modal (which is overflow:hidden). */}
+          <div className="modal" style={{ maxWidth: '520px', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header" style={{ flex: '0 0 auto' }}>
               <div className="modal-title">QR Tempahan — {qrPreviewBooking.bookingRef || qrPreviewBooking.id.slice(0, 10)}</div>
               <button className="modal-close" onClick={closeQrPreview}>×</button>
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '14px' }}>
                 {bookingSeatEntries(qrPreviewBooking).map((entry) => (
                   <button

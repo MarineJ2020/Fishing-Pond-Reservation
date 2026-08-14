@@ -106,6 +106,22 @@ export const renderVerificationEmail = ({ link }) => ({
         <p style="font-size:12px;color:#888;">Jika anda tidak mendaftar, abaikan email ini.</p>`),
 });
 
+// Replaces Firebase Auth's built-in reset email (English, "project-<id>" sender)
+// with a branded Malay message. Some mail apps do not linkify a bare URL, so the
+// primary call-to-action is a button with the raw link kept as a fallback.
+export const renderPasswordResetEmail = ({ link, name }) => ({
+    subject: 'Tetapkan Semula Kata Laluan - Kolam Keli Sayang',
+    text: `Salam sejahtera${name ? ` ${name}` : ''},\n\nKami menerima permintaan untuk menetapkan semula kata laluan akaun Kolam Keli Sayang anda.\nBuka pautan ini untuk memilih kata laluan baharu (sah selama 1 jam): ${link}\n\nJika anda tidak membuat permintaan ini, abaikan e-mel ini — kata laluan anda kekal tidak berubah.`,
+    html: layout('Tetapkan Semula Kata Laluan', `
+        <p>Salam sejahtera${name ? ` ${escapeHtml(name)}` : ''},</p>
+        <p>Kami menerima permintaan untuk menetapkan semula kata laluan bagi akaun <strong>Kolam Keli Sayang</strong> anda. Klik butang di bawah untuk memilih kata laluan baharu.</p>
+        <p style="text-align:center;margin:26px 0;">
+          <a href="${escapeHtml(link)}" style="display:inline-block;background:${BRAND_RED};color:#fff;text-decoration:none;padding:14px 30px;border-radius:8px;font-weight:700;font-size:16px;">Tetapkan Kata Laluan Baharu</a>
+        </p>
+        <p style="font-size:12px;color:#666;">Butang tidak berfungsi? Salin dan tampal pautan ini ke pelayar anda:<br/><a href="${escapeHtml(link)}" style="color:${BRAND_NAVY};word-break:break-all;">${escapeHtml(link)}</a></p>
+        <p style="font-size:12px;color:#888;">Pautan ini sah selama 1 jam dan hanya boleh digunakan sekali. Jika anda tidak membuat permintaan ini, abaikan e-mel ini — kata laluan anda kekal tidak berubah.</p>`),
+});
+
 export const renderBookingReceivedEmail = ({ booking }) => {
     const bookingRef = subjectText(booking.bookingRef, 'Pending Approval');
     return {

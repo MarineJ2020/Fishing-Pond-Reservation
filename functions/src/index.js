@@ -7,6 +7,7 @@ import {
     isConfirmedStatus,
     queueBalanceReminderMail,
     queueBookingLifecycleMail,
+    queuePasswordResetMail,
     queueVerificationMail,
     queueWelcomeMail,
     shouldQueueBookingApprovedEmail,
@@ -308,7 +309,7 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
 // A booking owner submits an additional payment receipt (e.g. the balance for a
 // deposit booking). Capped at MAX_RECEIPTS total; appended as 'pending' for staff review.
 app.post('/submitBookingReceipt', verifyToken, async (req, res) => {
-    const { bookingId, receiptUrl, amount } = req.body;
+    const { bookingId, receiptUrl, amount, bankReference } = req.body;
     if (!bookingId || !receiptUrl || amount == null) {
         return res.status(400).json({ error: 'bookingId, receiptUrl and amount are required.' });
     }
@@ -338,7 +339,14 @@ app.post('/submitBookingReceipt', verifyToken, async (req, res) => {
             return res.status(409).json({ error: 'Booking is already fully paid.' });
         }
 
-        const next = [...receipts, { url: receiptUrl, amount: Number(amount) || 0, status: 'pending', submittedAt: new Date() }];
+        const reference = typeof bankReference === 'string' ? bankReference.trim().slice(0, 120) : '';
+        const next = [...receipts, {
+            url: receiptUrl,
+            amount: Number(amount) || 0,
+            status: 'pending',
+            submittedAt: new Date(),
+            ...(reference ? { bankReference: reference } : {}),
+        }];
         await bookingDocRef.update({
             receipts: next,
             receiptUrl,
@@ -808,6 +816,42 @@ export const requestEmailVerification = functions.https.onCall(async (data, cont
         if (error instanceof functions.https.HttpsError) throw error;
         console.error('requestEmailVerification failed:', error);
         throw new functions.https.HttpsError('internal', 'Failed to send verification email.');
+    }
+});
+
+// Password reset is sent through our own branded Malay template instead of the
+// Firebase Auth default ("Reset your password for project-<id>"). Callable
+// without auth by nature — the caller is locked out — so it never reveals
+// whether an address is registered and dedupes to one mail per account/minute.
+export const requestPasswordReset = functions.https.onCall(async (data) => {
+    const email = typeof data?.email === 'string' ? data.email.trim() : '';
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new functions.https.HttpsError('invalid-argument', 'A valid email is required.');
+    }
+
+    // Neutral response shape in every branch below: an attacker must not be able
+    // to tell a registered address from an unregistered one.
+    const neutral = { queued: true };
+    try {
+        const userRecord = await adminAuth.getUserByEmail(email);
+        const requestWindow = Math.floor(Date.now() / VERIFICATION_WINDOW_MS);
+        const link = await adminAuth.generatePasswordResetLink(email, {
+            url: CONTINUE_URL,
+            handleCodeInApp: false,
+        });
+        const profileSnap = await adminDb.collection('users').doc(userRecord.uid).get();
+        await queuePasswordResetMail({
+            uid: userRecord.uid,
+            email: userRecord.email,
+            link,
+            name: (profileSnap.exists ? profileSnap.data()?.name : '') || userRecord.displayName || '',
+            requestWindow,
+        });
+        return neutral;
+    } catch (error) {
+        if (error?.code === 'auth/user-not-found') return neutral;
+        console.error('requestPasswordReset failed:', error);
+        throw new functions.https.HttpsError('internal', 'Failed to send password reset email.');
     }
 });
 

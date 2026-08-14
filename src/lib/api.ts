@@ -51,8 +51,8 @@ export const createBooking = async (payload: any) => {
   }
   return postJson('/createBooking', payload);
 };
-export const submitBookingReceipt = async (payload: { bookingId: string; receiptUrl: string; amount: number }) => {
-  if (!baseUrl) return submitBookingReceiptDirect(payload.bookingId, payload.receiptUrl, payload.amount);
+export const submitBookingReceipt = async (payload: { bookingId: string; receiptUrl: string; amount: number; bankReference?: string }) => {
+  if (!baseUrl) return submitBookingReceiptDirect(payload.bookingId, payload.receiptUrl, payload.amount, payload.bankReference);
   return postJson('/submitBookingReceipt', payload);
 };
 export const acceptBookingReceipt = async (payload: { bookingId: string; receiptIndex: number }) => {

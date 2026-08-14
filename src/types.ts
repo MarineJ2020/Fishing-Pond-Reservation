@@ -34,6 +34,12 @@ export interface BookingReceipt {
   amount: number;
   status: 'pending' | 'accepted' | 'rejected';
   submittedAt: string;
+  /**
+   * Bank transfer/reference number entered with THIS receipt. The first receipt
+   * predates the field and keeps its value in the booking-level
+   * `bankReference`; read them with `receiptBankReference()`.
+   */
+  bankReference?: string;
 }
 
 export interface BookingPondSelection {

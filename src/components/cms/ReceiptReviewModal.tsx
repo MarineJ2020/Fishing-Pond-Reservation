@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Booking } from '../../types';
 import { formatDate } from '../../utils';
+import { receiptBankReference } from '../../utils/booking';
 
 interface ReceiptReviewModalProps {
   /** null closes the modal. */
@@ -63,7 +64,9 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
             <div style={{ fontWeight: 700 }}>{booking.userName}</div>
             <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{booking.pondName} · {booking.competitionName || '-'}</div>
             <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Ref: {booking.bookingRef || booking.id}</div>
-            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>No. Rujukan Bank: {booking.bankReference || '-'}</div>
+            {/* Booking-level reference = the reference keyed in with the first
+                (deposit) receipt. Each later receipt carries its own, shown below. */}
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>No. Rujukan Bank (resit pertama): {booking.bankReference || '-'}</div>
             <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
               📱 Profil: {booking.userPhone || '—'}
               {' · '}
@@ -86,8 +89,11 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
                 <span style={{ fontWeight: 700 }}>Resit #{pendingIndex + 1} · RM {reviewableReceipt.amount}</span>
                 {reviewableReceipt.url && <button className="btn btn-sm btn-ghost" onClick={() => onViewReceipt(reviewableReceipt.url)}>Lihat Resit</button>}
               </div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
                 Dihantar: {reviewableReceipt.submittedAt ? formatDate(reviewableReceipt.submittedAt, { time: true }) : '-'}
+              </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                No. Rujukan Bank: <strong style={{ fontFamily: 'monospace' }}>{receiptBankReference(booking, reviewableReceipt, pendingIndex) || '-'}</strong>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button className="btn btn-green" disabled={saving} onClick={() => onApprove(booking.id, pendingIndex)}>✓ Sahkan</button>

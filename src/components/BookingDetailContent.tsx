@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Booking } from '../types';
-import { bookingSeatEntries, isBookingSeatCheckedIn, outstandingBalance } from '../utils/booking';
+import { bookingSeatEntries, isBookingSeatCheckedIn, outstandingBalance, receiptBankReference } from '../utils/booking';
 import { formatDate } from '../utils';
 import { buildSeatQrValue } from '../utils/qr';
 import { formatSeat } from '../utils/seatLabel';
@@ -219,14 +219,20 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {receipts.map((r, i) => {
               const meta = RECEIPT_STATUS_LABEL[r.status] || RECEIPT_STATUS_LABEL.pending;
+              const reference = receiptBankReference(booking, r, i);
               return (
                 <div key={i}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reference ? '4px' : '8px' }}>
                     <span style={{ fontSize: '.82rem', fontWeight: 700 }}>
                       Resit #{i + 1} · RM {r.amount}
                     </span>
                     <span style={{ fontSize: '.72rem', fontWeight: 700, color: meta.color }}>{meta.label}</span>
                   </div>
+                  {reference && (
+                    <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                      No. Rujukan Bank: <strong style={{ fontFamily: 'monospace', letterSpacing: '.3px' }}>{reference}</strong>
+                    </div>
+                  )}
                   {r.url && (() => {
                     const isPdf = /\.pdf($|\?)/i.test(r.url) || r.url.startsWith('data:application/pdf');
                     return (

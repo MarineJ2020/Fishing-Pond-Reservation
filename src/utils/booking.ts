@@ -1,20 +1,39 @@
-import { Booking } from '../types';
+import { Booking, BookingReceipt } from '../types';
 
 /**
- * Outstanding (unpaid) balance for a booking. Only deposit bookings can carry a
+ * Bank reference to show for one receipt. The deposit (first) receipt is stored
+ * with the booking-level `bankReference` captured on the booking form; every
+ * later receipt carries its own.
+ */
+export function receiptBankReference(b: Booking, receipt: Pick<BookingReceipt, 'bankReference'>, index: number): string {
+  return (receipt.bankReference || (index === 0 ? b.bankReference : '') || '').trim();
+}
+
+/**
+ * What the customer still has to pay. Only deposit bookings can carry a
  * balance; full-payment and rejected bookings always return 0. `baki` is the
- * staff-assisted continuation of a deposit booking. Derived from the accepted
- * receipt total vs. the full price.
+ * staff-assisted continuation of a deposit booking.
+ *
+ * Money on a receipt that is still awaiting staff review counts as submitted,
+ * not as owing — otherwise a brand-new deposit booking (deposit uploaded, staff
+ * hasn't approved yet) would tell the customer the FULL price is outstanding.
+ * Rejected receipts fall back into the outstanding amount, as they should.
  */
 export function outstandingBalance(b: Booking): number {
   if (!['deposit', 'baki'].includes(b.paymentType) || b.status === 'rejected') return 0;
   const total = b.totalAmount ?? b.amount ?? 0;
-  const paid = typeof b.paidAmount === 'number'
+  const receipts = b.receipts || [];
+  const accepted = typeof b.paidAmount === 'number'
     ? b.paidAmount
-    : (b.receipts?.length
-        ? b.receipts.filter((r) => r.status === 'accepted').reduce((s, r) => s + r.amount, 0)
+    : (receipts.length
+        ? receipts.filter((r) => r.status === 'accepted').reduce((s, r) => s + r.amount, 0)
         : (b.status === 'confirmed' && b.receiptData ? b.amount : 0));
-  return Math.max(0, total - paid);
+  // Legacy bookings have no receipts array — their single receiptData is the
+  // pending deposit while the booking itself is still awaiting a decision.
+  const inReview = receipts.length
+    ? receipts.filter((r) => r.status === 'pending').reduce((s, r) => s + r.amount, 0)
+    : (b.status === 'pending' && b.receiptData ? (b.amount || 0) : 0);
+  return Math.max(0, total - accepted - inReview);
 }
 
 export interface BookingSeatEntry {

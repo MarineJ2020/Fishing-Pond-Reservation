@@ -4,6 +4,7 @@ import {
     bookingSelectionsForTest,
     renderBookingApprovedEmail,
     renderBookingReceivedEmail,
+    renderPasswordResetEmail,
 } from '../src/email-templates.js';
 
 const multiPondBooking = {
@@ -36,6 +37,22 @@ test('approved email creates one QR for every selected peg', () => {
     assert.match(approved.html, /Kolam Selatan &middot; B-7/);
     assert.match(approved.html, /pond%3D1/);
     assert.match(approved.html, /pond%3D2/);
+});
+
+test('password reset email is Malay, branded, and links from a button', () => {
+    const link = 'https://kolamkelisayang.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=abc';
+    const reset = renderPasswordResetEmail({ link, name: 'Ahmad' });
+    assert.match(reset.subject, /Tetapkan Semula Kata Laluan - Kolam Keli Sayang/);
+    assert.doesNotMatch(reset.subject, /project-/);
+    assert.match(reset.html, /Tetapkan Kata Laluan Baharu<\/a>/);
+    // Button href plus a copy-paste fallback for mail apps that do not linkify.
+    assert.equal((reset.html.match(/mode=resetPassword/g) || []).length, 3);
+    assert.match(reset.text, /Salam sejahtera Ahmad/);
+});
+
+test('password reset email escapes the generated link', () => {
+    const reset = renderPasswordResetEmail({ link: 'https://x.test/"><script>alert(1)</script>' });
+    assert.doesNotMatch(reset.html, /<script>/);
 });
 
 test('booking-controlled fields are HTML escaped', () => {

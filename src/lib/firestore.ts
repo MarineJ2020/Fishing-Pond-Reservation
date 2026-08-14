@@ -227,6 +227,7 @@ const buildBooking = (
         amount: Number(r?.amount) || 0,
         status: (r?.status || 'pending') as 'pending' | 'accepted' | 'rejected',
         submittedAt: normalizeTimestamp(r?.submittedAt) || new Date().toISOString(),
+        bankReference: r?.bankReference || '',
       }))
     : (data.receiptUrl
         ? [{
@@ -234,6 +235,7 @@ const buildBooking = (
             amount,
             status: (isConfirmed ? 'accepted' : 'pending') as 'pending' | 'accepted' | 'rejected',
             submittedAt: normalizeTimestamp(data.createdAt) || new Date().toISOString(),
+            bankReference: data.bankReference || '',
           }]
         : []);
 
@@ -1342,6 +1344,8 @@ const deriveReceiptsFromBooking = (booking: any): any[] => {
       amount: Number(r?.amount) || 0,
       status: (r?.status || 'pending') as 'pending' | 'accepted' | 'rejected',
       submittedAt: r?.submittedAt ?? new Date().toISOString(),
+      // Per-receipt bank reference must survive every rewrite of the array.
+      ...(r?.bankReference ? { bankReference: String(r.bankReference) } : {}),
     }));
   }
   if (booking?.receiptUrl) {
@@ -1352,6 +1356,7 @@ const deriveReceiptsFromBooking = (booking: any): any[] => {
       amount: Number(booking.amount) || 0,
       status: (isConfirmed ? 'accepted' : 'pending') as 'pending' | 'accepted' | 'rejected',
       submittedAt: booking.createdAt ?? new Date().toISOString(),
+      ...(booking.bankReference ? { bankReference: String(booking.bankReference) } : {}),
     }];
   }
   return [];
@@ -1388,7 +1393,7 @@ const setSeatStatusForBooking = async (bookingData: any, nextStatus: 'booked' | 
 
 const MAX_RECEIPTS = 3;
 
-export const submitBookingReceiptDirect = async (bookingId: string, receiptUrl: string, amount: number) => {
+export const submitBookingReceiptDirect = async (bookingId: string, receiptUrl: string, amount: number, bankReference?: string) => {
   const bookingRef = doc(db, 'bookings', bookingId);
   const snap = await getDoc(bookingRef);
   if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
@@ -1410,7 +1415,13 @@ export const submitBookingReceiptDirect = async (bookingId: string, receiptUrl: 
 
   const next = [
     ...receipts,
-    { url: receiptUrl, amount: Number(amount) || 0, status: 'pending' as const, submittedAt: new Date().toISOString() },
+    {
+      url: receiptUrl,
+      amount: Number(amount) || 0,
+      status: 'pending' as const,
+      submittedAt: new Date().toISOString(),
+      ...(bankReference?.trim() ? { bankReference: bankReference.trim() } : {}),
+    },
   ];
   await setDoc(bookingRef, {
     receipts: next,

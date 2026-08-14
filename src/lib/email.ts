@@ -14,3 +14,12 @@ export const requestWelcomeEmail = async (): Promise<void> => {
 export const requestBalanceReminderEmail = async (bookingId: string): Promise<void> => {
   await httpsCallable(functions, 'requestBalanceReminder')({ bookingId });
 };
+
+/**
+ * Branded Malay password-reset email (replaces Firebase Auth's default sender).
+ * Resolves for unregistered addresses too — the server answers neutrally so the
+ * login form cannot be used to enumerate accounts.
+ */
+export const requestPasswordResetEmail = async (email: string): Promise<void> => {
+  await httpsCallable(functions, 'requestPasswordReset')({ email });
+};

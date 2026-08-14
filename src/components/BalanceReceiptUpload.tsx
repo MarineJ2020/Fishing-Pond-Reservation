@@ -27,6 +27,10 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
   const { addToast } = useUI();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  // Same requirement as the first receipt on the booking form: staff reconcile
+  // the transfer against the bank statement using this reference.
+  const [bankReference, setBankReference] = useState('');
+  const referenceOk = bankReference.trim() !== '';
 
   const remaining = MAX_RECEIPTS - receiptCount;
   if (remaining <= 0) {
@@ -39,6 +43,10 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
 
   const handleFile = async (file: File) => {
     if (!file) return;
+    if (!referenceOk) {
+      addToast('Sila masukkan No. Rujukan Bank dahulu.', 'error');
+      return;
+    }
     setBusy(true);
     try {
       const receiptUrl = isPdfFile(file)
@@ -47,8 +55,9 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
             const dataUrl = await compressImageToDataUrl(file);
             return uploadDataUrlToFirebaseStorage(dataUrl, 'fishing-pond-receipts', file.name);
           })();
-      await submitBookingReceipt({ bookingId, receiptUrl, amount: balanceDue });
+      await submitBookingReceipt({ bookingId, receiptUrl, amount: balanceDue, bankReference: bankReference.trim() });
       addToast('Resit baki dihantar. Petugas akan mengesahkan pembayaran anda.', 'success');
+      setBankReference('');
       await onSubmitted();
     } catch (err: any) {
       console.error('Balance receipt submit failed:', err);
@@ -68,6 +77,20 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
         Baki tertunggak: <strong style={{ color: 'var(--red)' }}>RM {balanceDue}</strong>. Muat naik resit
         pembayaran baki untuk pengesahan petugas. ({remaining} resit lagi dibenarkan)
       </div>
+      <label className="form-label" htmlFor={`balance-bank-reference-${bookingId}`} style={{ display: 'block', marginBottom: '6px' }}>
+        NO.RUJUKAN BANK <span style={{ color: 'var(--red)' }}>*</span>
+      </label>
+      <input
+        id={`balance-bank-reference-${bookingId}`}
+        className="form-input"
+        type="text"
+        autoComplete="off"
+        disabled={busy}
+        value={bankReference}
+        onChange={(e) => setBankReference(e.target.value)}
+        placeholder="Masukkan nombor rujukan transaksi"
+        style={{ marginBottom: '12px' }}
+      />
       <input
         ref={inputRef}
         type="file"
@@ -77,12 +100,18 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
       />
       <button
         className="btn btn-primary"
-        disabled={busy}
+        disabled={busy || !referenceOk}
+        title={referenceOk ? undefined : 'Masukkan No. Rujukan Bank dahulu'}
         onClick={() => inputRef.current?.click()}
         style={{ width: '100%', justifyContent: 'center' }}
       >
         {busy ? 'Menghantar…' : 'Muat Naik Resit Baki'}
       </button>
+      {!referenceOk && (
+        <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '7px', textAlign: 'center' }}>
+          Masukkan No. Rujukan Bank untuk membuka muat naik resit.
+        </div>
+      )}
     </div>
   );
 };
