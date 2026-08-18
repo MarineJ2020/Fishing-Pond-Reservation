@@ -314,6 +314,9 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
             /* ── Legacy column layout (kept behind the CMS toggle) ── */
             <>
               <div className="seat-zone-wrap left">
+                <div className="seat-bank-label-anchor" aria-hidden="true">
+                  <span className="seat-bank-label">Kiri</span>
+                </div>
                 <div className="seat-col">
                   {splitSeats.left.map(s => {
                     const isSel    = selectedSeats.includes(s.num);
@@ -340,6 +343,9 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
                 </div>
               </div>
               <div className="seat-zone-wrap right">
+                <div className="seat-bank-label-anchor" aria-hidden="true">
+                  <span className="seat-bank-label">Kanan</span>
+                </div>
                 <div className="seat-col">
                   {splitSeats.right.map(s => {
                     const isSel    = selectedSeats.includes(s.num);
