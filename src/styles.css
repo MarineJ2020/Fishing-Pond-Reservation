@@ -3256,6 +3256,25 @@ nav.kks-legacy-v3-nav::before {
 }
 .kks-hero-content { position: relative; z-index: 1; text-align: left; }
 .kks-hero-content > * { max-width: 640px; }
+.kks-preserve-lines { white-space: pre-line; }
+.kks-custom-html {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.kks-custom-html img,
+.kks-custom-html video {
+  max-width: 100%;
+  height: auto;
+}
+.kks-custom-html table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.kks-custom-html > :first-child { margin-top: 0; }
+.kks-custom-html > :last-child { margin-bottom: 0; }
 .kks-hero-kicker {
   font-family: "Barlow Condensed"; font-weight: 800;
   font-size: 38px; font-style: italic;
@@ -3783,29 +3802,24 @@ nav.kks-legacy-v3-nav::before {
 .bk-seat-modal .seat-bank-label {
   position: absolute;
   top: 0;
-  min-width: 78px;
-  padding: 9px 14px;
-  border: 1px solid #dbe4ec;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, .94);
-  box-shadow: 0 8px 24px rgba(17, 42, 65, .12);
-  color: var(--navy);
+  padding: 0;
+  color: #050505;
   font-family: var(--font-heading);
-  font-size: .78rem;
+  font-size: .82rem;
   font-weight: 900;
-  letter-spacing: .12em;
+  letter-spacing: .04em;
   line-height: 1;
   text-align: center;
   text-transform: uppercase;
   white-space: nowrap;
-  transform: translateY(-50%);
-  backdrop-filter: blur(8px);
 }
 .bk-seat-modal .seat-zone-wrap.left .seat-bank-label {
   right: calc(100% + 18px);
+  transform: translateY(-50%) rotate(-90deg);
 }
 .bk-seat-modal .seat-zone-wrap.right .seat-bank-label {
   left: calc(100% + 18px);
+  transform: translateY(-50%) rotate(90deg);
 }
 
 /* #40 / #45 — the blue pond spans the complete seat rows. Its contents use a
@@ -3875,8 +3889,6 @@ nav.kks-legacy-v3-nav::before {
   .bk-seat-modal .seat-zone-wrap,
   .bk-seat-modal .seat-btn { width: 56px; }
   .bk-seat-modal .seat-bank-label {
-    min-width: 58px;
-    padding: 8px 9px;
     font-size: .68rem;
   }
   .bk-seat-modal .seat-zone-wrap.left .seat-bank-label {

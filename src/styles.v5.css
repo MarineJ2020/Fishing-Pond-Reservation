@@ -416,11 +416,21 @@
   min-width: 720px;
 }
 .bk-seat-modal-pond-grid .bk-pond {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 38px;
   padding: 7px 3px;
   border-radius: 8px;
+  text-align: center;
 }
-.bk-seat-modal-pond-grid .bk-pond strong { font-size: 11px; }
+.bk-seat-modal-pond-grid .bk-pond strong {
+  width: 100%;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
 .bk-selected-pancangs {
   display: flex;
   align-items: center;
@@ -443,7 +453,145 @@
 }
 .bk-selected-pancangs button span { font-size: 15px; line-height: .8; }
 .bk-selected-pancangs button:hover { background: #ffe1e5; }
-.bk-seat-modal-foot .bk-selected-pancangs { margin-top: 5px; }
+.bk-seat-modal .price-bar { display: none; }
+.bk-seat-modal .bk-seat-dialog {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.bk-seat-modal .bk-seat-modal-head { grid-row: 1; }
+.bk-seat-modal .bk-seat-modal-pond-grid { grid-row: 2; }
+.bk-seat-modal .bk-seat-modal-body {
+  grid-row: 3;
+  padding-bottom: 184px;
+  scrollbar-width: thin;
+  scrollbar-color: #9aa8b4 #edf2f6;
+  scrollbar-gutter: stable;
+}
+.bk-seat-modal .bk-seat-modal-body::-webkit-scrollbar {
+  width: 10px;
+}
+.bk-seat-modal .bk-seat-modal-body::-webkit-scrollbar-track {
+  background: #edf2f6;
+}
+.bk-seat-modal .bk-seat-modal-body::-webkit-scrollbar-thumb {
+  min-height: 48px;
+  border: 2px solid #edf2f6;
+  border-radius: 999px;
+  background: #9aa8b4;
+}
+.bk-seat-modal .bk-seat-modal-body::-webkit-scrollbar-thumb:hover {
+  background: #748595;
+}
+.bk-seat-modal .bk-seat-modal-body::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.bk-seat-modal .bk-seat-modal-body::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.bk-seat-modal .bk-seat-modal-foot {
+  position: absolute;
+  z-index: 5;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  margin: 0;
+  padding: 13px 14px;
+  border: 1px solid rgba(17, 42, 65, .1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .97);
+  box-shadow: 0 14px 38px rgba(17, 42, 65, .18);
+  backdrop-filter: blur(14px);
+}
+.bk-current-selection {
+  align-self: center;
+  min-width: 0;
+}
+.bk-current-selection-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.bk-seat-modal-foot .bk-current-selection-head small {
+  color: var(--navy);
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+.bk-current-selection-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+.bk-seat-modal-foot > .btn {
+  align-self: center;
+  justify-self: end;
+  white-space: nowrap;
+}
+.bk-selected-pond-groups {
+  display: grid;
+  gap: 7px;
+  max-height: 116px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.bk-selected-pond-group {
+  display: grid;
+  grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+.bk-seat-modal-foot .bk-selected-pond-group > strong {
+  margin: 0;
+  color: var(--navy);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.bk-seat-modal-foot .bk-selected-pancangs {
+  gap: 5px;
+  margin: 0;
+}
+.bk-seat-modal-foot .bk-selected-pancangs button {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+.bk-current-selection-empty {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .bk-seat-modal .bk-seat-modal-body { padding-bottom: 220px; }
+  .bk-seat-modal .bk-seat-modal-foot {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    padding: 11px;
+    gap: 10px;
+  }
+  .bk-selected-pond-groups { max-height: 96px; }
+  .bk-selected-pond-group { grid-template-columns: minmax(76px, auto) minmax(0, 1fr); }
+  .bk-seat-modal-foot .bk-selected-pond-group > strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bk-seat-modal-foot .btn {
+    justify-self: stretch;
+    min-height: 42px;
+  }
+}
 .v5-choice-route .v5-choice-hours {
   margin-top: 4px;
   padding-top: 9px;

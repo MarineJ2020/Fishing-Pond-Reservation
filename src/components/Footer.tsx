@@ -1,6 +1,7 @@
 import React from 'react';
 import { Settings } from '../types';
 import { asset } from '../config/landingAssets';
+import CustomLandingHtml from './CustomLandingHtml';
 
 interface FooterProps {
   settings: Settings;
@@ -10,13 +11,16 @@ interface FooterProps {
 const Footer: React.FC<FooterProps> = ({ settings, onNavigate }) => {
   return (
     <footer className="kks-footer">
+      {settings.landingSections.footer.mode === 'html' ? (
+        <CustomLandingHtml section="footer" html={settings.landingSections.footer.html} containerClassName="kks-footer-container" />
+      ) : (
       <div className="kks-footer-container">
         <div className="kks-footer-grid">
           <div className="kks-footer-brand">
             <div className="kks-footer-logo">
               <img src={asset('footerLogo', settings)} alt="Kolam Keli Sayang" />
             </div>
-            <p>{settings.footerTagline}</p>
+            <p className="kks-preserve-lines">{settings.footerTagline}</p>
           </div>
 
           <div className="kks-footer-col">
@@ -40,6 +44,7 @@ const Footer: React.FC<FooterProps> = ({ settings, onNavigate }) => {
           {new Date().getFullYear()} All Rights Reserved by Kolam Keli Sayang.
         </div>
       </div>
+      )}
     </footer>
   );
 };

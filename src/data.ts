@@ -1,4 +1,5 @@
 import { DB, Pond, Booking, Score, Competition, Settings, User } from './types';
+import { createDefaultLandingSections } from './config/landingSections';
 
 /** Generate seats for CMS pond creation only — all statuses start as 'available' */
 export const gs = (pid: number, st: number, cnt: number, pr: number) => Array.from({ length: cnt }, (_, i) => ({
@@ -56,6 +57,7 @@ export const emptyDB: DB = {
     wazeUrl: '',
     googleMapsUrl: '',
     mapEmbedUrl: '',
+    landingSections: createDefaultLandingSections(),
     ocrUsePreprocess: true
   },
   users: []

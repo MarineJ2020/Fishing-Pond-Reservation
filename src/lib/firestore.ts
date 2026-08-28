@@ -23,6 +23,7 @@ import { db } from '../../lib/firebase';
 import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry, User, AuditEntry, SeoSettings } from '../types';
 import { emptyDB } from '../data';
 import { LANDING_DEFAULTS, SEO_DEFAULTS } from '../config/landingDefaults';
+import { normalizeLandingSections } from '../config/landingSections';
 
 const normalizeTimestamp = (value: any) => {
   if (!value) return null;
@@ -153,6 +154,7 @@ const normalizeSettings = (data: any): Settings => ({
   lokasiTitle: data.lokasiTitle || LANDING_DEFAULTS.lokasiTitle,
   contactName: data.contactName || LANDING_DEFAULTS.contactName,
   footerTagline: data.footerTagline || LANDING_DEFAULTS.footerTagline,
+  landingSections: normalizeLandingSections(data.landingSections),
   landingImages: { ...(data.landingImages || {}) },
 
   seo: normalizeSeo(data.seo),

@@ -226,6 +226,20 @@ export interface SeoSettings {
   pages: Record<SeoPageKey, SeoPageMeta>;
 }
 
+export type LandingSectionKey =
+  | 'hero'
+  | 'about'
+  | 'competitions'
+  | 'steps'
+  | 'rules'
+  | 'location'
+  | 'footer';
+
+export interface LandingSectionContent {
+  mode: 'fields' | 'html';
+  html: string;
+}
+
 export interface Settings {
   qrBank: string;
   qrName: string;
@@ -281,6 +295,8 @@ export interface Settings {
   ctaTitle?: string;
   ctaSubtitle?: string;
   footerTagline?: string;
+  /** Per-section choice between the built-in homepage editor and sanitized custom HTML. */
+  landingSections: Record<LandingSectionKey, LandingSectionContent>;
   /** CMS-uploaded landing images (Firebase Storage URLs). Empty = fall back to the built-in asset. */
   landingImages?: {
     logo?: string;

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { useSearchParams } from 'react-router-dom';
-import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry } from '../types';
+import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry, LandingSectionKey } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
 import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
@@ -31,6 +31,8 @@ import {
 import { compressBlobToWebp, compressBlobToJpeg, uploadImageToFirebaseStorage } from '../utils/imageStorage';
 import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { asset, LANDING_ASSETS } from '../config/landingAssets';
+import { LANDING_SECTION_KEYS, LANDING_SECTION_LABELS } from '../config/landingSections';
+import { sanitizeLandingHtml } from '../utils/landingHtml';
 import { SeoSnippetPreview, SocialCardPreview } from './SeoPreview';
 import { requestBalanceReminderEmail } from '../lib/email';
 import {
@@ -124,6 +126,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [compEditIsNew, setCompEditIsNew] = useState(false);
   const [competitionDeleteTarget, setCompetitionDeleteTarget] = useState<Competition | null>(null);
   const [settingsEdit, setSettingsEdit] = useState(settings);
+  const [landingSaveError, setLandingSaveError] = useState<string | null>(null);
   // Sync settingsEdit when the parent settings prop changes (e.g. after reloadDB)
   useEffect(() => { setSettingsEdit(settings); }, [settings]);
   const [newPond, setNewPond] = useState<Partial<Pond>>({ name: '', desc: '', seats: [], open: true });
@@ -1168,6 +1171,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleLandingContentSave = async () => {
+    setLandingSaveError(null);
+    const sanitizedLandingSections = { ...settingsEdit.landingSections };
+    for (const key of LANDING_SECTION_KEYS) {
+      const section = settingsEdit.landingSections[key];
+      const sanitized = sanitizeLandingHtml(section.html);
+      if (section.mode === 'html' && !sanitized.trim()) {
+        setLandingSaveError(`Masukkan HTML yang sah untuk seksyen ${LANDING_SECTION_LABELS[key]} sebelum menyimpan.`);
+        return;
+      }
+      sanitizedLandingSections[key] = { ...section, html: sanitized };
+    }
+
     setSaving(true);
     try {
       await updateSettingsFirestore({
@@ -1201,12 +1216,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         lokasiTitle: settingsEdit.lokasiTitle || '',
         contactName: settingsEdit.contactName || '',
         footerTagline: settingsEdit.footerTagline || '',
+        landingSections: sanitizedLandingSections,
         wazeUrl: settingsEdit.wazeUrl || '',
         googleMapsUrl: settingsEdit.googleMapsUrl || '',
         mapEmbedUrl: settingsEdit.mapEmbedUrl || '',
         ocrUsePreprocess: settingsEdit.ocrUsePreprocess !== false,
         ocrDecimalPlaces: settingsEdit.ocrDecimalPlaces,
       });
+      setSettingsEdit(s => ({ ...s, landingSections: sanitizedLandingSections }));
       await reloadDB();
       await logAuditEvent({
         action: 'settings.landing', actionLabel: 'Kemaskini Laman Utama', entityType: 'settings',
@@ -1271,6 +1288,83 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     while (steps.length <= idx) steps.push({ icon: '', title: '', body: '' });
     steps[idx] = { ...steps[idx], [field]: val };
     setSettingsEdit({ ...settingsEdit, steps });
+  };
+
+  const updateLandingSectionMode = (key: LandingSectionKey, mode: 'fields' | 'html') => {
+    setLandingSaveError(null);
+    setSettingsEdit(s => ({
+      ...s,
+      landingSections: {
+        ...s.landingSections,
+        [key]: { ...s.landingSections[key], mode },
+      },
+    }));
+  };
+
+  const updateLandingSectionHtml = (key: LandingSectionKey, html: string) => {
+    setLandingSaveError(null);
+    setSettingsEdit(s => ({
+      ...s,
+      landingSections: {
+        ...s.landingSections,
+        [key]: { ...s.landingSections[key], html },
+      },
+    }));
+  };
+
+  const renderLandingSectionModeEditor = (key: LandingSectionKey) => {
+    const section = settingsEdit.landingSections[key];
+    return (
+      <div style={{ marginBottom: section.mode === 'html' ? '16px' : '18px' }}>
+        <div
+          role="radiogroup"
+          aria-label={`Mod kandungan ${LANDING_SECTION_LABELS[key]}`}
+          style={{ display: 'inline-flex', gap: '4px', padding: '4px', borderRadius: '10px', background: 'var(--surface2)', marginBottom: section.mode === 'html' ? '14px' : 0 }}
+        >
+          {([
+            ['fields', 'Guna Input Biasa'],
+            ['html', 'Guna Custom HTML'],
+          ] as const).map(([mode, label]) => (
+            <label
+              key={mode}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '8px 12px', borderRadius: '7px', cursor: 'pointer',
+                background: section.mode === mode ? 'var(--green)' : 'transparent',
+                color: section.mode === mode ? '#fff' : 'var(--text)', fontSize: '13px', fontWeight: 600,
+              }}
+            >
+              <input
+                type="radio"
+                name={`landing-mode-${key}`}
+                value={mode}
+                checked={section.mode === mode}
+                onChange={() => updateLandingSectionMode(key, mode)}
+                style={{ margin: 0 }}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        {section.mode === 'html' && (
+          <div className="form-group form-span">
+            <label className="form-label">Custom HTML — {LANDING_SECTION_LABELS[key]}</label>
+            <textarea
+              className="form-textarea"
+              rows={12}
+              spellCheck={false}
+              value={section.html}
+              onChange={(e) => updateLandingSectionHtml(key, e.target.value)}
+              placeholder={`<div>Custom HTML untuk ${LANDING_SECTION_LABELS[key]}</div>`}
+              style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', lineHeight: 1.55 }}
+            />
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '7px', lineHeight: 1.5 }}>
+              HTML statik sahaja. Skrip, event handler, borang, iframe dan URL berbahaya akan dibuang semasa simpan.
+              Pautan biasa seperti <code>/book</code> dan <code>#rules</code> dibenarkan.
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const handleLandingImageUpload = async (key: keyof typeof LANDING_ASSETS, file: File) => {
@@ -3218,15 +3312,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Laman Utama</div><div className="page-sub">Edit setiap seksyen halaman utama — teks, kad, imej dan pautan</div></div></div>
 
+              {landingSaveError && (
+                <div role="alert" style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.3)', color: '#b91c1c', borderRadius: '8px', padding: '11px 14px', marginBottom: '12px', fontSize: '13px', fontWeight: 600 }}>
+                  {landingSaveError}
+                </div>
+              )}
+
               <div className="card">
                 <div className="card-header"><div className="card-title">Hero</div></div>
                 <div className="card-body">
-                  <div className="form-grid">
+                  {renderLandingSectionModeEditor('hero')}
+                  {settingsEdit.landingSections.hero.mode === 'fields' && <div className="form-grid">
                     <div className="form-group"><label className="form-label">Kicker</label><input className="form-input" value={settingsEdit.heroKicker || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroKicker: e.target.value })} placeholder="Tempat Di Mana" /></div>
-                    <div className="form-group"><label className="form-label">Tajuk Hero</label><input className="form-input" value={settingsEdit.heroTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroTitle: e.target.value })} placeholder="Juara Dilahirkan" /></div>
-                    <div className="form-group form-span"><label className="form-label">Subtitle</label><input className="form-input" value={settingsEdit.heroSubtitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroSubtitle: e.target.value })} placeholder="Kolam Keli Sayang - Port Terbaik di Kedah" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk Hero</label><textarea className="form-textarea" rows={2} value={settingsEdit.heroTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroTitle: e.target.value })} placeholder="Juara Dilahirkan" /></div>
+                    <div className="form-group form-span"><label className="form-label">Subtitle</label><textarea className="form-textarea" rows={3} value={settingsEdit.heroSubtitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroSubtitle: e.target.value })} placeholder="Kolam Keli Sayang - Port Terbaik di Kedah" /></div>
                     <div className="form-group form-span"><label className="form-label">Label Butang CTA</label><input className="form-input" value={settingsEdit.heroCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, heroCtaLabel: e.target.value })} placeholder="Book Slot Sekarang!" /></div>
-                  </div>
+                  </div>}
                 </div>
               </div>
 
@@ -3284,7 +3385,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
               </div>
 
-              <div className="card" style={{ marginTop: '12px' }}>
+              {settingsEdit.landingSections.hero.mode === 'fields' && <div className="card" style={{ marginTop: '12px' }}>
                 <div className="card-header"><div className="card-title">Statistik Hero (3 item)</div></div>
                 <div className="card-body">
                   {[0, 1, 2].map((i) => {
@@ -3297,24 +3398,27 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     );
                   })}
                 </div>
-              </div>
+              </div>}
 
               <div className="card" style={{ marginTop: '12px' }}>
                 <div className="card-header"><div className="card-title">Seksyen "Tentang Kami"</div></div>
                 <div className="card-body">
+                  {renderLandingSectionModeEditor('about')}
+                  {settingsEdit.landingSections.about.mode === 'fields' && <>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
                     Guna <code>*perkataan*</code> dalam tajuk untuk warna aksen — cth. <code>Bukan *Kolam* Biasa</code>.
                   </div>
                   <div className="form-grid">
                     <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.aboutEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, aboutEyebrow: e.target.value })} placeholder="Kolam Keli Sayang" /></div>
-                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.aboutTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, aboutTitle: e.target.value })} placeholder="Bukan *Kolam* Biasa" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><textarea className="form-textarea" rows={2} value={settingsEdit.aboutTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, aboutTitle: e.target.value })} placeholder="Bukan *Kolam* Biasa" /></div>
                     <div className="form-group form-span"><label className="form-label">Penerangan Ringkas (Intro)</label><textarea className="form-textarea" rows={4} value={settingsEdit.introCopy || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, introCopy: e.target.value })} placeholder="Kolam Keli Sayang dibuka untuk pertandingan sahaja..." /></div>
                     <div className="form-group"><label className="form-label">Label Butang CTA</label><input className="form-input" value={settingsEdit.aboutCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, aboutCtaLabel: e.target.value })} placeholder="Semak Layout Kolam" /></div>
                   </div>
+                  </>}
                 </div>
               </div>
 
-              <div className="card" style={{ marginTop: '12px' }}>
+              {settingsEdit.landingSections.about.mode === 'fields' && <div className="card" style={{ marginTop: '12px' }}>
                 <div className="card-header"><div className="card-title">Kad Kelebihan (4)</div></div>
                 <div className="card-body">
                   {[0, 1, 2, 3].map((i) => {
@@ -3325,44 +3429,48 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           <i className={f.icon} style={{ width: '20px', textAlign: 'center', color: 'var(--text-muted)' }}></i>
                           <input className="form-input" value={f.icon} onChange={(e) => updateFeature(i, 'icon', e.target.value)} placeholder="fa-solid fa-flag-checkered" style={{ flex: 1 }} />
                         </div>
-                        <div className="form-group"><input className="form-input" value={f.title} onChange={(e) => updateFeature(i, 'title', e.target.value)} placeholder="Tajuk kad" /></div>
+                        <div className="form-group"><textarea className="form-textarea" rows={2} value={f.title} onChange={(e) => updateFeature(i, 'title', e.target.value)} placeholder="Tajuk kad" /></div>
                         <div className="form-group form-span"><textarea className="form-textarea" rows={2} value={f.body} onChange={(e) => updateFeature(i, 'body', e.target.value)} placeholder="Penerangan kad" /></div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
+              </div>}
 
               <div className="card" style={{ marginTop: '12px' }}>
                 <div className="card-header"><div className="card-title">Seksyen "Pertandingan"</div></div>
                 <div className="card-body">
+                  {renderLandingSectionModeEditor('competitions')}
+                  {settingsEdit.landingSections.competitions.mode === 'fields' && <>
                   <div className="form-grid">
                     <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.competitionsEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, competitionsEyebrow: e.target.value })} placeholder="Pertandingan" /></div>
-                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.competitionsTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, competitionsTitle: e.target.value })} placeholder="Sertai & *Menang* Besar" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><textarea className="form-textarea" rows={2} value={settingsEdit.competitionsTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, competitionsTitle: e.target.value })} placeholder="Sertai & *Menang* Besar" /></div>
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '14px 0 8px' }}>Kad mini "Weekly Strike"</div>
                   <div className="form-grid">
-                    <div className="form-group"><label className="form-label">Tajuk Kad</label><input className="form-input" value={settingsEdit.weeklyCardTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardTitle: e.target.value })} placeholder="Weekly Strike" /></div>
-                    <div className="form-group form-span"><label className="form-label">Penerangan Kad</label><input className="form-input" value={settingsEdit.weeklyCardBody || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardBody: e.target.value })} placeholder="Format kompetitif mingguan..." /></div>
+                    <div className="form-group"><label className="form-label">Tajuk Kad</label><textarea className="form-textarea" rows={2} value={settingsEdit.weeklyCardTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardTitle: e.target.value })} placeholder="Weekly Strike" /></div>
+                    <div className="form-group form-span"><label className="form-label">Penerangan Kad</label><textarea className="form-textarea" rows={3} value={settingsEdit.weeklyCardBody || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardBody: e.target.value })} placeholder="Format kompetitif mingguan..." /></div>
                     <div className="form-group"><label className="form-label">Tag #1</label><input className="form-input" value={settingsEdit.weeklyCardTag1 || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardTag1: e.target.value })} placeholder="Setiap Minggu" /></div>
                     <div className="form-group"><label className="form-label">Tag #2</label><input className="form-input" value={settingsEdit.weeklyCardTag2 || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, weeklyCardTag2: e.target.value })} placeholder="Slot Terhad" /></div>
                   </div>
+                  </>}
                 </div>
               </div>
 
               <div className="card" style={{ marginTop: '12px' }}>
                 <div className="card-header"><div className="card-title">Seksyen "Cara Tempah"</div></div>
                 <div className="card-body">
-                  <div className="form-grid">
+                  {renderLandingSectionModeEditor('steps')}
+                  {settingsEdit.landingSections.steps.mode === 'fields' && <div className="form-grid">
                     <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.stepsEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsEyebrow: e.target.value })} placeholder="Cara Tempah" /></div>
-                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.stepsTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsTitle: e.target.value })} placeholder="Langkah Tempah *Yang Mudah*" /></div>
-                    <div className="form-group form-span"><label className="form-label">Subtitle</label><input className="form-input" value={settingsEdit.stepsSubtitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsSubtitle: e.target.value })} placeholder="Proses tempahan yang simple dan cepat..." /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><textarea className="form-textarea" rows={2} value={settingsEdit.stepsTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsTitle: e.target.value })} placeholder="Langkah Tempah *Yang Mudah*" /></div>
+                    <div className="form-group form-span"><label className="form-label">Subtitle</label><textarea className="form-textarea" rows={3} value={settingsEdit.stepsSubtitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsSubtitle: e.target.value })} placeholder="Proses tempahan yang simple dan cepat..." /></div>
                     <div className="form-group"><label className="form-label">Label Butang CTA</label><input className="form-input" value={settingsEdit.stepsCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, stepsCtaLabel: e.target.value })} placeholder="Pilih Pertandingan" /></div>
-                  </div>
+                  </div>}
                 </div>
               </div>
 
-              <div className="card" style={{ marginTop: '12px' }}>
+              {settingsEdit.landingSections.steps.mode === 'fields' && <div className="card" style={{ marginTop: '12px' }}>
                 <div className="card-header"><div className="card-title">Langkah Tempah (4)</div></div>
                 <div className="card-body">
                   {[0, 1, 2, 3].map((i) => {
@@ -3374,30 +3482,32 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           <i className={s.icon} style={{ width: '20px', textAlign: 'center', color: 'var(--text-muted)' }}></i>
                           <input className="form-input" value={s.icon} onChange={(e) => updateStep(i, 'icon', e.target.value)} placeholder="fa-solid fa-trophy" style={{ flex: 1 }} />
                         </div>
-                        <div className="form-group"><input className="form-input" value={s.title} onChange={(e) => updateStep(i, 'title', e.target.value)} placeholder="Tajuk langkah" /></div>
+                        <div className="form-group"><textarea className="form-textarea" rows={2} value={s.title} onChange={(e) => updateStep(i, 'title', e.target.value)} placeholder="Tajuk langkah" /></div>
                         <div className="form-group form-span"><textarea className="form-textarea" rows={2} value={s.body} onChange={(e) => updateStep(i, 'body', e.target.value)} placeholder="Penerangan langkah" /></div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
+              </div>}
 
               <div className="card" style={{ marginTop: '12px' }}>
                 <div className="card-header">
                   <div className="card-title">Syarat &amp; Peraturan</div>
-                  <button className="btn btn-sm" onClick={addRule}>+ Tambah Syarat</button>
+                  {settingsEdit.landingSections.rules.mode === 'fields' && <button className="btn btn-sm" onClick={addRule}>+ Tambah Syarat</button>}
                 </div>
                 <div className="card-body">
+                  {renderLandingSectionModeEditor('rules')}
+                  {settingsEdit.landingSections.rules.mode === 'fields' && <>
                   <div className="form-grid" style={{ marginBottom: '14px', paddingBottom: '14px', borderBottom: '1px solid var(--line)' }}>
                     <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.rulesEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, rulesEyebrow: e.target.value })} placeholder="Format Bertanding" /></div>
-                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.rulesTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, rulesTitle: e.target.value })} placeholder="Macam Mana *Ia Berjalan?*" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><textarea className="form-textarea" rows={2} value={settingsEdit.rulesTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, rulesTitle: e.target.value })} placeholder="Macam Mana *Ia Berjalan?*" /></div>
                     <div className="form-group form-span"><label className="form-label">Label Butang</label><input className="form-input" value={settingsEdit.rulesCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, rulesCtaLabel: e.target.value })} placeholder="SEMAK SYARAT & PERATURAN" /></div>
                   </div>
                   {(settingsEdit.rules || []).map((rule, i) => (
                     <div key={i} className="form-grid" style={{ marginBottom: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '12px' }}>
                       <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <strong style={{ minWidth: '24px' }}>{String(i + 1).padStart(2, '0')}.</strong>
-                        <input className="form-input" value={rule.title} onChange={(e) => updateRule(i, 'title', e.target.value)} placeholder="Tajuk syarat" style={{ flex: 1 }} />
+                        <textarea className="form-textarea" rows={2} value={rule.title} onChange={(e) => updateRule(i, 'title', e.target.value)} placeholder="Tajuk syarat" style={{ flex: 1 }} />
                         <button className="btn btn-sm" style={{ color: '#ef4444' }} onClick={() => removeRule(i)} aria-label="Padam syarat">🗑</button>
                       </div>
                       <div className="form-group form-span"><textarea className="form-textarea" rows={2} value={rule.body} onChange={(e) => updateRule(i, 'body', e.target.value)} placeholder="Penerangan syarat" /></div>
@@ -3444,27 +3554,32 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       )}
                     </div>
                   </div>
+                  </>}
                 </div>
               </div>
 
               <div className="card" style={{ marginTop: '12px' }}>
                 <div className="card-header"><div className="card-title">Lokasi &amp; Peta</div></div>
                 <div className="card-body">
-                  <div className="form-grid">
+                  {renderLandingSectionModeEditor('location')}
+                  {settingsEdit.landingSections.location.mode === 'fields' && <div className="form-grid">
                     <div className="form-group"><label className="form-label">Eyebrow</label><input className="form-input" value={settingsEdit.lokasiEyebrow || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, lokasiEyebrow: e.target.value })} placeholder="Lokasi KKS" /></div>
-                    <div className="form-group"><label className="form-label">Tajuk</label><input className="form-input" value={settingsEdit.lokasiTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, lokasiTitle: e.target.value })} placeholder="Jumpa Kami *Di Sini*" /></div>
+                    <div className="form-group"><label className="form-label">Tajuk</label><textarea className="form-textarea" rows={2} value={settingsEdit.lokasiTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, lokasiTitle: e.target.value })} placeholder="Jumpa Kami *Di Sini*" /></div>
                     <div className="form-group"><label className="form-label">Nama dalam Kotak Hubungan</label><input className="form-input" value={settingsEdit.contactName || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, contactName: e.target.value })} placeholder="Kolam Keli Sayang" /></div>
                     <div className="form-group form-span"><label className="form-label">Embed URL Peta Google</label><input className="form-input" value={settingsEdit.mapEmbedUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, mapEmbedUrl: e.target.value })} placeholder="https://www.google.com/maps?q=...&output=embed" /></div>
                     <div className="form-group"><label className="form-label">Waze URL</label><input className="form-input" value={settingsEdit.wazeUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, wazeUrl: e.target.value })} placeholder="https://waze.com/ul?ll=..." /></div>
                     <div className="form-group"><label className="form-label">Google Maps URL</label><input className="form-input" value={settingsEdit.googleMapsUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, googleMapsUrl: e.target.value })} placeholder="https://maps.google.com/?q=..." /></div>
-                  </div>
+                  </div>}
                 </div>
               </div>
 
               <div className="card" style={{ marginTop: '12px' }}>
                 <div className="card-header"><div className="card-title">Footer</div></div>
                 <div className="card-body">
-                  <div className="form-group form-span"><label className="form-label">Tagline Footer</label><input className="form-input" value={settingsEdit.footerTagline || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, footerTagline: e.target.value })} placeholder="Arena pertandingan memancing keli yang adil..." /></div>
+                  {renderLandingSectionModeEditor('footer')}
+                  {settingsEdit.landingSections.footer.mode === 'fields' && (
+                    <div className="form-group form-span"><label className="form-label">Tagline Footer</label><textarea className="form-textarea" rows={3} value={settingsEdit.footerTagline || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, footerTagline: e.target.value })} placeholder="Arena pertandingan memancing keli yang adil..." /></div>
+                  )}
                 </div>
               </div>
 

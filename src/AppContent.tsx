@@ -19,6 +19,7 @@ import BookingDetailContent from './components/BookingDetailContent';
 import ProfileContent from './components/ProfileContent';
 import Toast from './components/Toast';
 import Footer from './components/Footer';
+import CustomLandingHtml from './components/CustomLandingHtml';
 import { useBooking } from './context/BookingContext';
 import { useUI } from './context/UIContext';
 import { useNavigation } from './hooks/useNavigation';
@@ -285,6 +286,31 @@ const AppContent: React.FC = () => {
   const selectedSeatCount = selectedPancangs.length;
   const selectedSeatLabels = selectedPancangs.map((selection) => selection.label);
   const selectedSeatNumbers = selectedPancangs.map((selection) => selection.seatNum);
+  const selectedPancangGroups = useMemo(() => {
+    const groups = new Map<number, {
+      pondId: number;
+      pondName: string;
+      selections: typeof selectedPancangs;
+    }>();
+
+    selectedPancangs.forEach((selection) => {
+      const group = groups.get(selection.pondId);
+      if (group) {
+        group.selections.push(selection);
+      } else {
+        groups.set(selection.pondId, {
+          pondId: selection.pondId,
+          pondName: selection.pondName,
+          selections: [selection],
+        });
+      }
+    });
+
+    return Array.from(groups.values()).map((group) => ({
+      ...group,
+      selections: [...group.selections].sort((a, b) => a.seatNum - b.seatNum),
+    }));
+  }, [selectedPancangs]);
 
   useEffect(() => {
     const updateCountdown = () => {
@@ -835,9 +861,11 @@ const AppContent: React.FC = () => {
     const settings = db.settings;
     const heroKicker = settings.heroKicker || 'Tempat Di Mana';
     const heroTitleRaw = settings.heroTitle || 'Juara Dilahirkan';
-    const heroTitleParts = heroTitleRaw.trim().split(/\s+/);
-    const heroTitleFirst = heroTitleParts.length > 1 ? heroTitleParts.slice(0, -1).join(' ') : heroTitleRaw;
+    const heroTitleParts = heroTitleRaw.match(/\S+/g) || [];
     const heroTitleLast = heroTitleParts.length > 1 ? heroTitleParts[heroTitleParts.length - 1] : '';
+    const heroTitleFirst = heroTitleLast
+      ? heroTitleRaw.slice(0, heroTitleRaw.lastIndexOf(heroTitleLast)).trimEnd()
+      : heroTitleRaw;
     const heroSubtitle = settings.heroSubtitle || 'Kolam Keli Sayang - Port Terbaik di Kedah';
     const heroStats = settings.heroStats?.length
       ? settings.heroStats
@@ -889,51 +917,59 @@ const AppContent: React.FC = () => {
     <div className="home-shell">
       {/* HERO */}
       <section className="kks-hero" id="home" style={{ backgroundImage: `linear-gradient(90deg, rgba(5,18,30,.94) 0%, rgba(8,22,37,.76) 34%, rgba(8,22,37,.18) 72%), url('${asset('heroBg', settings)}')` }}>
-        <div className="kks-container kks-hero-content">
-          <div className="kks-hero-kicker">{heroKicker}</div>
-          <h1 className="kks-hero-title">
-            {heroTitleFirst} {heroTitleLast && <span>{heroTitleLast}</span>}
-          </h1>
-          <p className="kks-hero-sub">{heroSubtitle}</p>
-          <div className="kks-hero-stats">
-            {heroStats.map((s, i) => (
-              <div key={i} className="kks-hero-stat">
-                <strong>{dbLoading ? <span className="kks-hero-stat-skeleton" aria-hidden="true" /> : s.value}</strong>
-                <small>{s.label}</small>
-              </div>
-            ))}
+        {settings.landingSections.hero.mode === 'html' ? (
+          <CustomLandingHtml section="hero" html={settings.landingSections.hero.html} containerClassName="kks-container kks-hero-content" />
+        ) : (
+          <div className="kks-container kks-hero-content">
+            <div className="kks-hero-kicker">{heroKicker}</div>
+            <h1 className="kks-hero-title kks-preserve-lines">
+              {heroTitleFirst}{heroTitleLast && <span>{heroTitleLast}</span>}
+            </h1>
+            <p className="kks-hero-sub kks-preserve-lines">{heroSubtitle}</p>
+            <div className="kks-hero-stats">
+              {heroStats.map((s, i) => (
+                <div key={i} className="kks-hero-stat">
+                  <strong>{dbLoading ? <span className="kks-hero-stat-skeleton" aria-hidden="true" /> : s.value}</strong>
+                  <small>{s.label}</small>
+                </div>
+              ))}
+            </div>
+            <button className="btn btn-red btn-hero" onClick={() => openBookingChoice(() => goToBook())}>{settings.heroCtaLabel}</button>
           </div>
-          <button className="btn btn-red btn-hero" onClick={() => openBookingChoice(() => goToBook())}>{settings.heroCtaLabel}</button>
-        </div>
+        )}
       </section>
 
       {/* INTRO */}
       <section className="kks-section kks-intro" id="about" style={{ backgroundImage: `linear-gradient(180deg, rgba(255,255,255,.78), rgba(255,255,255,.84)), url('${asset('pondBg', settings)}')` }}>
-        <div className="kks-container">
+        {settings.landingSections.about.mode === 'html' ? (
+          <CustomLandingHtml section="about" html={settings.landingSections.about.html} />
+        ) : <div className="kks-container">
           <div className="kks-eyebrow">{settings.aboutEyebrow}</div>
-          <h2 className="kks-headline">{renderHeadline(settings.aboutTitle || '')}</h2>
-          <p className="kks-intro-copy">{introCopy}</p>
+          <h2 className="kks-headline kks-preserve-lines">{renderHeadline(settings.aboutTitle || '')}</h2>
+          <p className="kks-intro-copy kks-preserve-lines">{introCopy}</p>
           <div className="kks-features">
             {(settings.features || []).map((f, i) => (
               <article key={i} className="kks-feature">
                 <div className="kks-feature-icon"><i className={f.icon}></i></div>
-                <h3>{f.title}</h3>
-                <p>{f.body}</p>
+                <h3 className="kks-preserve-lines">{f.title}</h3>
+                <p className="kks-preserve-lines">{f.body}</p>
               </article>
             ))}
           </div>
           <div className="kks-intro-cta">
             <button className="btn btn-navy" onClick={() => goToBook()}>{settings.aboutCtaLabel}</button>
           </div>
-        </div>
+        </div>}
       </section>
 
       {/* COMPETITION */}
       <section className="kks-section kks-competition" id="competitions" style={{ backgroundImage: `radial-gradient(circle at top left, rgba(22,183,220,.18), transparent 32%), radial-gradient(circle at bottom right, rgba(231,25,45,.18), transparent 34%), linear-gradient(135deg, rgba(6,24,40,.96), rgba(10,37,60,.94)), url('${asset('pondBg', settings)}')` }}>
-        <div className="kks-container">
+        {settings.landingSections.competitions.mode === 'html' ? (
+          <CustomLandingHtml section="competitions" html={settings.landingSections.competitions.html} />
+        ) : <div className="kks-container">
           <div className="kks-section-head">
             <div className="kks-eyebrow">{settings.competitionsEyebrow}</div>
-            <h2 className="kks-headline">{renderHeadline(settings.competitionsTitle || '')}</h2>
+            <h2 className="kks-headline kks-preserve-lines">{renderHeadline(settings.competitionsTitle || '')}</h2>
           </div>
 
           {(
@@ -996,8 +1032,8 @@ const AppContent: React.FC = () => {
 
                 <aside className="kks-event-side">
                   <article className="kks-mini-card kks-mini-featured">
-                    <h4>{settings.weeklyCardTitle}</h4>
-                    <p>{settings.weeklyCardBody}</p>
+                    <h4 className="kks-preserve-lines">{settings.weeklyCardTitle}</h4>
+                    <p className="kks-preserve-lines">{settings.weeklyCardBody}</p>
                     <div className="kks-mini-meta"><span>{settings.weeklyCardTag1}</span><span>{settings.weeklyCardTag2}</span></div>
                   </article>
                   <article className="kks-mini-card">
@@ -1016,7 +1052,7 @@ const AppContent: React.FC = () => {
               </div>
             </>
           )}
-        </div>
+        </div>}
       </section>
 
       {pondPickerOpen && (
@@ -1056,12 +1092,14 @@ const AppContent: React.FC = () => {
 
       {/* BOOKING STEPS */}
       <section className="kks-section kks-booking-section" id="how" style={{ backgroundImage: `linear-gradient(90deg, rgba(255,255,255,.96) 0%, rgba(255,255,255,.9) 48%, rgba(255,255,255,.72) 100%), url('${asset('bookingBg', settings)}')` }}>
-        <div className="kks-container">
+        {settings.landingSections.steps.mode === 'html' ? (
+          <CustomLandingHtml section="steps" html={settings.landingSections.steps.html} />
+        ) : <div className="kks-container">
           <div className="kks-steps-top">
             <div className="kks-steps-copy">
               <div className="kks-eyebrow">{settings.stepsEyebrow}</div>
-              <h2 className="kks-headline">{renderHeadline(settings.stepsTitle || '')}</h2>
-              <p>{settings.stepsSubtitle}</p>
+              <h2 className="kks-headline kks-preserve-lines">{renderHeadline(settings.stepsTitle || '')}</h2>
+              <p className="kks-preserve-lines">{settings.stepsSubtitle}</p>
             </div>
             <button className="btn btn-navy" onClick={() => openBookingChoice(() => goToBook())}>{settings.stepsCtaLabel}</button>
           </div>
@@ -1069,20 +1107,22 @@ const AppContent: React.FC = () => {
             {(settings.steps || []).map((s, i) => (
               <article key={i} className="kks-step" data-step={String(i + 1).padStart(2, '0')}>
                 <div className="kks-step-icon"><i className={s.icon}></i></div>
-                <h3>{s.title}</h3>
-                <p>{s.body}</p>
+                <h3 className="kks-preserve-lines">{s.title}</h3>
+                <p className="kks-preserve-lines">{s.body}</p>
               </article>
             ))}
           </div>
-        </div>
+        </div>}
       </section>
 
       {/* RULES */}
       <section className="kks-section kks-rules" id="rules">
-        <div className="kks-container kks-rules-grid">
+        {settings.landingSections.rules.mode === 'html' ? (
+          <CustomLandingHtml section="rules" html={settings.landingSections.rules.html} />
+        ) : <div className="kks-container kks-rules-grid">
           <div>
             <div className="kks-eyebrow">{settings.rulesEyebrow}</div>
-            <h2 className="kks-headline">{renderHeadline(settings.rulesTitle || '')}</h2>
+            <h2 className="kks-headline kks-preserve-lines">{renderHeadline(settings.rulesTitle || '')}</h2>
             <button className="btn btn-navy" onClick={openRulesPdf}>{settings.rulesCtaLabel}</button>
           </div>
           <div className="kks-rule-list">
@@ -1090,21 +1130,23 @@ const AppContent: React.FC = () => {
               <article key={i} className="kks-rule">
                 <div className="kks-rule-num">{(i + 1).toString().padStart(2, '0')}</div>
                 <div>
-                  <h3>{r.title}</h3>
-                  <p>{r.body}</p>
+                  <h3 className="kks-preserve-lines">{r.title}</h3>
+                  <p className="kks-preserve-lines">{r.body}</p>
                 </div>
               </article>
             ))}
           </div>
-        </div>
+        </div>}
       </section>
 
       {/* LOKASI */}
       <section className="kks-section kks-lokasi" id="lokasi">
-        <div className="kks-container kks-location-grid">
+        {settings.landingSections.location.mode === 'html' ? (
+          <CustomLandingHtml section="location" html={settings.landingSections.location.html} />
+        ) : <div className="kks-container kks-location-grid">
           <div>
             <div className="kks-eyebrow">{settings.lokasiEyebrow}</div>
-            <h2 className="kks-headline">{renderHeadline(settings.lokasiTitle || '')}</h2>
+            <h2 className="kks-headline kks-preserve-lines">{renderHeadline(settings.lokasiTitle || '')}</h2>
             <div className="kks-quick-links">
               <a className="btn btn-red" href={wazeHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-waze"></i> Waze</a>
               <a className="btn btn-navy" href={gmapsHref} target="_blank" rel="noopener noreferrer"><i className="fa-solid fa-location-dot"></i> Google Map</a>
@@ -1113,7 +1155,7 @@ const AppContent: React.FC = () => {
               <strong className="kks-contact-name">{settings.contactName}</strong>
               <div className="kks-contact-item">
                 <i className="fa-solid fa-location-dot"></i>
-                <div><strong>Alamat</strong>{settings.location || 'Kubang Rotan, Alor Setar, Kedah.'}</div>
+                <div className="kks-preserve-lines"><strong>Alamat</strong>{settings.location || 'Kubang Rotan, Alor Setar, Kedah.'}</div>
               </div>
               <div className="kks-contact-item">
                 <i className="fa-solid fa-envelope"></i>
@@ -1141,7 +1183,7 @@ const AppContent: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
+        </div>}
       </section>
 
     </div>
@@ -1501,15 +1543,29 @@ const AppContent: React.FC = () => {
                     <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} useLegacyView={true} />
                   </div>
                   <div className="bk-seat-modal-foot">
-                    <div>
-                      <small>Pilihan Semasa</small>
-                      <div className="bk-selected-pancangs">
-                        {selectedPancangs.length ? selectedPancangs.map((selection) => (
-                          <button key={`${selection.pondId}-${selection.seatNum}`} type="button" onClick={() => removeSeat(selection.pondId, selection.seatNum)}>
-                            {selection.label}<span aria-hidden="true">×</span>
-                          </button>
-                        )) : <strong>Belum pilih pancang</strong>}
+                    <div className="bk-current-selection">
+                      <div className="bk-current-selection-head">
+                        <small>Pilihan Semasa</small>
+                        <span className="bk-current-selection-count" aria-label={`${selectedSeatCount} pancang dipilih`}>
+                          {selectedSeatCount} pancang
+                        </span>
                       </div>
+                      {selectedPancangGroups.length ? (
+                        <div className="bk-selected-pond-groups">
+                          {selectedPancangGroups.map((group) => (
+                            <div className="bk-selected-pond-group" key={group.pondId}>
+                              <strong>{group.pondName}</strong>
+                              <div className="bk-selected-pancangs" aria-label={`Pancang dipilih di ${group.pondName}`}>
+                                {group.selections.map((selection) => (
+                                  <button key={`${selection.pondId}-${selection.seatNum}`} type="button" onClick={() => removeSeat(selection.pondId, selection.seatNum)} aria-label={`Nyahpilih ${selection.label}`}>
+                                    {selection.label}<span aria-hidden="true">×</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : <strong className="bk-current-selection-empty">Belum pilih pancang</strong>}
                     </div>
                     <button className={`btn btn-red${hasSeats ? ' bk-hint' : ''}`} type="button" disabled={!hasSeats} onClick={() => setSeatModalOpen(false)}>
                       <i className="fa-solid fa-check"></i> Sahkan Pancang
