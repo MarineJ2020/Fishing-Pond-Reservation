@@ -25,20 +25,32 @@ export const requireStaff = async (req, res, next) => {
     if (!user) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-    const role = user.role || user.claims?.role || (user.custom_claims?.role || 'CLIENT');
-    if (role !== 'STAFF' && role !== 'ADMIN') {
-        return res.status(403).json({ error: 'Forbidden: staff role required' });
+    try {
+        const profile = await adminDb.collection('users').doc(user.uid).get();
+        const role = profile.exists ? String(profile.data()?.role || '').toUpperCase() : 'CLIENT';
+        if (role !== 'STAFF' && role !== 'ADMIN') {
+            return res.status(403).json({ error: 'Forbidden: staff role required' });
+        }
+        return next();
+    } catch (error) {
+        console.error('Failed to resolve staff role:', error);
+        return res.status(500).json({ error: 'Failed to verify permissions' });
     }
-    return next();
 };
 export const requireAdmin = async (req, res, next) => {
     const user = req.user;
     if (!user) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
-    const role = user.role || user.claims?.role || (user.custom_claims?.role || 'CLIENT');
-    if (role !== 'ADMIN') {
-        return res.status(403).json({ error: 'Forbidden: admin role required' });
+    try {
+        const profile = await adminDb.collection('users').doc(user.uid).get();
+        const role = profile.exists ? String(profile.data()?.role || '').toUpperCase() : 'CLIENT';
+        if (role !== 'ADMIN') {
+            return res.status(403).json({ error: 'Forbidden: admin role required' });
+        }
+        return next();
+    } catch (error) {
+        console.error('Failed to resolve admin role:', error);
+        return res.status(500).json({ error: 'Failed to verify permissions' });
     }
-    return next();
 };

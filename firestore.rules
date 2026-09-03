@@ -10,22 +10,18 @@ service cloud.firestore {
       return /databases/$(database)/documents/users/$(uid);
     }
 
-    function roleFromToken() {
-      return isSignedIn() && request.auth.token.role is string ? request.auth.token.role : '';
-    }
-
     function roleFromDoc() {
       return isSignedIn() && exists(userDocPath(request.auth.uid))
         ? get(userDocPath(request.auth.uid)).data.role
         : '';
     }
 
-    // Admin/Staff are treated as the same role in this system.
+    function isStaff() {
+      return isSignedIn() && roleFromDoc() in ['STAFF', 'ADMIN'];
+    }
+
     function isAdmin() {
-      return isSignedIn() && (
-        roleFromToken() in ['STAFF', 'ADMIN'] ||
-        roleFromDoc() in ['STAFF', 'ADMIN']
-      );
+      return isSignedIn() && roleFromDoc() == 'ADMIN';
     }
 
     // Public browsing collections.
@@ -53,25 +49,29 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // User profiles: readable by owner or admin; only admin can change roles.
+    // Staff may browse accounts for competition-day operations. Client-side
+    // writes may never change roles; the updateUserRole callable owns that path.
     match /users/{uid} {
-      allow read: if request.auth.uid == uid || isAdmin();
+      allow read: if isSignedIn() && (request.auth.uid == uid || isStaff());
 
       allow create: if request.auth.uid == uid
         && request.resource.data.email is string
         && request.resource.data.name is string
         && request.resource.data.role == 'CLIENT';
 
-      allow update: if (request.auth.uid == uid
+      allow update: if (isSignedIn() && request.auth.uid == uid
           && request.resource.data.role == resource.data.role
           && request.resource.data.email == resource.data.email)
-        || isAdmin();
+        || (isAdmin()
+          && request.resource.data.role == resource.data.role);
 
-      allow delete: if isAdmin();
+      // Account deletion is reserved for trusted Admin SDK tooling so an admin
+      // cannot bypass the immutable-admin rule by deleting another profile.
+      allow delete: if false;
     }
 
     // Bookings remain publicly readable by current product policy. Direct creates
-    // must belong to the caller; staff/Admin may create proxy bookings.
+    // must belong to the caller; admins may create proxy bookings.
     match /bookings/{bookingId} {
       // The booking owner is matched by email — bookings store userId/userEmail as
       // the signing email on the no-Functions direct-write path.
@@ -93,6 +93,15 @@ service cloud.firestore {
               .hasOnly(['receipts', 'receiptUrl', 'receiptReuploadUsed', 'updatedAt', 'updatedBy']);
       }
 
+      function staffCheckInUpdate() {
+        return isStaff()
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'checkedInSeatKeys', 'checkedInSeats', 'checkedIn', 'checkedInAt',
+            'checkedInSeatTimes', 'updatedAt', 'updatedBy'
+          ]);
+      }
+
       allow read: if true;
       // Direct client bookings must be owned by the authenticated identity. This
       // prevents a forged booking document from making the server email a third party.
@@ -104,36 +113,54 @@ service cloud.firestore {
         && (!('createdByStaff' in request.resource.data)
           || request.resource.data.createdByStaff != true)
       );
-      allow update: if isAdmin() || ownerReceiptUpdate();
+      allow update: if isAdmin() || ownerReceiptUpdate() || staffCheckInUpdate();
       allow delete: if isAdmin();
 
       match /payments/{paymentId} {
-        allow read: if isAdmin() || request.auth.uid == get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId;
-        allow create, update, delete: if isAdmin();
+        allow read: if isAdmin() || (isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId);
+        allow create: if isAdmin() || (isStaff()
+          && request.resource.data.keys().hasOnly(['amount', 'method', 'recordedBy', 'createdAt'])
+          && request.resource.data.amount is number
+          && request.resource.data.method is string
+          && request.resource.data.recordedBy == request.auth.uid
+          && request.resource.data.createdAt is timestamp);
+        allow update, delete: if isAdmin();
       }
     }
 
     match /seatLocks/{lockId} {
-      allow read: if isAdmin() || request.auth.uid == resource.data.userId;
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.userId);
       allow create: if isSignedIn()
         && request.auth.uid == request.resource.data.userId
         && request.resource.data.expiresAt is timestamp
         && request.resource.data.expiresAt > request.time;
-      allow delete: if isAdmin() || request.auth.uid == resource.data.userId;
+      allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.userId);
       allow update: if false;
     }
 
     match /eventResults/{resultId} {
       allow read: if true;
-      allow create, update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create: if isStaff()
+        && request.resource.data.keys().hasOnly([
+          'competitionId', 'bookingId', 'anglerName', 'pondId', 'pondName',
+          'seatNum', 'weight', 'photoUrl', 'ocrConfidence', 'ocrRawText',
+          'ocrUserVerified', 'scanMethod', 'capturedBy', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.capturedBy == request.auth.uid;
+      allow update: if isStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'anglerName', 'pondId', 'pondName', 'seatNum', 'weight', 'photoUrl',
+          'ocrConfidence', 'ocrRawText', 'ocrUserVerified', 'scanMethod', 'updatedAt'
+        ]);
+      allow delete: if isStaff();
     }
 
     // Admin activity log — append-only. Nothing may edit or delete an entry
     // once written, so the trail stays tamper-evident.
     match /auditLog/{entryId} {
       allow read: if isAdmin();
-      allow create: if isAdmin();
+      allow create: if isStaff()
+        && request.resource.data.actorUid == request.auth.uid;
       allow update, delete: if false;
     }
 

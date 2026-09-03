@@ -50,6 +50,8 @@ import { prizeRange, formatDate } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
 import DocPreviewModal from './DocPreviewModal';
 import ReceiptReviewModal from './cms/ReceiptReviewModal';
+import AdminInstructions from './cms/AdminInstructions';
+import { updateUserRole, UserRole } from '../lib/users';
 
 // ── Pond alphabet-code helpers (single letter A–Z, unique across ponds) ──
 const POND_CODE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -74,6 +76,7 @@ function pondCodeError(code: string | undefined, ponds: Pond[], excludeDocId?: s
 type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'audit-log';
 
 const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'seo', 'users', 'audit-log'];
+const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins', 'users'];
 
 // Blank state for the inline "Tambah Pertandingan" form. Date fields are raw
 // datetime-local input strings, converted to ISO merged into a Competition on save.
@@ -104,17 +107,26 @@ interface CMSModalProps {
 }
 
 const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB }) => {
+  const isAdmin = user?.role === 'ADMIN';
+  const isStaff = isAdmin || user?.role === 'STAFF';
   // Active CMS tab is mirrored in the URL (?tab=) so a page refresh stays on the
   // same tab instead of resetting to the dashboard.
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') as CMSPage | null;
-  const page: CMSPage = tabParam && CMS_PAGES.includes(tabParam) ? tabParam : 'dashboard';
+  const requestedPage: CMSPage = tabParam && CMS_PAGES.includes(tabParam) ? tabParam : 'dashboard';
+  const page: CMSPage = isAdmin || !isStaff || STAFF_CMS_PAGES.includes(requestedPage) ? requestedPage : 'checkin';
   const setPage = (next: CMSPage) => {
+    const allowedPage = isAdmin || !isStaff || STAFF_CMS_PAGES.includes(next) ? next : 'checkin';
     const params = new URLSearchParams(searchParams);
-    if (next === 'dashboard') params.delete('tab');
-    else params.set('tab', next);
+    if (allowedPage === 'dashboard') params.delete('tab');
+    else params.set('tab', allowedPage);
     setSearchParams(params);
   };
+  useEffect(() => {
+    if (isOpen && user?.role === 'STAFF' && requestedPage !== page) setPage(page);
+    // setPage intentionally depends on the current URLSearchParams snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, user?.role, requestedPage, page]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingPond, setEditingPond] = useState<Pond | null>(null);
   // Inline "Tambah Pertandingan" quick-create form (raw input strings; combined on save).
@@ -225,7 +237,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [ogImageUploading, setOgImageUploading] = useState<string | null>(null);
   // Users page search query (narrows the currently-loaded page only).
   const [userSearch, setUserSearch] = useState('');
-  // Registered accounts (admin-only `users` collection), cursor-paginated so
+  // Registered accounts (admin-managed, staff-readable), cursor-paginated so
   // this stays fast once accounts number in the thousands.
   const [userSortOrder, setUserSortOrder] = useState<'asc' | 'desc'>('asc');
   const [userEntries, setUserEntries] = useState<User[]>([]);
@@ -233,6 +245,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [userCursors, setUserCursors] = useState<any[]>([null]);
   const [userPage, setUserPage] = useState(0);
   const [userHasMore, setUserHasMore] = useState(false);
+  const [roleUpdatingUid, setRoleUpdatingUid] = useState<string | null>(null);
+  const [roleMessage, setRoleMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
   const fetchUsersPage = async (cursor: any, pageIndex: number) => {
     setUserLoading(true);
@@ -270,6 +284,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     fetchUsersPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, page, userSortOrder]);
+
   // Reorder state for the ponds CMS.
   const [pondReordering, setPondReordering] = useState(false);
 
@@ -291,6 +306,31 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     tone: 'danger' | 'primary';
     onConfirm: () => void | Promise<void>;
   } | null>(null);
+  const requestRoleChange = (target: User, nextRole: UserRole) => {
+    if (!isAdmin || !target.uid || target.role === 'ADMIN' || target.uid === user?.uid || target.role === nextRole) return;
+    const previousRole = target.role || 'CLIENT';
+    setRoleMessage(null);
+    setConfirmDialog({
+      title: 'Tukar Peranan Pengguna',
+      message: `Tukar peranan ${target.name || target.email} daripada ${previousRole} kepada ${nextRole}?`,
+      confirmLabel: 'Tukar Peranan',
+      tone: nextRole === 'ADMIN' ? 'danger' : 'primary',
+      onConfirm: async () => {
+        setRoleUpdatingUid(target.uid!);
+        try {
+          const result = await updateUserRole(target.uid!, nextRole);
+          setUserEntries((entries) => entries.map((entry) => entry.uid === result.uid ? { ...entry, role: result.role } : entry));
+          setRoleMessage({ tone: 'success', text: `Peranan ${target.name || target.email} berjaya ditukar kepada ${result.role}.` });
+        } catch (error) {
+          console.error('Failed to update user role:', error);
+          const message = error instanceof Error ? error.message : 'Peranan pengguna tidak dapat ditukar.';
+          setRoleMessage({ tone: 'error', text: message });
+        } finally {
+          setRoleUpdatingUid(null);
+        }
+      },
+    });
+  };
   // Ticking clock so the balance-reminder countdowns refresh while the page is open.
   const [nowTick, setNowTick] = useState(Date.now());
   useEffect(() => {
@@ -420,7 +460,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
   };
 
-  const isStaff = user && (user.role === 'ADMIN' || user.role === 'STAFF');
   if (!isOpen) return null;
 
   const handlePondUpdate = async (pond: Pond) => {
@@ -1871,7 +1910,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     });
   };
 
-  const navSections = [
+  const adminNavSections = [
     { label: 'Utama', items: [
       { id: 'dashboard' as CMSPage, icon: '📊', text: 'Dashboard' },
       { id: 'instructions' as CMSPage, icon: '📖', text: 'Arahan' },
@@ -1898,6 +1937,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       { id: 'users' as CMSPage, icon: '👥', text: 'Pengguna' },
       { id: 'audit-log' as CMSPage, icon: '🗒️', text: 'Log Audit' },
     ] },
+  ];
+  const navSections = isAdmin ? adminNavSections : [
+    { label: 'Hari Pertandingan', items: adminNavSections.flatMap((section) => section.items).filter((item) => ['checkin', 'results', 'all-weigh-ins'].includes(item.id)) },
+    { label: 'Rujukan', items: adminNavSections.flatMap((section) => section.items).filter((item) => item.id === 'users') },
   ];
 
   const pageTitle = navSections.flatMap(s => s.items).find(i => i.id === page)?.text || 'Dashboard';
@@ -1979,125 +2022,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
         <div className="cms-content">
           {page === 'instructions' && (
-            <div className="page active">
-              <div className="page-header"><div><div className="page-title">Arahan</div><div className="page-sub">Panduan penggunaan CMS untuk kakitangan</div></div></div>
-
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-header"><div className="card-title">📋 Aliran Kelulusan Tempahan (Kelulusan)</div></div>
-                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65, color: 'var(--cv-text, inherit)' }}>
-                  <ol style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li>Halaman ini memaparkan <strong>hanya tempahan yang belum dibuat sebarang keputusan</strong> — sebaik sahaja resit pertama disahkan atau ditolak, tempahan itu berpindah ke tab <strong>Semua Tempahan</strong> dan hilang dari sini.</li>
-                    <li>Klik <strong>Review</strong> pada mana-mana baris untuk buka tetingkap semakan. Tetingkap ini memaparkan resit yang dimuat naik (jika ada), <strong>No. Telefon</strong> pelanggan — kedua-dua nombor <strong>profil</strong> dan nombor yang dimasukkan khas untuk tempahan itu (dengan amaran <strong>berbeza</strong> untuk semakan silang jika keduanya tak sama) — dan amaran jika peg yang sama dituntut oleh tempahan lain.</li>
-                    <li>Dalam tetingkap Review: <strong>Sahkan</strong> atau <strong>Tolak</strong> resit yang sedang menunggu.
-                      <ul style={{ paddingLeft: 18, marginTop: 4 }}>
-                        <li>Tempahan <strong>disahkan serta-merta</strong> (tempat dikunci &amp; e-mel makluman dihantar) sebaik sahaja resit <strong>pertama</strong> disahkan — walaupun untuk pembayaran deposit. Jika masih ada baki, tempahan berpindah ke Semua Tempahan dengan status baki belum selesai.</li>
-                        <li>Menolak resit <strong>pertama</strong> (tempahan masih belum disahkan) akan menolak keseluruhan tempahan dan melepaskan tempat.</li>
-                      </ul>
-                    </li>
-                    <li>Jika bayaran diterima di luar sistem (cash/pindahan tanpa resit dimuat naik), guna pautan <strong>"Bayaran diterima di luar sistem? Rekod secara manual"</strong> di dalam tetingkap Review untuk muat naik bukti dan sahkan terus.</li>
-                    <li><strong>Catatan Staf</strong> — tambah nota dalaman di bahagian bawah tetingkap Review; nota berkekalan dan kekal kelihatan apabila tempahan itu kemudian dipaparkan di Semua Tempahan.</li>
-                    <li>Klik tajuk lajur <strong>Tarikh Tempahan / Nama / Dibayar-Jumlah</strong> untuk menyusun senarai; guna Sebelum/Seterus untuk pusing muka surat apabila senarai panjang.</li>
-                  </ol>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-header"><div className="card-title">🗂️ Semua Tempahan</div></div>
-                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
-                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li>Halaman ini memaparkan <strong>hanya tempahan yang telah dibuat keputusan</strong> (disahkan atau ditolak). Tempahan yang masih menunggu keputusan pertama berada di tab <strong>Kelulusan</strong>.</li>
-                    <li>Penapis <strong>Status</strong> memecahkan tempahan disahkan mengikut peringkat baki: <strong>Menunggu Semak (Baki)</strong> — ada resit baki menunggu semakan; <strong>Baki Belum Dibayar</strong> — masih ada baki tetapi belum ada resit dimuat naik; <strong>Selesai Dibayar</strong> — selesai bayar penuh; <strong>Dibatalkan</strong> — tempahan ditolak.</li>
-                    <li>Klik <strong>Review</strong> untuk sahkan/tolak resit baki, rekod bayaran manual dengan bukti, atau tambah <strong>Catatan Staf</strong> — tetingkap yang sama seperti di Kelulusan.</li>
-                    <li><strong>Hantar Peringatan</strong> — hantar e-mel peringatan baki kepada pelanggan yang masih ada baki tertunggak. Ini <strong>menetapkan semula</strong> kiraan auto-peringat (~7 hari).</li>
-                    <li><strong>Batal Paksa</strong> — hanya untuk tempahan yang <strong>telah DISAHKAN</strong>. Perlu pengesahan dua peringkat (dialog + menaip <code>DELETE BOOKING</code>). Tempat akan dilepaskan.</li>
-                    <li>Klik tajuk lajur <strong>Nama / Jumlah / Tarikh</strong> untuk menyusun senarai; guna Sebelum/Seterus untuk pusing muka surat apabila senarai panjang.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-header"><div className="card-title">✅ Check-In Peserta</div></div>
-                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
-                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li>Tab ini <strong>hanya</strong> untuk imbas QR tempahan — tiada lagi carian manual ikut nama/ref. Dua pilihan: <strong>Imbas QR Secara Live</strong> (kamera) atau <strong>Muat Naik QR</strong> (ambil/pilih gambar QR).</li>
-                    <li>Imbasan live <strong>berhenti serta-merta</strong> sebaik sahaja sebarang QR dikesan dan terus papar hasilnya. QR sah → butiran tempahan; QR tidak sepadan → kandungan QR yang diimbas ditunjukkan supaya staf boleh semak.</li>
-                    <li>Setiap peg di-check-in <strong>berasingan</strong> — tekan <strong>Check-In</strong> pada peg berkenaan (peg dari QR per-peg akan diserlahkan). Tempahan mesti <strong>telah disahkan</strong> dahulu sebelum boleh check-in.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-header"><div className="card-title">🏆 Pengurusan Pertandingan & Kolam</div></div>
-                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
-                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li><strong>Pertandingan</strong> — cipta atau edit pertandingan lengkap dengan nama, tarikh dan masa, Harga Pancang, jumlah kedudukan dipaparkan, serta pilihan kolam.</li>
-                    <li>Semua medan pertandingan wajib diisi dan sekurang-kurangnya satu kolam mesti dipilih sebelum pertandingan boleh disimpan.</li>
-                    <li>Status pertandingan dalam jadual (<strong>Coming Soon</strong> / <strong>Active</strong> / <strong>Inactive</strong> / <strong>Tamat</strong>) ditentukan <strong>automatik ikut tarikh</strong> — tiada lagi tetapan manual. Coming Soon = belum sampai tarikh buka tempahan; Active = tempahan dibuka atau pertandingan sedang berlangsung; Inactive = tempahan sudah ditutup tetapi pertandingan belum bermula; Tamat = pertandingan sudah selesai.</li>
-                    <li><strong>Kolam</strong> — cipta atau edit kolam: kod kolam (huruf A–Z), bilangan pancang dan Peta Kolam. Pancang dijana automatik mengikut bilangan.</li>
-                    <li><strong>Hadiah & Ranking</strong> — tetapkan julat kedudukan dan jumlah hadiah; jadual di bawah menyemak julat tidak sah/bertindih. Setiap simpanan direkod dalam <strong>Log Audit</strong>. Hanya pertandingan yang belum tamat dipaparkan di sini. Guna <strong>Duplicate Previous</strong> untuk pilih pertandingan lain (yang sudah ada hadiah) dan salin terus julat hadiahnya ke pertandingan semasa.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-header"><div className="card-title">👥 Pengguna & Peranan</div></div>
-                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
-                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li><span className="badge badge-live">Admin</span> &amp; <span className="badge badge-deposit">Staf</span> — akses penuh ke CMS (kelulusan, pengurusan, tetapan).</li>
-                    <li><span className="badge badge-open">Pengguna</span> — pelanggan biasa; hanya boleh menempah, tiada akses CMS.</li>
-                    <li>Peranan ditetapkan di <strong>backend (Firebase custom claims / dokumen users)</strong>, bukan diedit melalui CMS ini. Jadual utama Pengguna memaparkan akaun berdaftar (peranan sebenar &amp; bilangan tempahan), disusun mengikut nama dengan Sebelum/Seterus untuk senarai panjang.</li>
-                    <li>Jadual <strong>Tempahan Manual Tanpa Akaun</strong> di bawahnya memaparkan tempahan yang staf buat bagi pihak pelanggan tanpa akaun (cth. tempahan kaunter) — dikumpul mengikut nama/email yang ditaip semasa tempahan.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-header"><div className="card-title">🗒️ Log Audit</div></div>
-                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
-                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li>Merekod hampir setiap tindakan staf/admin yang mengubah data — kelulusan/tolak/check-in tempahan, cipta/edit/padam pertandingan &amp; kolam, kemaskini hadiah, dan tukar tetapan — bersama <strong>siapa</strong> dan <strong>bila</strong>.</li>
-                    <li>Simpanan berat (weigh-in) individu <strong>tidak</strong> direkod di sini (terlalu kerap semasa hari pertandingan) — hanya <strong>padam rekod keputusan</strong> yang direkod.</li>
-                    <li>Log bersifat <strong>tetap</strong> (tidak boleh disunting atau dipadam) dan memaparkan 200 catatan terkini. Guna carian untuk tapis mengikut nama staf atau jenis tindakan.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginTop: 16, marginBottom: 16 }}>
-                <div className="card-header"><div className="card-title">📜 Semua Timbangan Rekod</div></div>
-                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
-                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li>Sejarah timbangan <strong>merentas semua pertandingan</strong> (berbeza daripada Papan Markah Semasa di tab Keputusan &amp; Live, yang hanya memaparkan satu pertandingan pada satu masa). Terbuka dengan tapisan pertandingan ditetapkan kepada yang <strong>sedang berlangsung</strong>, atau yang <strong>terkini tamat</strong> jika tiada yang aktif.</li>
-                    <li>Tapis mengikut <strong>pertandingan</strong>, <strong>kolam</strong>, atau <strong>nama peserta</strong> untuk cari rekod tertentu dengan cepat.</li>
-                    <li><strong>Bukti</strong> — lihat gambar paparan timbangan yang disimpan bersama setiap rekod (termasuk kemasukan manual).</li>
-                    <li>Halaman ini hanya untuk semakan (papar sahaja) — sunting/padam rekod dibuat di tab Keputusan &amp; Live.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-header"><div className="card-title">🏡 Laman Utama</div></div>
-                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
-                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li>Setiap seksyen halaman utama (Hero, Tentang Kami, Kad Kelebihan, Pertandingan, Cara Tempah, Syarat, Lokasi, Footer) kini boleh disunting sepenuhnya di sini — tajuk, penerangan, dan label butang.</li>
-                    <li>Guna <code>*perkataan*</code> dalam mana-mana medan "Tajuk" untuk menjadikan perkataan itu warna aksen (cth. <code>Bukan *Kolam* Biasa</code>).</li>
-                    <li><strong>Imej Laman Utama</strong> — muat naik logo/latar sendiri; jika tiada dimuat naik, laman guna imej asal secara automatik (tiada risiko halaman "rosak" tanpa imej).</li>
-                    <li>Kad Kelebihan dan Langkah Tempah adalah <strong>tetap 4 kad</strong> (ikut reka bentuk grid) — tidak boleh tambah/kurang. Syarat &amp; Peraturan pula boleh tambah/padam bilangan bebas.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-header"><div className="card-title">🔍 SEO</div></div>
-                <div className="card-body" style={{ fontSize: '0.88rem', lineHeight: 1.65 }}>
-                  <ul style={{ paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <li>Tetapkan tajuk &amp; penerangan meta untuk setiap halaman awam (Laman Utama, Tempah, Live, Tempahan Disahkan) — ini yang muncul dalam hasil carian Google dan pratonton perkongsian WhatsApp/Facebook.</li>
-                    <li>Imej perkongsian (Open Graph) mesti <strong>JPEG</strong>, disyorkan 1200×630 — WhatsApp tidak memaparkan imej WebP dengan konsisten, jadi sistem tukar automatik ke JPEG semasa muat naik.</li>
-                    <li>Pratonton langsung (gaya Google &amp; gaya WhatsApp) dipaparkan sebelah medan input — semak sebelum simpan.</li>
-                    <li>Perubahan disiarkan melalui cache CDN dan boleh ambil masa <strong>~10 minit</strong> untuk kelihatan pada crawler/scraper selepas disimpan.</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
+            <AdminInstructions onNavigate={guardedSetPage} />
           )}
           {page === 'dashboard' && (
             <div className="page active">
@@ -3790,6 +3715,21 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Pengguna</div><div className="page-sub">Akaun berdaftar &amp; tempahan manual tanpa akaun</div></div></div>
+              {roleMessage && (
+                <div
+                  role="status"
+                  style={{
+                    marginBottom: 12,
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    border: `1px solid ${roleMessage.tone === 'success' ? 'rgba(22,163,74,.35)' : 'rgba(220,38,38,.35)'}`,
+                    background: roleMessage.tone === 'success' ? 'rgba(22,163,74,.08)' : 'rgba(220,38,38,.08)',
+                    color: roleMessage.tone === 'success' ? '#15803d' : '#b91c1c',
+                  }}
+                >
+                  {roleMessage.text}
+                </div>
+              )}
               <div className="card">
                 <div className="card-header" style={{ justifyContent: 'flex-end' }}>
                   <div style={{ position: 'relative' }}>
@@ -3806,9 +3746,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                 </div>
                 <div className="card-body"><div className="table-wrap"><table>
-                <thead><tr><th></th>{sortableTh('Nama', 'name', 'name', userSortOrder, handleUserSort)}<th>Email</th><th>Peranan</th><th>Tempahan</th></tr></thead>
+                <thead><tr><th></th>{sortableTh('Nama', 'name', 'name', userSortOrder, handleUserSort)}<th>Email</th><th>Peranan</th><th>Tempahan</th>{isAdmin && <th>Tindakan</th>}</tr></thead>
                 <tbody>
-                  {userLoading && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
+                  {userLoading && <tr><td colSpan={isAdmin ? 6 : 5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
                   {!userLoading && filteredAccounts.map(u => (
                     <tr key={u.uid || u.email}>
                       <td><span className="user-avatar-sm">{(u.name || 'U')[0].toUpperCase()}</span></td>
@@ -3816,9 +3756,29 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <td>{u.email || '—'}</td>
                       <td>{roleBadge(u.role)}</td>
                       <td>{bookingCountByEmail.get(u.email.toLowerCase()) || 0}</td>
+                      {isAdmin && (
+                        <td>
+                          {u.role === 'ADMIN' || u.uid === user?.uid ? (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Dikunci</span>
+                          ) : (
+                            <select
+                              className="form-input"
+                              aria-label={`Tukar peranan ${u.name || u.email}`}
+                              value={u.role || 'CLIENT'}
+                              disabled={!u.uid || roleUpdatingUid === u.uid}
+                              onChange={(event) => requestRoleChange(u, event.target.value as UserRole)}
+                              style={{ minWidth: 120, padding: '6px 8px' }}
+                            >
+                              <option value="CLIENT">Pengguna</option>
+                              <option value="STAFF">Staf</option>
+                              <option value="ADMIN">Admin</option>
+                            </select>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
-                  {!userLoading && filteredAccounts.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada akaun sepadan</td></tr>}
+                  {!userLoading && filteredAccounts.length === 0 && <tr><td colSpan={isAdmin ? 6 : 5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada akaun sepadan</td></tr>}
                 </tbody>
               </table></div></div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 4px 4px' }}>

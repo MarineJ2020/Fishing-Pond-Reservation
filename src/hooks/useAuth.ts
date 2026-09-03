@@ -9,7 +9,7 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import app, { auth, db as firestoreDb, googleProvider } from '../../lib/firebase';
 import { useBooking } from '../context/BookingContext';
 import { useUI } from '../context/UIContext';
@@ -48,7 +48,10 @@ export const useAuth = () => {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
+    let unsubscribeProfile: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      unsubscribeProfile?.();
+      unsubscribeProfile = null;
       if (!firebaseUser) {
         localStorage.removeItem('cb_session');
         setUser(null);
@@ -69,11 +72,26 @@ export const useAuth = () => {
         });
       }
       setAuthReady(true);
-      mapFirebaseUser(firebaseUser).then((full) => {
-        if (full) setUser(full);
+      const profileRef = doc(firestoreDb, 'users', firebaseUser.uid);
+      unsubscribeProfile = onSnapshot(profileRef, (profileSnap) => {
+        if (!firebaseUser.email) return;
+        const profileData = profileSnap.exists() ? profileSnap.data() : null;
+        setUser({
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          emailVerified: firebaseUser.emailVerified,
+          name: profileData?.name || firebaseUser.displayName || firebaseUser.email.split('@')[0],
+          phone: profileData?.phone || '',
+          role: profileData?.role || 'CLIENT',
+        });
+      }, (error) => {
+        console.error('Failed to watch user profile:', error);
       });
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribeProfile?.();
+      unsubscribe();
+    };
   }, [setUser]);
 
   const login = useCallback(async (email: string, pass: string) => {

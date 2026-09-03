@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import * as functions from 'firebase-functions';
-import { adminAuth, adminDb, verifyToken, requireStaff } from './auth-utils.js';
+import { adminAuth, adminDb, verifyToken, requireStaff, requireAdmin } from './auth-utils.js';
 import {
     initialBookingEmailKind,
     isConfirmedStatus,
@@ -13,21 +13,13 @@ import {
     shouldQueueBookingApprovedEmail,
 } from './email-service.js';
 import { buildCancelCheckInState, buildCheckInState } from './booking-seats.js';
+import { ALLOWED_ROLES, normalizeRole, roleChangeBlockReason } from './role-policy.js';
 
 const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
 const randomTempPassword = () => Math.random().toString(36).slice(2, 10) + '!1A';
-const getRole = (user) => user?.role || user?.claims?.role || user?.custom_claims?.role || 'CLIENT';
-const isStaffUser = (user) => ['STAFF', 'ADMIN'].includes(getRole(user));
-const ALLOWED_ROLES = new Set(['CLIENT', 'STAFF', 'ADMIN']);
-
-const normalizeRole = (value) => {
-    const normalized = String(value || 'CLIENT').trim().toUpperCase();
-    return ALLOWED_ROLES.has(normalized) ? normalized : 'CLIENT';
-};
-
 const syncAuthRoleClaim = async (uid, rawRole) => {
     const nextRole = normalizeRole(rawRole);
     const userRecord = await adminAuth.getUser(uid);
@@ -78,12 +70,18 @@ const ownsBooking = (bookingData, user) => {
         || (!!user.email && ownerId === user.email);
 };
 
-const ensureStaffForCreatedByStaff = (req, res, next) => {
+const ensureAdminForCreatedByStaff = async (req, res, next) => {
     if (!req.body?.createdByStaff) return next();
-    if (!isStaffUser(req.user)) {
-        return res.status(403).json({ error: 'Forbidden: staff role required for staff booking mode.' });
+    try {
+        const profile = await adminDb.collection('users').doc(req.user.uid).get();
+        if (!profile.exists || normalizeRole(profile.data()?.role) !== 'ADMIN') {
+            return res.status(403).json({ error: 'Forbidden: admin role required for proxy booking mode.' });
+        }
+        return next();
+    } catch (error) {
+        console.error('Failed to verify proxy booking role:', error);
+        return res.status(500).json({ error: 'Failed to verify permissions.' });
     }
-    return next();
 };
 
 const updateSeatsForBooking = async (bookingData, nextSeatStatus) => {
@@ -135,7 +133,7 @@ const assertSeatsNotBooked = async ({ seatIds, competitionId }) => {
     return { ok: conflicts.length === 0, conflicts };
 };
 
-app.post('/createClientAccount', verifyToken, requireStaff, async (req, res) => {
+app.post('/createClientAccount', verifyToken, requireAdmin, async (req, res) => {
     const { name, email, phone } = req.body;
     if (!name || !email) {
         return res.status(400).json({ error: 'Name and email are required.' });
@@ -209,7 +207,7 @@ app.post('/acquireSeatLock', verifyToken, async (req, res) => {
     }
 });
 
-app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req, res) => {
+app.post('/createBooking', verifyToken, ensureAdminForCreatedByStaff, async (req, res) => {
     const {
         competitionId, competitionName, pondId, pondCode, pondSelections,
         seatIds, seatNumbers, paymentType, amount, totalAmount, receiptUrl,
@@ -223,7 +221,7 @@ app.post('/createBooking', verifyToken, ensureStaffForCreatedByStaff, async (req
     }
 
     try {
-        const staffMode = !!createdByStaff && isStaffUser(user);
+        const staffMode = !!createdByStaff;
 
         const bookedCheck = await assertSeatsNotBooked({ seatIds, competitionId });
         if (!bookedCheck.ok) {
@@ -361,9 +359,9 @@ app.post('/submitBookingReceipt', verifyToken, async (req, res) => {
     }
 });
 
-// Staff accept a single receipt. Recomputes paidAmount, records a payment, and
+// Admins accept a single receipt. Recomputes paidAmount, records a payment, and
 // (on the first accepted receipt) confirms the booking + holds the seats.
-app.post('/acceptBookingReceipt', verifyToken, requireStaff, async (req, res) => {
+app.post('/acceptBookingReceipt', verifyToken, requireAdmin, async (req, res) => {
     const { bookingId, receiptIndex } = req.body;
     if (!bookingId || receiptIndex == null) {
         return res.status(400).json({ error: 'bookingId and receiptIndex are required.' });
@@ -429,9 +427,9 @@ app.post('/acceptBookingReceipt', verifyToken, requireStaff, async (req, res) =>
     }
 });
 
-// Staff reject a single receipt (e.g. unreadable / wrong amount). Does not reject
+// Admins reject a single receipt (e.g. unreadable / wrong amount). Does not reject
 // the whole booking — the user can re-upload while under the receipt cap.
-app.post('/rejectBookingReceipt', verifyToken, requireStaff, async (req, res) => {
+app.post('/rejectBookingReceipt', verifyToken, requireAdmin, async (req, res) => {
     const { bookingId, receiptIndex } = req.body;
     if (!bookingId || receiptIndex == null) {
         return res.status(400).json({ error: 'bookingId and receiptIndex are required.' });
@@ -481,7 +479,7 @@ app.post('/rejectBookingReceipt', verifyToken, requireStaff, async (req, res) =>
     }
 });
 
-app.post('/approveBooking', verifyToken, requireStaff, async (req, res) => {
+app.post('/approveBooking', verifyToken, requireAdmin, async (req, res) => {
     const { bookingId } = req.body;
     if (!bookingId) {
         return res.status(400).json({ error: 'bookingId is required.' });
@@ -511,7 +509,7 @@ app.post('/approveBooking', verifyToken, requireStaff, async (req, res) => {
     }
 });
 
-app.post('/rejectBooking', verifyToken, requireStaff, async (req, res) => {
+app.post('/rejectBooking', verifyToken, requireAdmin, async (req, res) => {
     const { bookingId } = req.body;
     if (!bookingId) {
         return res.status(400).json({ error: 'bookingId is required.' });
@@ -709,8 +707,8 @@ export const api = functions.https.onRequest(app);
 
 export { seoRender } from './seo.js';
 
-// Keep Firebase Auth custom claims in sync with users/{uid}.role so Storage
-// rules that depend on request.auth.token.role stay accurate.
+// Keep Firebase Auth custom claims in sync with users/{uid}.role for external
+// consumers. Application authorization reads the profile document directly.
 export const syncUserRoleClaims = functions.firestore
     .document('users/{uid}')
     .onWrite(async (change, context) => {
@@ -744,7 +742,8 @@ export const backfillUserRoleClaims = functions.https.onCall(async (_data, conte
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
     }
 
-    const callerRole = normalizeRole(context.auth.token?.role);
+    const callerProfile = await adminDb.collection('users').doc(context.auth.uid).get();
+    const callerRole = normalizeRole(callerProfile.data()?.role);
     if (callerRole !== 'ADMIN') {
         throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
     }
@@ -776,6 +775,113 @@ export const backfillUserRoleClaims = functions.https.onCall(async (_data, conte
         unchanged,
         failed,
     };
+});
+
+// Admin-only role management for CMS > Pengguna. Firestore profile roles are
+// authoritative; custom claims are kept in sync for Firebase services that use
+// token claims, but stale claims never grant application permissions.
+export const updateUserRole = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+    }
+
+    const callerRef = adminDb.collection('users').doc(context.auth.uid);
+    const callerSnap = await callerRef.get();
+    const callerRole = callerSnap.exists ? normalizeRole(callerSnap.data()?.role) : 'CLIENT';
+    if (callerRole !== 'ADMIN') {
+        throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
+    }
+
+    const uid = typeof data?.uid === 'string' ? data.uid.trim() : '';
+    const requestedRole = typeof data?.role === 'string' ? data.role.trim().toUpperCase() : '';
+    if (!uid || !ALLOWED_ROLES.has(requestedRole)) {
+        throw new functions.https.HttpsError('invalid-argument', 'A valid uid and role are required.');
+    }
+    const targetRef = adminDb.collection('users').doc(uid);
+    const targetSnap = await targetRef.get();
+    if (!targetSnap.exists) {
+        throw new functions.https.HttpsError('not-found', 'User profile not found.');
+    }
+
+    const targetData = targetSnap.data() || {};
+    const previousRole = normalizeRole(targetData.role);
+    const blockReason = roleChangeBlockReason({
+        callerUid: context.auth.uid,
+        callerRole,
+        targetUid: uid,
+        targetRole: previousRole,
+        requestedRole,
+    });
+    if (blockReason === 'self-change') {
+        throw new functions.https.HttpsError('failed-precondition', 'You cannot change your own role.');
+    }
+    if (blockReason === 'admin-locked') {
+        throw new functions.https.HttpsError('failed-precondition', 'Existing admin roles cannot be changed in the CMS.');
+    }
+    if (previousRole === requestedRole) {
+        return { success: true, uid, previousRole, role: requestedRole };
+    }
+
+    let userRecord;
+    try {
+        userRecord = await adminAuth.getUser(uid);
+    } catch (error) {
+        if (error?.code === 'auth/user-not-found') {
+            throw new functions.https.HttpsError('not-found', 'Firebase Auth user not found.');
+        }
+        throw error;
+    }
+
+    const previousClaims = userRecord.customClaims || {};
+    await adminAuth.setCustomUserClaims(uid, { ...previousClaims, role: requestedRole });
+
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const [freshCaller, freshTarget] = await Promise.all([
+                transaction.get(callerRef),
+                transaction.get(targetRef),
+            ]);
+            if (!freshCaller.exists || normalizeRole(freshCaller.data()?.role) !== 'ADMIN') {
+                throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
+            }
+            if (!freshTarget.exists) {
+                throw new functions.https.HttpsError('not-found', 'User profile not found.');
+            }
+            const freshPreviousRole = normalizeRole(freshTarget.data()?.role);
+            if (freshPreviousRole !== previousRole || freshPreviousRole === 'ADMIN') {
+                throw new functions.https.HttpsError('aborted', 'The user role changed while this request was being processed.');
+            }
+
+            const changedAt = new Date();
+            transaction.set(targetRef, {
+                role: requestedRole,
+                roleUpdatedAt: changedAt,
+                roleUpdatedBy: context.auth.uid,
+                updatedAt: changedAt,
+            }, { merge: true });
+            transaction.set(adminDb.collection('auditLog').doc(), {
+                action: 'user.role_change',
+                actionLabel: 'Tukar Peranan Pengguna',
+                entityType: 'user',
+                entityId: uid,
+                entityLabel: targetData.name || targetData.email || uid,
+                actorUid: context.auth.uid,
+                actorEmail: callerSnap.data()?.email || context.auth.token?.email || '',
+                actorName: callerSnap.data()?.name || context.auth.token?.name || '',
+                details: `${previousRole} → ${requestedRole}`,
+                createdAt: changedAt,
+            });
+        });
+    } catch (error) {
+        try {
+            await adminAuth.setCustomUserClaims(uid, previousClaims);
+        } catch (rollbackError) {
+            console.error(`updateUserRole claim rollback failed for uid=${uid}:`, rollbackError);
+        }
+        throw error;
+    }
+
+    return { success: true, uid, previousRole, role: requestedRole };
 });
 
 // Clients can request verification, but only trusted server code controls the
@@ -876,21 +982,19 @@ export const requestWelcomeEmail = functions.https.onCall(async (_data, context)
     return { queued: result.created, alreadyQueued: result.reason === 'already-exists', mailId: result.id };
 });
 
-const callableIsStaff = async (context) => {
-    const tokenRole = String(context.auth?.token?.role || '').toUpperCase();
-    if (tokenRole === 'ADMIN' || tokenRole === 'STAFF') return true;
+const callableHasRole = async (context, allowedRoles) => {
     if (!context.auth) return false;
     const profile = await adminDb.collection('users').doc(context.auth.uid).get();
     const role = profile.exists ? String(profile.data()?.role || '').toUpperCase() : '';
-    return role === 'ADMIN' || role === 'STAFF';
+    return allowedRoles.includes(role);
 };
 
 export const requestBalanceReminder = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
     }
-    if (!await callableIsStaff(context)) {
-        throw new functions.https.HttpsError('permission-denied', 'Staff role required.');
+    if (!await callableHasRole(context, ['ADMIN'])) {
+        throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
     }
     const bookingId = typeof data?.bookingId === 'string' ? data.bookingId.trim() : '';
     if (!bookingId) {

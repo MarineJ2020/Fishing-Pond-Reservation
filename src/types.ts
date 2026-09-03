@@ -163,7 +163,7 @@ export interface AuditEntry {
   action: string;
   /** Malay display label, e.g. "Tolak Tempahan". */
   actionLabel: string;
-  entityType: 'booking' | 'competition' | 'pond' | 'prize' | 'settings' | 'score';
+  entityType: 'booking' | 'competition' | 'pond' | 'prize' | 'settings' | 'score' | 'user';
   entityId?: string;
   /** Human-readable target, e.g. booking ref / competition name / pond code. */
   entityLabel?: string;

@@ -120,7 +120,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
     );
   }
 
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'STAFF';
+  const isAdmin = user?.role === 'ADMIN';
   const isAdminProxyMode = isAdmin && adminProxyName.trim() !== '';
   // Email/password users must verify before booking (Google accounts are pre-verified).
   const needsVerification = !!user && !isAdmin && user.emailVerified === false;

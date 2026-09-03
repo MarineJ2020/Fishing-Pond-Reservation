@@ -238,7 +238,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     // staff are exempt (Google is pre-verified; staff manage bookings directly).
     if (!isStaff && user.emailVerified === false) return null;
 
-    const isAdminProxy = isStaff && adminProxyName.trim() !== '';
+    const isAdminProxy = user.role === 'ADMIN' && adminProxyName.trim() !== '';
     const effectiveName = isAdminProxy ? adminProxyName.trim() : user.name;
     const effectiveEmail = isAdminProxy ? adminProxyEmail.trim() : (user.uid || user.email);
     const effectivePhone = isAdminProxy ? adminProxyPhone.trim() : (user.phone || '');
