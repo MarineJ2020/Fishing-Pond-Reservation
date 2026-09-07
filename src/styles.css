@@ -3501,6 +3501,12 @@ nav.kks-legacy-v3-nav::before {
   font-size: 29px; font-style: italic; text-transform: uppercase;
 }
 .kks-mini-card p { margin: 0; color: rgba(255,255,255,.75); font-size: 14px; line-height: 1.55; }
+.kks-mini-card .kks-mini-booking-open {
+  margin-top: 4px;
+  color: rgba(255,255,255,.6);
+  font-size: 12px;
+  line-height: 1.35;
+}
 .kks-mini-meta { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
 .kks-mini-card span {
   display: inline-flex; padding: 7px 10px; border-radius: 999px;

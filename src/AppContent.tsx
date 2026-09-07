@@ -899,6 +899,11 @@ const AppContent: React.FC = () => {
       const endLabel = formatEventClock(end);
       return end && endLabel !== '—' ? `${startLabel} - ${endLabel}` : startLabel;
     };
+    const formatBookingOpenDate = (iso?: string) => {
+      const dateLabel = formatDate(iso, { weekday: true });
+      const timeLabel = formatEventClock(iso);
+      return dateLabel && timeLabel !== '—' ? `${dateLabel} · ${timeLabel}` : '';
+    };
     const padCD = (n: number) => n.toString().padStart(2, '0');
 
     const featuredName = featuredCompetition?.name || 'Ikuti perkembangan untuk acara akan datang';
@@ -917,6 +922,7 @@ const AppContent: React.FC = () => {
     const featuredWindow = getBookingWindowState(featuredCompetition, nowTick);
     const featuredBookingOpen = !!featuredCompetition && !isCompetitionEnded(featuredCompetition, nowTick) && isBookingOpen(featuredCompetition, nowTick);
     const featuredBookingNotice = bookingWindowLabel(featuredCompetition, nowTick);
+    const secondBookingOpenLabel = secondCompetition ? formatBookingOpenDate(secondCompetition.bookingOpenAt) : '';
 
     return (
     <div className="home-shell">
@@ -1049,6 +1055,9 @@ const AppContent: React.FC = () => {
                         ? `${formatEventDate(secondCompetition.startDate)} · ${formatEventTime(secondCompetition.startDate, secondCompetition.endDate)}`
                         : 'Paparan ringkas event akan datang supaya peserta boleh banding tarikh, yuran dan kapasiti sebelum tempah.'}
                     </p>
+                    {secondBookingOpenLabel && (
+                      <p className="kks-mini-booking-open">Tempahan Dibuka: {secondBookingOpenLabel}</p>
+                    )}
                     <div className="kks-mini-meta">
                       <span>{(secondCompetition?.activePondIds?.length || totalPonds || 12) + ' Kolam Mega'}</span>
                       <span>{(secondCompetition?.id ? competitionAvailableSeats.get(secondCompetition.id) : null) ?? availablePegs} Pancang</span>
