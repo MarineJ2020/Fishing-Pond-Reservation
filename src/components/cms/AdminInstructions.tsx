@@ -114,7 +114,7 @@ const AdminInstructions: React.FC<AdminInstructionsProps> = ({ onNavigate }) => 
           <li><strong>Kolam:</strong> kod mesti satu huruf unik A-Z. Tetapkan bilangan pancang, susun urutan paparan dengan anak panah, dan muat naik Peta Kolam untuk halaman tempahan.</li>
           <li>Mengurangkan bilangan pancang akan disekat jika pancang yang dibuang masih mempunyai tempahan aktif. Padam kolam hanya selepas menyemak semua pertandingan berkaitan.</li>
           <li><strong>Pertandingan:</strong> isi masa mula/tamat, masa buka/tutup tempahan, harga setiap pancang, jumlah ranking dan sekurang-kurangnya satu kolam.</li>
-          <li>Status dalam tetingkap <strong>Urus</strong> ditentukan automatik oleh tarikh: Coming Soon, Active, Inactive atau Tamat.</li>
+          <li>Status dalam tetingkap <strong>Urus</strong> ditentukan automatik oleh tarikh: Coming soon (belum buka tempahan), Aktif (dari buka tempahan hingga pertandingan tamat) atau Tamat.</li>
           <li><strong>Hadiah & Ranking:</strong> semak julat kosong atau bertindih sebelum Simpan. <strong>Duplicate Previous</strong> menyalin julat daripada pertandingan lain.</li>
         </List>
       </GuideCard>

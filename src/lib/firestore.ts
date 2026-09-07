@@ -11,6 +11,8 @@ import {
   addDoc,
   setDoc,
   deleteDoc,
+  deleteField,
+  onSnapshot,
   serverTimestamp,
   Timestamp,
   writeBatch,
@@ -1078,9 +1080,17 @@ export const updateSettings = async (updates: Partial<Settings>) => {
   const settingsRef = doc(db, 'settings', 'global');
   await setDoc(settingsRef, {
     ...stripUndefined(updates),
+    ...(Object.prototype.hasOwnProperty.call(updates, 'ocrDecimalPlaces') && updates.ocrDecimalPlaces === undefined
+      ? { ocrDecimalPlaces: deleteField() } : {}),
     updatedAt: serverTimestamp(),
   }, { merge: true });
 };
+
+/** Shared live settings for CMS and public pages, normalized identically to initial loads. */
+export const subscribeSettings = (onChange: (settings: Settings) => void) =>
+  onSnapshot(doc(db, 'settings', 'global'),
+    (snapshot) => onChange(normalizeSettings(snapshot.exists() ? snapshot.data() : {})),
+    (error) => console.error('Failed to listen for settings:', error));
 
 export const getSettings = async (): Promise<Settings> => {
   try {
@@ -1164,7 +1174,7 @@ export const getScoresForCompetition = async (competitionId: string): Promise<Sc
       ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
       ocrRawText: data.ocrRawText || undefined,
       capturedBy: data.capturedBy || undefined,
-      capturedAt: normalizeTimestamp(data.updatedAt) || normalizeTimestamp(data.createdAt) || undefined,
+      capturedAt: normalizeTimestamp(data.createdAt) || normalizeTimestamp(data.updatedAt) || undefined,
     });
   });
   return entries;
@@ -1191,7 +1201,7 @@ const buildScoreEntryFromDoc = (d: QueryDocumentSnapshot<DocumentData>): ScoreEn
     ocrUserVerified: typeof data.ocrUserVerified === 'boolean' ? data.ocrUserVerified : undefined,
     scanMethod: data.scanMethod || undefined,
     capturedBy: data.capturedBy || undefined,
-    capturedAt: normalizeTimestamp(data.updatedAt) || normalizeTimestamp(data.createdAt) || undefined,
+    capturedAt: normalizeTimestamp(data.createdAt) || normalizeTimestamp(data.updatedAt) || undefined,
   } as ScoreEntry;
 };
 

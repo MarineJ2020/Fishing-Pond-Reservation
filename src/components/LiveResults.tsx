@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Competition, Score, ScoreEntry, Pond, Booking, User } from '../types';
+import { formatWeight } from '../utils/weight';
+import type { Settings } from '../types';
 import { getLB, getPrize, p2, formatDate } from '../utils';
 import { isCompetitionEnded } from '../utils/competition';
 import { formatSeat } from '../utils/seatLabel';
@@ -7,6 +9,7 @@ import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/fir
 import { db as firestoreDb } from '../../lib/firebase';
 
 interface LiveResultsProps {
+  decimalPlaces: Settings['ocrDecimalPlaces'];
   comp: Competition;
   competitions: Competition[];
   scores: Record<number, Score>;
@@ -49,7 +52,7 @@ const defaultCompetitionId = (competitions: Competition[], fallback: Competition
   return upcoming?.id || live?.id || fallback.id || competitions[0]?.id || '';
 };
 
-const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bookings, user }) => {
+const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bookings, user, decimalPlaces }) => {
   const [selectedCompId, setSelectedCompId] = useState(() => defaultCompetitionId(competitions, comp));
   const [liveScores, setLiveScores] = useState<ScoreEntry[]>([]);
   const [loadingScores, setLoadingScores] = useState(false);
@@ -322,7 +325,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                       </div>
                       <div className="kl-weight">
                         <small>Berat</small>
-                        <strong>{e.weight.toFixed(2)}kg</strong>
+                        <strong>{formatWeight(e.weight, decimalPlaces)}kg</strong>
                       </div>
                       <div className="kl-updated">
                         <i className="fa-solid fa-clock"></i> {time || '—'}
@@ -350,7 +353,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                   <>
                     <div className="kl-mini">
                       <small>Berat</small>
-                      <strong>{(myEntry as any).weight.toFixed(2)}kg</strong>
+                      <strong>{formatWeight((myEntry as { weight: number }).weight, decimalPlaces)}kg</strong>
                     </div>
                     <div className="kl-mini rank">
                       <small>Rank</small>
@@ -444,7 +447,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
 
               <div className="kl-winner-summary">
                 <div className="kl-winner-summary-item"><small>Juara</small><strong>{pastWinners[0]?.name || '—'}</strong></div>
-                <div className="kl-winner-summary-item"><small>Berat Terberat</small><strong>{pastChampWeight != null ? `${pastChampWeight.toFixed(2)}KG` : '—'}</strong></div>
+                <div className="kl-winner-summary-item"><small>Berat Terberat</small><strong>{pastChampWeight != null ? `${formatWeight(pastChampWeight, decimalPlaces)}KG` : '—'}</strong></div>
                 <div className="kl-winner-summary-item"><small>Hadiah Utama</small><strong>{pastChampPrize || '—'}</strong></div>
               </div>
 
@@ -462,7 +465,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                   <div key={e.peg} className="kl-winner-row">
                     <div><span className="kl-winner-rank">{p2(rank)}</span></div>
                     <div><strong>{e.name}</strong><br /><span>{pond?.code ? formatSeat(pond.code, e.peg) : `Peg #${e.peg}${pondName ? ` · ${pondName}` : ''}`}</span></div>
-                    <div>{e.weight.toFixed(2)}kg</div>
+                    <div>{formatWeight(e.weight, decimalPlaces)}kg</div>
                     <div>{prize || '—'}</div>
                   </div>
                 );

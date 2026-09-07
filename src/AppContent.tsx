@@ -107,6 +107,7 @@ const AppContent: React.FC = () => {
   const [isDraggingCompetitions, setIsDraggingCompetitions] = useState(false);
   const [isInteractingCompetitions, setIsInteractingCompetitions] = useState(false);
   const [focusedCompetitionKey, setFocusedCompetitionKey] = useState('');
+  const [nowTick, setNowTick] = useState(Date.now());
   const [countdown, setCountdown] = useState({ days: '--', hours: '--', mins: '--', secs: '--', status: 'upcoming' });
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [bookingDetailsOpen, setBookingDetailsOpen] = useState(false);
@@ -142,8 +143,8 @@ const AppContent: React.FC = () => {
   // INACTIVE (hidden) competitions are excluded entirely. Competitions whose booking
   // window has not opened yet (or has closed) stay listed so we can message them.
   const bookableCompetitions = useMemo(
-    () => competitions.filter((c) => c.status !== 'INACTIVE' && !isCompetitionEnded(c)),
-    [competitions],
+    () => competitions.filter((c) => c.status !== 'INACTIVE' && !isCompetitionEnded(c, nowTick)),
+    [competitions, nowTick],
   );
 
   const selectedCompetition = useMemo(() => {
@@ -252,13 +253,13 @@ const AppContent: React.FC = () => {
       .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
   }, [competitions]);
   const featuredCompetition = useMemo(() => {
-    const now = Date.now();
+    const now = nowTick;
     const upcoming = sortedUpcomingComps.find((c) => {
       const end = new Date(c.endDate || c.startDate).getTime();
       return end >= now;
     });
     return upcoming || null;
-  }, [sortedUpcomingComps]);
+  }, [sortedUpcomingComps, nowTick]);
   const secondCompetition = useMemo(() => {
     if (!featuredCompetition) return null;
     const idx = sortedUpcomingComps.findIndex(
@@ -315,6 +316,7 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const updateCountdown = () => {
       const now = new Date();
+      setNowTick(now.getTime());
       const start = new Date(selectedCompetition?.startDate || db.comp.startDate);
       const end = new Date(selectedCompetition?.endDate || db.comp.endDate);
       const distance = start.getTime() - now.getTime();
@@ -912,6 +914,9 @@ const AppContent: React.FC = () => {
     const isCountdownReady = !!featuredCompetition && featuredCountdown.status !== 'idle';
     const showLive = featuredCountdown.status === 'live';
     const showEnded = featuredCountdown.status === 'ended';
+    const featuredWindow = getBookingWindowState(featuredCompetition, nowTick);
+    const featuredBookingOpen = !!featuredCompetition && !isCompetitionEnded(featuredCompetition, nowTick) && isBookingOpen(featuredCompetition, nowTick);
+    const featuredBookingNotice = bookingWindowLabel(featuredCompetition, nowTick);
 
     return (
     <div className="home-shell">
@@ -998,13 +1003,14 @@ const AppContent: React.FC = () => {
                     <div className="kks-event-title">
                       <div className="kks-eyebrow">Acara Pilihan</div>
                       <h3>{featuredName}</h3>
-                      {featuredCompetition && <p className="kks-ticket-hot">🔥 TIKET LARIS TERJUAL! 🔥</p>}
+                      {featuredBookingOpen && <p className="kks-ticket-hot">🔥 TIKET LARIS TERJUAL! 🔥</p>}
                     </div>
                     <span className={`kks-badge${showLive ? ' is-live' : ''}`}>
-                      {showLive ? '🔴 Live' : showEnded ? 'Selesai' : featuredCompetition ? 'Pendaftaran Dibuka' : 'Akan Datang'}
+                      {showEnded ? 'Tamat' : featuredWindow === 'before' ? 'Coming soon' : showLive ? '🔴 Live' : featuredBookingOpen ? 'Pendaftaran Dibuka' : featuredWindow === 'after' ? 'Tempahan Ditutup' : 'Akan Datang'}
                     </span>
                   </div>
                   <div className="kks-event-body">
+                    {featuredBookingNotice && <p className="kks-booking-notice">{featuredBookingNotice}</p>}
                     <div className={`kks-event-grid${featuredCompetition ? '' : ' is-disabled'}`}>
                       <div className="kks-event-metric"><small>Tarikh</small><strong>{featuredDate}</strong></div>
                       <div className="kks-event-metric"><small>Masa</small><strong>{featuredTime}</strong></div>
@@ -1017,7 +1023,7 @@ const AppContent: React.FC = () => {
                     <div className="kks-event-actions">
                       <button
                         className="btn btn-navy"
-                        disabled={!featuredCompetition}
+                        disabled={!featuredBookingOpen}
                         onClick={() => openBookingChoice(() => {
                           if (featuredCompetition?.id) selectCompetition(featuredCompetition.id);
                           setPondPickerOpen(true);
@@ -1196,11 +1202,11 @@ const AppContent: React.FC = () => {
         return renderHome();
       case 'book': {
         const bookedPond = activePond;
-        const competitionEnded = isCompetitionEnded(selectedCompetition);
+        const competitionEnded = isCompetitionEnded(selectedCompetition, nowTick);
         // Booking window: outside [bookingOpenAt, bookingCloseAt] the booking flow is
         // blocked with a message (sale not started / closed). No window set = always open.
-        const bookingOpen = isBookingOpen(selectedCompetition);
-        const bookingClosedMsg = bookingWindowLabel(selectedCompetition);
+        const bookingOpen = isBookingOpen(selectedCompetition, nowTick);
+        const bookingClosedMsg = bookingWindowLabel(selectedCompetition, nowTick);
         const hasCompetition = Boolean(selectedCompetition?.id) && !competitionEnded && bookingOpen;
         const hasPond = Boolean(bookedPond);
         const hasSeats = selectedSeatCount > 0;
@@ -1268,9 +1274,9 @@ const AppContent: React.FC = () => {
                               const active = (selectedCompetition?.id || '') === (competition.id || '');
                               const pondsCount = competition.activePondIds?.length || totalPonds;
                               const competitionPrice = competition.pricePerPeg ?? samplePrice;
-                              const cardWindow = getBookingWindowState(competition);
+                              const cardWindow = getBookingWindowState(competition, nowTick);
                               const cardLabel = cardWindow === 'before'
-                                ? (bookingWindowLabel(competition) || 'Akan dibuka')
+                                ? (bookingWindowLabel(competition, nowTick) || 'Akan dibuka')
                                 : cardWindow === 'after' ? 'Tempahan Ditutup' : 'Pendaftaran Dibuka';
                               return (
                                 <button
@@ -1593,7 +1599,7 @@ const AppContent: React.FC = () => {
         )}
       }
       case 'live':
-        return <LiveResults comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} user={user} />;
+        return <LiveResults decimalPlaces={db.settings.ocrDecimalPlaces} comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} user={user} />;
       case 'mybookings':
         if (!authReady) {
           return (

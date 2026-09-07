@@ -9,23 +9,22 @@ export type CompetitionPhase = 'upcoming' | 'live' | 'ended';
  * passed. Shared by the CMS status badges and the public booking flow so both
  * agree on when bookings should be closed.
  */
-export function getCompetitionPhase(competition: Partial<Competition> | null | undefined): CompetitionPhase {
+export function getCompetitionPhase(competition: Partial<Competition> | null | undefined, now: number = Date.now()): CompetitionPhase {
   if (!competition) return 'upcoming';
-  const now = Date.now();
   const start = competition.startDate ? new Date(competition.startDate).getTime() : NaN;
   const end = competition.endDate
     ? new Date(competition.endDate).getTime()
     : (competition.startDate ? new Date(competition.startDate).getTime() : NaN);
 
-  if (Number.isNaN(start)) return 'upcoming';
   if (!Number.isNaN(end) && now >= end) return 'ended';
+  if (Number.isNaN(start)) return 'upcoming';
   if (now < start) return 'upcoming';
   return 'live';
 }
 
 /** True when the competition has ended ("tamat") and should accept no new bookings. */
-export function isCompetitionEnded(competition: Partial<Competition> | null | undefined): boolean {
-  return getCompetitionPhase(competition) === 'ended';
+export function isCompetitionEnded(competition: Partial<Competition> | null | undefined, now: number = Date.now()): boolean {
+  return getCompetitionPhase(competition, now) === 'ended';
 }
 
 export type BookingWindowState = 'none' | 'before' | 'open' | 'after';
@@ -60,33 +59,29 @@ export function isBookingOpen(
   return state === 'open' || state === 'none';
 }
 
-export type CompetitionCmsStatus = 'tamat' | 'active' | 'coming-soon' | 'inactive';
+export type CompetitionCmsStatus = 'tamat' | 'active' | 'coming-soon';
 
 /**
  * CMS "Pertandingan" table status — fully date-derived, no manual toggle.
  * - `tamat`       — competition has ended.
- * - `active`      — booking is open, or the event is currently live/in-game.
+ * - `active`      — booking has opened and the competition has not ended.
  * - `coming-soon` — created, but the booking-open date hasn't arrived yet.
- * - `inactive`    — booking window has closed but the event hasn't started/ended yet.
  */
 export function getCompetitionCmsStatus(
   competition: Partial<Competition> | null | undefined,
   now: number = Date.now(),
 ): CompetitionCmsStatus {
-  const phase = getCompetitionPhase(competition);
+  const phase = getCompetitionPhase(competition, now);
   if (phase === 'ended') return 'tamat';
-  if (phase === 'live') return 'active';
   const windowState = getBookingWindowState(competition, now);
-  if (windowState === 'open' || windowState === 'none') return 'active';
   if (windowState === 'before') return 'coming-soon';
-  return 'inactive';
+  return 'active';
 }
 
 const CMS_STATUS_META: Record<CompetitionCmsStatus, { label: string; badgeClass: string }> = {
   tamat: { label: 'Tamat', badgeClass: 'badge-completed' },
-  active: { label: 'Active', badgeClass: 'badge-open' },
-  'coming-soon': { label: 'Coming Soon', badgeClass: 'badge-draft' },
-  inactive: { label: 'Inactive', badgeClass: 'badge-draft' },
+  active: { label: 'Aktif', badgeClass: 'badge-open' },
+  'coming-soon': { label: 'Coming soon', badgeClass: 'badge-draft' },
 };
 
 export function getCompetitionCmsStatusMeta(
@@ -102,7 +97,20 @@ export function bookingWindowLabel(
   now: number = Date.now(),
 ): string {
   const state = getBookingWindowState(competition, now);
-  if (state === 'before') return `Tempahan dibuka pada ${formatDate(competition?.bookingOpenAt)}`;
+  if (state === 'before') return `Tempahan dibuka pada ${formatDate(competition?.bookingOpenAt, { time: true })}`;
   if (state === 'after') return 'Tempahan telah ditutup';
   return '';
+}
+
+/** Newest scheduled start first; preserve input order for ties and invalid dates. */
+export function sortCompetitionsLatestFirst(competitions: Competition[]): Competition[] {
+  const startTime = (competition: Competition) => {
+    const time = new Date(competition.startDate).getTime();
+    return Number.isFinite(time) ? time : -Infinity;
+  };
+  return [...competitions].sort((a, b) => {
+    const left = startTime(a);
+    const right = startTime(b);
+    return left === right ? 0 : left > right ? -1 : 1;
+  });
 }

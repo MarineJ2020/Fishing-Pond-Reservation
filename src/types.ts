@@ -153,7 +153,7 @@ export interface ScoreEntry {
   /** How the weight was obtained: ONNX model, no-ML fallback scan, or manual entry. */
   scanMethod?: 'onnx' | 'sevenseg' | 'manual';
   capturedBy?: string;
-  /** ISO time the weight was recorded (staff "imbas timbangan"). Derived from the doc's updatedAt/createdAt. */
+  /** ISO creation time; falls back to updatedAt for legacy records without createdAt. */
   capturedAt?: string;
 }
 

@@ -43,7 +43,8 @@ import {
   isBookingSeatCheckedIn,
   receiptBankReference,
 } from '../utils/booking';
-import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta } from '../utils/competition';
+import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta, sortCompetitionsLatestFirst } from '../utils/competition';
+import { formatWeight } from '../utils/weight';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { prizeRange, formatDate } from '../utils';
@@ -138,9 +139,21 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [compEditIsNew, setCompEditIsNew] = useState(false);
   const [competitionDeleteTarget, setCompetitionDeleteTarget] = useState<Competition | null>(null);
   const [settingsEdit, setSettingsEdit] = useState(settings);
+  const [ocrDecimalSaving, setOcrDecimalSaving] = useState(false);
+  const [ocrDecimalError, setOcrDecimalError] = useState<string | null>(null);
   const [landingSaveError, setLandingSaveError] = useState<string | null>(null);
-  // Sync settingsEdit when the parent settings prop changes (e.g. after reloadDB)
-  useEffect(() => { setSettingsEdit(settings); }, [settings]);
+  const previousSettings = useRef(settings);
+  // Live decimal updates must not discard unrelated unsaved CMS form edits.
+  useEffect(() => {
+    const previous = previousSettings.current;
+    previousSettings.current = settings;
+    const changed = (Object.keys(settings) as (keyof Settings)[])
+      .filter((key) => JSON.stringify(previous[key]) !== JSON.stringify(settings[key]));
+    if (changed.length) setSettingsEdit((current) => ({
+      ...current,
+      ...Object.fromEntries(changed.map((key) => [key, settings[key]])),
+    }));
+  }, [settings]);
   const [newPond, setNewPond] = useState<Partial<Pond>>({ name: '', desc: '', seats: [], open: true });
   const [newPondSeatPrice, setNewPondSeatPrice] = useState(100);
   const [newPondMaxSeats, setNewPondMaxSeats] = useState(30);
@@ -334,7 +347,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Ticking clock so the balance-reminder countdowns refresh while the page is open.
   const [nowTick, setNowTick] = useState(Date.now());
   useEffect(() => {
-    const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
+    const id = window.setInterval(() => setNowTick(Date.now()), 1_000);
     return () => window.clearInterval(id);
   }, []);
 
@@ -416,7 +429,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     // a subsequent Save would then overwrite the wrong competition document.
     if (!competitionEditorOpen) setCompEdit(comp);
   }, [comp, competitions, competitionEditorOpen]);
-  useEffect(() => { setSettingsEdit(settings); }, [settings]);
 
   // Conflict detection: map "competitionId-pondId-seatNum" → booking IDs that claim it
   // (excluding rejected). Keyed by competition so the same pond+seat reused in a
@@ -444,10 +456,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const getCompetitionStatusMeta = (competition: Partial<Competition>) => {
-    const phase = getCompetitionPhase(competition);
-    if (phase === 'upcoming') return { label: 'Akan Datang', badgeClass: 'badge-draft' };
-    if (phase === 'ended') return { label: 'Tamat', badgeClass: 'badge-completed' };
-    return { label: 'Aktif', badgeClass: 'badge-live' };
+    return getCompetitionCmsStatusMeta(competition, nowTick);
   };
 
   const openDatePicker = (event: React.MouseEvent<HTMLElement>) => {
@@ -1291,6 +1300,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleOcrDecimalChange = async (value: string) => {
+    if (ocrDecimalSaving) return;
+    const previous = settings.ocrDecimalPlaces;
+    setOcrDecimalSaving(true);
+    setOcrDecimalError(null);
     let next: 0 | 1 | 2 | 3 | undefined;
     if (value === 'auto') next = undefined;
     else next = parseInt(value, 10) as 0 | 1 | 2 | 3;
@@ -1305,6 +1318,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
     } catch (err) {
       console.error('Failed to update OCR decimal-place setting:', err);
+      setSettingsEdit(s => ({ ...s, ocrDecimalPlaces: previous }));
+      setOcrDecimalError('Gagal menyimpan tetapan perpuluhan. Sila cuba lagi.');
+    } finally {
+      setOcrDecimalSaving(false);
     }
   };
 
@@ -2097,9 +2114,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               return names.length ? names.join(', ') : 'Semua kolam';
             };
             const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
-            const statAktif = competitionsForCms.filter(c => getCompetitionCmsStatus(c) === 'active').length;
-            const statJualan = competitionsForCms.filter(c => isBookingOpen(c) && !isCompetitionEnded(c)).length;
-            const statTamat = competitionsForCms.filter(c => isCompetitionEnded(c)).length;
+            const statAktif = competitionsForCms.filter(c => getCompetitionCmsStatus(c, nowTick) === 'active').length;
+            const statJualan = competitionsForCms.filter(c => isBookingOpen(c, nowTick) && !isCompetitionEnded(c, nowTick)).length;
+            const statTamat = competitionsForCms.filter(c => isCompetitionEnded(c, nowTick)).length;
             const toggleCreatePond = (key: string) => setCompCreate(s => ({ ...s, activePondIds: s.activePondIds.includes(key) ? s.activePondIds.filter(k => k !== key) : [...s.activePondIds, key] }));
             const allPondsSelected = ponds.length > 0 && ponds.every((pond) => compCreate.activePondIds.includes(pondKeyOf(pond)));
             const toggleAllCreatePonds = () => setCompCreate((current) => ({
@@ -2174,7 +2191,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-body"><div className="table-wrap"><table>
                   <thead><tr><th>Nama Pertandingan</th><th>Tarikh &amp; Masa Mula</th><th>Tarikh &amp; Masa Tamat</th><th>Tarikh &amp; Masa Buka Tempahan</th><th>Tarikh &amp; Masa Tutup Tempahan</th><th>Kolam Terbuka</th><th>Harga Pancang</th><th>Status</th><th>Tindakan</th></tr></thead>
                   <tbody>
-                    {competitionsForCms.map((competition) => (
+                    {sortCompetitionsLatestFirst(competitionsForCms).map((competition) => (
                       <tr key={competition.id || competition.name}>
                         <td className="td-name">{competition.name}</td>
                         <td>{fmtDateTime(competition.startDate)}</td>
@@ -2183,7 +2200,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <td>{fmtDateTime(competition.bookingCloseAt)}</td>
                         <td>{pondNames(competition)}</td>
                         <td>{competition.pricePerPeg != null ? `RM ${competition.pricePerPeg}` : '-'}</td>
-                        <td><span className={`badge ${isCompetitionEnded(competition) ? 'badge-completed' : 'badge-live'}`}>{isCompetitionEnded(competition) ? 'TAMAT' : 'AKTIF'}</span></td>
+                        <td>{(() => { const meta = getCompetitionCmsStatusMeta(competition, nowTick); return <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>; })()}</td>
                         <td>
                           <button className="btn btn-sm btn-ghost" onClick={() => { setCompEditIsNew(false); setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Urus</button>
                         </td>
@@ -3000,6 +3017,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <thead>
                           <tr>
                             <th style={{ width: '50px' }}>#</th>
+                            <th>Waktu</th>
                             <th>Peserta</th>
                             <th>Kolam</th>
                             <th>Peg</th>
@@ -3016,11 +3034,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   {i < 3 ? ['🥇', '🥈', '🥉'][i] : '#' + (i + 1)}
                                 </span>
                               </td>
+                              <td style={{ whiteSpace: 'nowrap' }}>{formatDate(e.capturedAt, { time: true }) || '-'}</td>
                               <td className="td-name">{e.anglerName}</td>
                               <td>{e.pondName}</td>
                               <td>{e.seatNum}</td>
                               <td style={{ textAlign: 'right' }}>
-                                <span className="w-cell">{e.weight.toFixed(2)}</span> kg
+                                <span className="w-cell">{formatWeight(e.weight, settings.ocrDecimalPlaces)}</span> kg
                               </td>
                               <td>
                                 {e.photoUrl ? (
@@ -3037,7 +3056,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             </tr>
                           ))}
                           {scoreEntries.length === 0 && (
-                            <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                               Tiada rekod untuk pertandingan ini
                             </td></tr>
                           )}
@@ -3128,7 +3147,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           <td>{compNameById.get(e.competitionId || '') || '—'}</td>
                           <td>{e.pondName}</td>
                           <td>{e.seatNum}</td>
-                          <td style={{ textAlign: 'right' }}><span className="w-cell">{e.weight.toFixed(2)}</span> kg</td>
+                          <td style={{ textAlign: 'right' }}><span className="w-cell">{formatWeight(e.weight, settings.ocrDecimalPlaces)}</span> kg</td>
                           <td>{methodBadge(e.scanMethod)}</td>
                           <td>
                             {e.photoUrl ? (
@@ -3537,6 +3556,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <select
                       className="form-input"
                       value={settingsEdit.ocrDecimalPlaces === undefined ? 'auto' : String(settingsEdit.ocrDecimalPlaces)}
+                      disabled={ocrDecimalSaving}
                       onChange={(e) => handleOcrDecimalChange(e.target.value)}
                       style={{ maxWidth: '320px' }}
                     >
@@ -3546,6 +3566,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <option value="2">2 digit selepas titik — cth. 12345 → 123.45 kg</option>
                       <option value="3">3 digit selepas titik — cth. 12345 → 12.345 kg</option>
                     </select>
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                      Tetapan ini juga menentukan bilangan perpuluhan semua rekod berat di CMS dan laman awam. Auto mengekalkan ketepatan nilai tersimpan.
+                    </div>
+                    {ocrDecimalError && <div role="alert" style={{ color: '#b91c1c', marginTop: '8px' }}>{ocrDecimalError}</div>}
                   </div>
                 </div>
               </div>
@@ -3879,9 +3903,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                   <div className="form-group">
                     <label className="form-label">Status</label>
-                    <div style={{ padding: '10px 0' }}>{(() => { const meta = getCompetitionCmsStatusMeta(compEdit); return <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>; })()}</div>
+                    <div style={{ padding: '10px 0' }}>{(() => { const meta = getCompetitionCmsStatusMeta(compEdit, nowTick); return <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>; })()}</div>
                     <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                      Ditentukan automatik ikut tarikh — Coming Soon (belum buka tempahan), Active (tempahan dibuka / sedang berlangsung), Inactive (tempahan ditutup, event belum bermula), Tamat (event sudah selesai).
+                      Ditentukan automatik ikut tarikh — Coming soon (belum buka tempahan), Aktif (dari buka tempahan hingga pertandingan tamat, termasuk selepas tempahan ditutup), Tamat (pertandingan sudah selesai).
                     </div>
                   </div>
                 </div>

@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
-import { DB, User, Pond, Booking, BookingPondSelection } from '../types';
+import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect, useRef } from 'react';
+import { DB, User, Pond, Booking, BookingPondSelection, Settings } from '../types';
 import { emptyDB, setDB } from '../data';
-import { loadAppDB } from '../lib/firestore';
+import { loadAppDB, subscribeSettings } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
 import { uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
@@ -77,20 +77,34 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   // blank placeholder until then, so callers checking e.g. db.settings.whatsapp
   // right after mount must not treat "still loading" as "genuinely unset".
   const [dbLoading, setDbLoading] = useState(true);
+  const liveSettings = useRef<Settings | null>(null);
+
+  // A live snapshot wins over initial loads/reloads already in flight.
+  const applyLoadedDB = useCallback((loaded: DB) => {
+    setDbState({ ...loaded, settings: liveSettings.current ?? loaded.settings });
+  }, []);
+
+  useEffect(() => subscribeSettings((settings) => {
+    liveSettings.current = settings;
+    setDbState((current) => ({ ...current, settings }));
+  }), []);
+
+  useEffect(() => {
+    try { setDB(db); } catch (error) { console.error('Failed to cache booking data:', error); }
+  }, [db]);
 
   useEffect(() => {
     let canceled = false;
     const load = async () => {
       const remoteDb = await loadAppDB();
       if (!canceled) {
-        setDbState(remoteDb);
-        setDB(remoteDb);
+        applyLoadedDB(remoteDb);
         setDbLoading(false);
       }
     };
     load().catch(() => { if (!canceled) setDbLoading(false); });
     return () => { canceled = true; };
-  }, []);
+  }, [applyLoadedDB]);
 
   useEffect(() => {
     if (!selectedCompetitionId && db.comp?.id) {
@@ -99,19 +113,17 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [db.comp?.id, selectedCompetitionId]);
 
   const updateDB = useCallback((newDb: DB) => {
-    setDbState(newDb);
-    setDB(newDb);
-  }, []);
+    applyLoadedDB(newDb);
+  }, [applyLoadedDB]);
 
   const reloadDB = useCallback(async () => {
     try {
       const remoteDb = await loadAppDB();
-      setDbState(remoteDb);
-      setDB(remoteDb);
+      applyLoadedDB(remoteDb);
     } catch (err) {
       console.error('reloadDB failed:', err);
     }
-  }, []);
+  }, [applyLoadedDB]);
 
   const setPond = useCallback((id: number | null) => {
     setSelectedPond(id);
