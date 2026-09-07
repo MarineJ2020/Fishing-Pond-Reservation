@@ -3,7 +3,7 @@ import { Competition, Score, ScoreEntry, Pond, Booking, User } from '../types';
 import { formatWeight } from '../utils/weight';
 import type { Settings } from '../types';
 import { getLB, getPrize, p2, formatDate } from '../utils';
-import { isCompetitionEnded } from '../utils/competition';
+import { getCompetitionPhase, isCompetitionEnded } from '../utils/competition';
 import { formatSeat } from '../utils/seatLabel';
 import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
 import { db as firestoreDb } from '../../lib/firebase';
@@ -37,19 +37,8 @@ const fmtTime = (value: any): string => {
 };
 
 const defaultCompetitionId = (competitions: Competition[], fallback: Competition): string => {
-  const upcoming = competitions
-    .filter((competition) => {
-      const start = new Date(competition.startDate).getTime();
-      return !!competition.id && Number.isFinite(start) && start > Date.now() && !isCompetitionEnded(competition);
-    })
-    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
-  const live = competitions.find((competition) => {
-    const now = Date.now();
-    return !!competition.id
-      && new Date(competition.startDate).getTime() <= now
-      && new Date(competition.endDate).getTime() > now;
-  });
-  return upcoming?.id || live?.id || fallback.id || competitions[0]?.id || '';
+  const live = competitions.find((competition) => !!competition.id && getCompetitionPhase(competition) === 'live');
+  return live?.id || (fallback.id && getCompetitionPhase(fallback) === 'live' ? fallback.id : '');
 };
 
 const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bookings, user, decimalPlaces }) => {
@@ -66,13 +55,15 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const [pastScores, setPastScores] = useState<ScoreEntry[]>([]);
   const [pastLoading, setPastLoading] = useState(false);
 
-  // When data first arrives, choose the nearest upcoming event by default.
-  // Once a valid selection exists, keep the user's explicit choice.
+  // When data first arrives or the selected event changes phase, choose the
+  // currently live event. Upcoming and ended events must not drive this page.
   useEffect(() => {
-    if (selectedCompId && competitions.some((competition) => competition.id === selectedCompId)) return;
+    if (selectedCompId && competitions.some((competition) => competition.id === selectedCompId && getCompetitionPhase(competition) === 'live')) return;
     const nextId = defaultCompetitionId(competitions, comp);
-    if (nextId) setSelectedCompId(nextId);
-  }, [comp, competitions, selectedCompId]);
+    const nextComp = competitions.find((competition) => competition.id === nextId) || (comp.id === nextId ? comp : null);
+    setSelectedCompId(nextId);
+    if (nextComp) setTopN(nextComp.topN || 20);
+  }, [cdStatus, comp, competitions, selectedCompId]);
 
   // Real-time score listener — fires on every score write without polling
   const scoreMapRef = useRef<Map<string, ScoreEntry>>(new Map());
@@ -110,7 +101,9 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     return () => { unsubStr(); unsubRef(); };
   }, [selectedCompId]);
 
-  const displayComp = competitions.find(c => c.id === selectedCompId) || comp;
+  const displayComp = competitions.find(c => c.id === selectedCompId && getCompetitionPhase(c) === 'live')
+    || (getCompetitionPhase(comp) === 'live' ? comp : competitions.find(c => getCompetitionPhase(c) === 'live'))
+    || comp;
 
   // Countdown for displayComp
   useEffect(() => {
@@ -256,7 +249,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
       {/* Competition selector — only currently active competitions, and only
           shown at all when there's more than one to choose between. */}
       {(() => {
-        const activeComps = competitions.filter(c => !isCompetitionEnded(c));
+        const activeComps = competitions.filter(c => c.id && getCompetitionPhase(c) === 'live');
         if (activeComps.length <= 1) return null;
         return (
           <div className="kl-comp-tabs">
