@@ -333,6 +333,17 @@
    7. CMS Hadiah — V5 prize tiers (ranges) list
    ------------------------------------------------------------------------- */
 .cms-v5 .cms-prize-list { display: flex; flex-direction: column; }
+.cms-v5 .cms-prize-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 4px 8px; color: var(--cv-soft);
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+}
+.cms-v5 .cms-prize-head span:nth-child(1),
+.cms-v5 .cms-prize-head span:nth-child(3) { width: 78px; text-align: center; flex: 0 0 78px; }
+.cms-v5 .cms-prize-head span:nth-child(2) { width: 12px; flex: 0 0 12px; }
+.cms-v5 .cms-prize-head span:nth-child(4),
+.cms-v5 .cms-prize-head span:nth-child(5) { flex: 1; min-width: 0; }
+.cms-v5 .cms-prize-head span:nth-child(6) { width: 32px; flex: 0 0 32px; }
 .cms-v5 .cms-prize-row {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 4px; border-bottom: 1px solid var(--cv-line);

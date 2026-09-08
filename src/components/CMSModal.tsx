@@ -233,10 +233,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [auditLogEntries, setAuditLogEntries] = useState<AuditEntry[]>([]);
   const [auditLogSearch, setAuditLogSearch] = useState('');
 
-  // Weigh-in proof photo viewer — shared by "Papan Markah Semasa" and "Semua Timbangan Rekod"
+  // Weigh-in proof photo viewer — shared by "Papan Markah Semasa" and "Rekod Timbangan"
   const [scorePhotoUrl, setScorePhotoUrl] = useState<string | null>(null);
 
-  // Semua Timbangan Rekod (all-competition weigh-in log) page state — cursor
+  // Rekod Timbangan (all-competition weigh-in log) page state — cursor
   // paginated so it stays fast once weigh-ins number in the thousands.
   const [allWeighEntries, setAllWeighEntries] = useState<ScoreEntry[]>([]);
   const [allWeighLoading, setAllWeighLoading] = useState(false);
@@ -1812,7 +1812,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Hadiah & Ranking only deals with competitions that haven't ended yet.
   const compsNotEnded = competitionsForCms.filter(c => getCompetitionPhase(c) !== 'ended');
 
-  // Semua Timbangan Rekod: default to the live competition, or (since an
+  // Rekod Timbangan: default to the live competition, or (since an
   // upcoming one has no weigh-ins yet) the most recently *ended* one instead.
   useEffect(() => {
     if (page !== 'all-weigh-ins' || allWeighCompId || competitionsForCms.length === 0) return;
@@ -1842,8 +1842,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         return next;
       });
     } catch (err) {
-      console.error('Failed to load Semua Timbangan Rekod page:', err);
-      setAllWeighError(err instanceof Error ? err.message : 'Gagal memuatkan Semua Timbangan Rekod.');
+      console.error('Failed to load Rekod Timbangan page:', err);
+      setAllWeighError(err instanceof Error ? err.message : 'Gagal memuatkan Rekod Timbangan.');
     }
     setAllWeighLoading(false);
   };
@@ -1955,7 +1955,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     { label: 'Hari Pertandingan', items: [
       { id: 'checkin' as CMSPage, icon: '📲', text: 'Check-In' },
       { id: 'results' as CMSPage, icon: '⚖️', text: 'Keputusan & Live' },
-      { id: 'all-weigh-ins' as CMSPage, icon: '📜', text: 'Semua Timbangan' },
+      { id: 'all-weigh-ins' as CMSPage, icon: '📜', text: 'Rekod Timbangan' },
     ]},
     { label: 'Admin', items: [
       { id: 'landing-content' as CMSPage, icon: '🏡', text: 'Laman Utama' },
@@ -2353,7 +2353,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="page-header">
                 <div>
                   <div className="page-title">Hadiah &amp; Ranking</div>
-                  <div className="page-sub">Pilih game dahulu, kemudian set hadiah ikut julat ranking. Ranking pemenang dikira ikut seat no.</div>
+                  <div className="page-sub">Pilih game dahulu, kemudian set hadiah ikut julat kedudukan. Ranking pemenang dikira ikut no pancang.</div>
                 </div>
               </div>
 
@@ -2361,7 +2361,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="card" style={{ marginBottom: '16px' }}>
                 <div className="card-body" style={{ padding: '1rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                    <label style={{ fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Pilih Game:</label>
+                    <label style={{ fontWeight: 600, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>Pilih Pertandingan:</label>
                     <select
                       className="form-input"
                       style={{ maxWidth: '360px', flex: 1 }}
@@ -2387,8 +2387,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="card" style={{ marginBottom: '16px' }}>
                 <div className="card-header">
                   <div>
-                    <div className="card-title">Tetapan Prize Tiers — {compEdit.name || '—'}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Set satu hadiah untuk satu rank atau satu julat rank seperti 11 hingga 20.</div>
+                    <div className="card-title">Tetapan Tahap Hadiah — {compEdit.name || '—'}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Set satu hadiah untuk satu kedudukan atau satu julat kedudukan seperti 11 hingga 20.</div>
                   </div>
                   {prizesEditMode ? (
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -2405,18 +2405,28 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         title={duplicateSources.length === 0 ? 'Tiada pertandingan lain dengan hadiah untuk diduplikasi' : 'Duplikasi hadiah dari pertandingan lain'}
                         onChange={e => { if (e.target.value) duplicateFromCompetition(e.target.value); }}
                       >
-                        <option value="">Duplicate Previous...</option>
+                        <option value="">Duplikasi Hadiah Lepas...</option>
                         {duplicateSources.map(c => (
                           <option key={c.id || c.name} value={c.id || ''}>{c.name}</option>
                         ))}
                       </select>
-                      <button className="btn btn-sm btn-primary" onClick={addRange}>+ Add Range</button>
+                      <button className="btn btn-sm btn-primary" onClick={addRange}>+ Tambah Julat</button>
                     </div>
                   ) : (
                     <button className="btn btn-sm btn-primary" onClick={() => setPrizesEditMode(true)}>Edit</button>
                   )}
                 </div>
                 <div className="card-body">
+                  {prizesEditMode && (
+                    <div className="cms-prize-head" aria-hidden="true">
+                      <span>Kedudukan Dari</span>
+                      <span></span>
+                      <span>Kedudukan Hingga</span>
+                      <span>Label Hadiah</span>
+                      <span>Jumlah Hadiah</span>
+                      <span></span>
+                    </div>
+                  )}
                   <div className="cms-prize-list">
                     {prizes.map((p: Prize, i: number) => {
                       const [from, to] = prizeRange(p);
@@ -2425,13 +2435,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {prizesEditMode ? (
                             <>
                               <input className="form-input cms-rank-input" type="number" min={1} value={p.rankFrom ?? p.rank}
-                                onChange={e => { const v = parseInt(e.target.value) || 0; updatePrize(i, { rankFrom: v, rank: v }); }} title="Rank dari" />
+                                onChange={e => { const v = parseInt(e.target.value) || 0; updatePrize(i, { rankFrom: v, rank: v }); }} title="Kedudukan dari" aria-label="Kedudukan dari" />
                               <span className="cms-rank-sep">–</span>
                               <input className="form-input cms-rank-input" type="number" min={1} value={p.rankTo ?? p.rank}
-                                onChange={e => updatePrize(i, { rankTo: parseInt(e.target.value) || 0 })} title="Rank hingga" />
-                              <input className="form-input" value={p.label || ''} placeholder="Label (cth: Juara)"
+                                onChange={e => updatePrize(i, { rankTo: parseInt(e.target.value) || 0 })} title="Kedudukan hingga" aria-label="Kedudukan hingga" />
+                              <input className="form-input" value={p.label || ''} placeholder="Label Hadiah (cth: Juara)"
                                 onChange={e => updatePrize(i, { label: e.target.value })} />
-                              <input className="form-input" value={p.prize} placeholder="Hadiah (cth: RM 5,000)"
+                              <input className="form-input" value={p.prize} placeholder="Jumlah Hadiah (cth: RM 5,000)"
                                 onChange={e => updatePrize(i, { prize: e.target.value })} />
                               <button className="prize-del" title="Buang" onClick={() => setPrizes(prizes.filter((_, idx) => idx !== i))}>✕</button>
                             </>
@@ -2466,18 +2476,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="card">
                 <div className="card-header">
                   <div>
-                    <div className="card-title">Audit Prize Structure</div>
+                    <div className="card-title">Audit Struktur Hadiah</div>
                     <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Jadual ini bantu staff semak jika ada julat bertindih atau tertinggal.</div>
                   </div>
                 </div>
                 <div className="card-body"><div className="table-wrap"><table>
-                  <thead><tr><th>Rank From</th><th>Rank To</th><th>Label</th><th>Prize Amount</th><th>Coverage</th></tr></thead>
+                  <thead><tr><th>Kedudukan Dari</th><th>Kedudukan Hingga</th><th>Label Hadiah</th><th>Jumlah Hadiah</th><th>Liputan</th></tr></thead>
                   <tbody>
                     {prizes.map((p: Prize, i: number) => {
                       const [from, to] = prizeRange(p);
                       const invalid = from < 1 || to < from;
                       const winners = to - from + 1;
-                      let badge = <span className="badge badge-open">Valid</span>;
+                      let badge = <span className="badge badge-open">Sah</span>;
                       if (invalid) badge = <span className="badge badge-live">Julat tidak sah</span>;
                       else if (overlap.has(i)) badge = <span className="badge badge-live">Bertindih</span>;
                       else if (winners > 1) badge = <span className="badge badge-deposit">{winners} pemenang</span>;
@@ -2547,7 +2557,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {sortableTh('Nama', 'userName', approvalSortField, approvalsSortOrder, handleKelulusanSort)}
                   <th>No. Telefon</th>
                   <th>Kolam</th>
-                  <th>Pegs</th>
+                  <th>No. Pancang</th>
                   {sortableTh('Dibayar / Jumlah', 'totalAmount', approvalSortField, approvalsSortOrder, handleKelulusanSort)}
                   <th>Bayaran</th>
                   <th>Tindakan</th>
@@ -2582,7 +2592,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <td><span className={`badge ${b.paymentType === 'deposit' ? 'badge-deposit' : 'badge-paid'}`}>{b.paymentType === 'deposit' ? 'Deposit' : b.paymentType === 'baki' ? 'Baki' : 'Penuh'}</span></td>
                       <td>
                         <div className="action-cell">
-                          <button className="btn btn-sm btn-primary" onClick={() => setReviewTarget(b)}>Review</button>
+                          <button className="btn btn-sm btn-primary" onClick={() => setReviewTarget(b)}>Semak</button>
                           {(b.staffRemarks?.length ?? 0) > 0 && (
                             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>📝 {b.staffRemarks!.length}</span>
                           )}
@@ -2710,7 +2720,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <th>Pertandingan</th>
                     {sortableTh('Info Peserta', 'userName', allSortField, allSortOrder, handleAllSort)}
                     <th>No. Pancang</th>
-                    {sortableTh('Jumlah Bayar', 'totalAmount', allSortField, allSortOrder, handleAllSort)}
+                    {sortableTh('Dibayar / Jumlah', 'totalAmount', allSortField, allSortOrder, handleAllSort)}
                     <th>Status</th>
                     <th>Tindakan</th>
                   </tr></thead>
@@ -3039,7 +3049,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             <th>Waktu</th>
                             <th>Peserta</th>
                             <th>Kolam</th>
-                            <th>Peg</th>
+                            <th>No. Pancang</th>
                             <th style={{ textAlign: 'right' }}>Berat (kg)</th>
                             <th>Bukti</th>
                             <th></th>
@@ -3107,7 +3117,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const filtered = allWeighEntries.filter((e) => !anglerQ || e.anglerName.toLowerCase().includes(anglerQ));
             return (
             <div className="page active">
-              <div className="page-header"><div><div className="page-title">Semua Timbangan Rekod</div><div className="page-sub">Sejarah timbangan merentas semua pertandingan</div></div></div>
+              <div className="page-header"><div><div className="page-title">Rekod Timbangan</div><div className="page-sub">Sejarah timbangan merentas semua pertandingan</div></div></div>
 
               {allWeighError && (
                 <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--red, #c0152a)', fontSize: '0.85rem' }}>
@@ -3151,7 +3161,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <th>Peserta</th>
                         <th>Pertandingan</th>
                         <th>Kolam</th>
-                        <th>Peg</th>
+                        <th>No. Pancang</th>
                         <th style={{ textAlign: 'right' }}>Berat (kg)</th>
                         <th>Kaedah</th>
                         <th>Bukti</th>

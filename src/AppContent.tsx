@@ -535,6 +535,14 @@ const AppContent: React.FC = () => {
       || db.competitions.find(c => booking.competitionName && c.name === booking.competitionName)
       || (db.comp.id === bookingCompetitionId ? db.comp : null);
   };
+  const bookingCompetitionDateLabel = (booking: Booking): string => {
+    const competition = bookingCompetitionFor(booking);
+    if (!competition) return '';
+    const start = formatDate(competition.startDate, { time: true });
+    const end = formatDate(competition.endDate, { time: true });
+    if (start && end) return `${start} - ${end}`;
+    return start || end;
+  };
 
   const openRulesPdf = () => {
     const pdfUrl = normalizePdfUrl(db.settings.rulesPdfUrl || '');
@@ -1680,6 +1688,7 @@ const AppContent: React.FC = () => {
               // staff act on a receipt, so a pending booking would render "Baki RM".
               const balanceDue = outstandingBalance(b);
               const isBookingCompetitionEnded = isCompetitionEnded(bookingCompetitionFor(b));
+              const competitionDateLabel = bookingCompetitionDateLabel(b);
               return (
               <div key={b.id} className="card booking-row" onClick={() => goToBookingDetail(b.id)}>
                 <div>
@@ -1696,6 +1705,9 @@ const AppContent: React.FC = () => {
                 </div>
                 <div>
                   <div className="booking-pond">{b.competitionName || selectedCompetition?.name || db.comp.name}</div>
+                  {competitionDateLabel && (
+                    <div className="booking-competition-dates">{competitionDateLabel}</div>
+                  )}
                   <div className="booking-customer-info">
                     <strong>{b.userName}</strong>
                     <span>{b.bookingPhone || b.userPhone || '-'}</span>
@@ -1716,7 +1728,7 @@ const AppContent: React.FC = () => {
                     {bookingStatusLabel(b.status)}
                   </span>
                   {isBookingCompetitionEnded && (
-                    <span className="status-badge st-competition-ended">
+                    <span className="competition-ended-label">
                       PERTANDINGAN TAMAT
                     </span>
                   )}
@@ -1840,6 +1852,7 @@ const AppContent: React.FC = () => {
               <BookingDetailContent
                 booking={booking}
                 competitionEnded={isCompetitionEnded(bookingCompetitionFor(booking))}
+                competitionDateLabel={bookingCompetitionDateLabel(booking)}
                 inPage
                 onReceiptSubmitted={reloadDB}
               />
@@ -1927,6 +1940,7 @@ const AppContent: React.FC = () => {
         isOpen={bookingDetailsOpen}
         booking={selectedBooking}
         competitionEnded={selectedBooking ? isCompetitionEnded(bookingCompetitionFor(selectedBooking)) : false}
+        competitionDateLabel={selectedBooking ? bookingCompetitionDateLabel(selectedBooking) : ''}
         onClose={() => { setBookingDetailsOpen(false); setSelectedBooking(null); }}
       />
       <Toast />

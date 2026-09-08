@@ -58,6 +58,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const [cdBlocks, setCdBlocks] = useState({ d: '--', h: '--', m: '--', s: '--' });
   const [cdStatus, setCdStatus] = useState<'upcoming' | 'live' | 'ended'>('upcoming');
   const [topN, setTopN] = useState(comp.topN || 20);
+  const [pegSearch, setPegSearch] = useState('');
 
   // Past-event results
   const [selectedPastId, setSelectedPastId] = useState('');
@@ -148,7 +149,17 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   });
 
   const fullLb = getLB(scoresRecord);
-  const lb = fullLb.slice(0, topN);
+  const pegSearchTerm = pegSearch.trim().toLowerCase();
+  const rankedLb = fullLb.map((entry, index) => ({ ...entry, rank: index + 1 }));
+  const lb = (pegSearchTerm
+    ? rankedLb.filter((entry) => {
+        const pond = ponds.find(p => p.id === entry.pondId);
+        const formattedSeat = pond?.code ? formatSeat(pond.code, entry.peg).toLowerCase() : '';
+        return entry.peg.toString().includes(pegSearchTerm)
+          || formattedSeat.includes(pegSearchTerm)
+          || `peg #${entry.peg}`.includes(pegSearchTerm);
+      })
+    : rankedLb.slice(0, topN));
 
   const displayBookings = bookings.filter(b => (b.competitionId || comp.id) === selectedCompId);
   const bookingRefByPeg = useMemo(() => {
@@ -302,6 +313,15 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 />
                 Teratas
               </div>
+              <label className="kl-peg-search">
+                <span>No Pancang</span>
+                <input
+                  type="search"
+                  value={pegSearch}
+                  placeholder="Cari..."
+                  onChange={(e) => setPegSearch(e.target.value)}
+                />
+              </label>
               <span className="kl-last-upd">
                 {loadingScores ? 'Memuatkan…' : lastUpdated ? `Dikemaskini ${lastUpdated}` : ''}
               </span>
@@ -309,8 +329,8 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
 
             <div className="kl-rank-scroll">
               <div className="kl-rank-list">
-                {lb.length ? lb.map((e, i) => {
-                  const rank = i + 1;
+                {lb.length ? lb.map((e) => {
+                  const rank = e.rank;
                   const isMe = userPegs.includes(e.peg);
                   const pond = ponds.find(p => p.id === e.pondId);
                   const pondName = pond ? pond.name.split('—')[0].trim() : '';
@@ -335,7 +355,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 }) : (
                   <div className="kl-no-data">
                     <i className="fa-solid fa-fish-fins"></i>{' '}
-                    {loadingScores ? 'Memuatkan data…' : 'Tiada rekod berat lagi — sila semak semula semasa pertandingan!'}
+                    {loadingScores ? 'Memuatkan data…' : pegSearchTerm ? 'Tiada rekod untuk No Pancang ini.' : 'Tiada rekod berat lagi — sila semak semula semasa pertandingan!'}
                   </div>
                 )}
               </div>

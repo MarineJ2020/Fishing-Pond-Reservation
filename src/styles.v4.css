@@ -285,6 +285,9 @@
 .kl-topn-ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .kl-topn-ctl input { width: 54px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; font-family: var(--font-heading); font-size: 14px; text-align: center; color: var(--navy); background: #f8fafc; }
 .kl-topn-ctl input:focus { outline: none; border-color: var(--red); }
+.kl-peg-search { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.kl-peg-search input { width: 126px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-family: var(--font-heading); font-size: 14px; color: var(--navy); background: #f8fafc; }
+.kl-peg-search input:focus { outline: none; border-color: var(--red); }
 .kl-last-upd { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--muted); }
 
 .kl-rank-scroll { max-height: 460px; overflow-y: auto; }
@@ -381,6 +384,8 @@
   .kl-panel-head { padding: 18px; }
   .kl-panel-head h2, .kl-panel-head h3 { font-size: 27px; }
   .kl-rank-row { grid-template-columns: 46px 1fr auto; gap: 10px 12px; padding: 13px; }
+  .kl-peg-search { width: 100%; }
+  .kl-peg-search input { flex: 1; min-width: 0; }
   .kl-updated { grid-column: 2 / -1; text-align: left; margin-top: 2px; }
   .kl-rank-no { width: 42px; height: 42px; font-size: 22px; }
   .kl-weight strong { font-size: 24px; }

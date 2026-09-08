@@ -1275,6 +1275,7 @@ footer {
 .booking-row:hover { box-shadow: 0 4px 16px rgba(0,0,0,.06); border-color: var(--gold); }
 .booking-id { font-family: var(--font-heading); font-size: 1rem; color: var(--gold); letter-spacing: .5px; }
 .booking-pond { font-weight: 700; font-size: .95rem; margin-bottom: 4px; }
+.booking-competition-dates { font-size: .72rem; color: var(--text-muted); margin: -1px 0 6px; }
 .booking-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: .78rem; color: var(--text-muted); }
 .booking-status-list { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .status-badge {
@@ -1285,6 +1286,13 @@ footer {
 .st-confirmed { background: rgba(45,106,45,.12); color: var(--green); }
 .st-rejected { background: rgba(139,26,26,.12); color: var(--red); }
 .st-competition-ended { background: #eef1f4; color: var(--text-muted); border: 1px solid #d5dbe1; }
+.competition-ended-label {
+  display: inline-flex; align-items: center; width: fit-content;
+  padding: 3px 8px; border-radius: 7px; border: 1px solid #d5dbe1;
+  background: #f2f4f6; color: var(--text-muted);
+  font-size: .62rem; font-weight: 700; line-height: 1.25; letter-spacing: .35px;
+  text-transform: uppercase; white-space: nowrap;
+}
 
 /* ===== CONFIRMED PAGE ===== */
 .confirm-page {
@@ -2464,6 +2472,7 @@ textarea.form-input { resize: vertical; }
 .booking-row:hover { box-shadow: 0 4px 16px rgba(0,0,0,.06); border-color: var(--gold); }
 .booking-id { font-family: var(--font-heading); font-size: 1rem; color: var(--gold); letter-spacing: .5px; }
 .booking-pond { font-weight: 700; font-size: .95rem; margin-bottom: 4px; }
+.booking-competition-dates { font-size: .72rem; color: var(--text-muted); margin: -1px 0 6px; }
 .booking-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: .78rem; color: var(--text-muted); }
 .booking-status-list { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .status-badge {
@@ -2474,6 +2483,13 @@ textarea.form-input { resize: vertical; }
 .st-confirmed { background: rgba(45,106,45,.12); color: var(--green); }
 .st-rejected { background: rgba(139,26,26,.12); color: var(--red); }
 .st-competition-ended { background: #eef1f4; color: var(--text-muted); border: 1px solid #d5dbe1; }
+.competition-ended-label {
+  display: inline-flex; align-items: center; width: fit-content;
+  padding: 3px 8px; border-radius: 7px; border: 1px solid #d5dbe1;
+  background: #f2f4f6; color: var(--text-muted);
+  font-size: .62rem; font-weight: 700; line-height: 1.25; letter-spacing: .35px;
+  text-transform: uppercase; white-space: nowrap;
+}
 
 /* ===== CONFIRMED PAGE ===== */
 .confirm-page {

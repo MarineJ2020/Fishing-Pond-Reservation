@@ -12,6 +12,7 @@ import DocPreviewModal from './DocPreviewModal';
 interface Props {
   booking: Booking;
   competitionEnded?: boolean;
+  competitionDateLabel?: string;
   /** When true, hides the close button (rendered as a page, not a modal). */
   inPage?: boolean;
   onClose?: () => void;
@@ -29,7 +30,13 @@ const RECEIPT_STATUS_LABEL: Record<string, { label: string; color: string }> = {
   rejected: { label: 'Ditolak', color: 'var(--red)' },
 };
 
-const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, inPage, onClose, onReceiptSubmitted }) => {
+const bookingStatusLabel = (status: Booking['status']): string => {
+  if (status === 'confirmed') return 'Disahkan';
+  if (status === 'rejected') return 'Dibatalkan';
+  return 'Menunggu Semakan';
+};
+
+const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, competitionDateLabel, inPage, onClose, onReceiptSubmitted }) => {
   const [docPreview, setDocPreview] = useState<string | null>(null);
   const receipts = booking.receipts && booking.receipts.length
     ? booking.receipts
@@ -79,17 +86,17 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, inPa
       {/* Booking ID & Status */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
         <div>
-          <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Booking ID</div>
+          <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Ref</div>
           <div style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'var(--font-heading)', color: 'var(--red)' }}>{booking.bookingRef || booking.id}</div>
         </div>
         <div>
-          <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Status</div>
+          <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Status Tempahan</div>
           <div className="booking-status-list" style={{ alignItems: 'flex-start' }}>
             <span className={`status-badge st-${booking.status}`}>
-              {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+              {bookingStatusLabel(booking.status)}
             </span>
             {competitionEnded && (
-              <span className="status-badge st-competition-ended">
+              <span className="competition-ended-label">
                 PERTANDINGAN TAMAT
               </span>
             )}
@@ -183,6 +190,9 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, inPa
       <div style={{ background: 'var(--cream)', padding: '18px', borderRadius: '14px', border: '1px solid var(--line)' }}>
         <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '10px', fontWeight: 700 }}>Butiran Kolam</div>
         <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '6px' }}>🏆 {booking.competitionName || 'Pertandingan'}</div>
+        {competitionDateLabel && (
+          <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginBottom: '10px' }}>{competitionDateLabel}</div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {pondGroups.map((group) => (
             <div key={group.pondId}>
