@@ -37,8 +37,17 @@ const fmtTime = (value: any): string => {
 };
 
 const defaultCompetitionId = (competitions: Competition[], fallback: Competition): string => {
-  const live = competitions.find((competition) => !!competition.id && getCompetitionPhase(competition) === 'live');
-  return live?.id || (fallback.id && getCompetitionPhase(fallback) === 'live' ? fallback.id : '');
+  const live = getLiveCompetitions(competitions, fallback)[0];
+  return live?.id || '';
+};
+
+const getLiveCompetitions = (competitions: Competition[], fallback?: Competition): Competition[] => {
+  const seen = new Set<string>();
+  return [...competitions, ...(fallback ? [fallback] : [])].filter((competition) => {
+    if (!competition.id || seen.has(competition.id)) return false;
+    seen.add(competition.id);
+    return getCompetitionPhase(competition) === 'live';
+  });
 };
 
 const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bookings, user, decimalPlaces }) => {
@@ -54,16 +63,17 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const [selectedPastId, setSelectedPastId] = useState('');
   const [pastScores, setPastScores] = useState<ScoreEntry[]>([]);
   const [pastLoading, setPastLoading] = useState(false);
+  const liveCompetitions = useMemo(() => getLiveCompetitions(competitions, comp), [competitions, comp]);
 
   // When data first arrives or the selected event changes phase, choose the
   // currently live event. Upcoming and ended events must not drive this page.
   useEffect(() => {
-    if (selectedCompId && competitions.some((competition) => competition.id === selectedCompId && getCompetitionPhase(competition) === 'live')) return;
-    const nextId = defaultCompetitionId(competitions, comp);
-    const nextComp = competitions.find((competition) => competition.id === nextId) || (comp.id === nextId ? comp : null);
+    if (selectedCompId && liveCompetitions.some((competition) => competition.id === selectedCompId)) return;
+    const nextComp = liveCompetitions[0] || null;
+    const nextId = nextComp?.id || '';
     setSelectedCompId(nextId);
     if (nextComp) setTopN(nextComp.topN || 20);
-  }, [cdStatus, comp, competitions, selectedCompId]);
+  }, [cdStatus, liveCompetitions, selectedCompId]);
 
   // Real-time score listener — fires on every score write without polling
   const scoreMapRef = useRef<Map<string, ScoreEntry>>(new Map());
@@ -101,9 +111,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     return () => { unsubStr(); unsubRef(); };
   }, [selectedCompId]);
 
-  const displayComp = competitions.find(c => c.id === selectedCompId && getCompetitionPhase(c) === 'live')
-    || (getCompetitionPhase(comp) === 'live' ? comp : competitions.find(c => getCompetitionPhase(c) === 'live'))
-    || comp;
+  const displayComp = liveCompetitions.find(c => c.id === selectedCompId) || liveCompetitions[0] || comp;
 
   // Countdown for displayComp
   useEffect(() => {
@@ -246,14 +254,13 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
         </div>
       </section>
 
-      {/* Competition selector — only currently active competitions, and only
+      {/* Competition selector — only currently live competitions, and only
           shown at all when there's more than one to choose between. */}
       {(() => {
-        const activeComps = competitions.filter(c => c.id && getCompetitionPhase(c) === 'live');
-        if (activeComps.length <= 1) return null;
+        if (liveCompetitions.length <= 1) return null;
         return (
           <div className="kl-comp-tabs">
-            {activeComps.map(c => (
+            {liveCompetitions.map(c => (
               <button
                 key={c.id || c.name}
                 type="button"
