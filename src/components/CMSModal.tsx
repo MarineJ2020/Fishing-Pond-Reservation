@@ -79,6 +79,17 @@ type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes
 const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'seo', 'users', 'audit-log'];
 const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins', 'users'];
 
+const resultsCompetitionOptions = (competitions: Competition[]): Competition[] =>
+  competitions
+    .map((competition, index) => ({ competition, index, phase: getCompetitionPhase(competition) }))
+    .filter(({ phase }) => phase === 'live' || phase === 'ended')
+    .sort((a, b) => {
+      const priority = (phase: 'live' | 'upcoming' | 'ended') => (phase === 'live' ? 0 : 1);
+      const phaseOrder = priority(a.phase) - priority(b.phase);
+      return phaseOrder || a.index - b.index;
+    })
+    .map(({ competition }) => competition);
+
 // Blank state for the inline "Tambah Pertandingan" form. Date fields are raw
 // datetime-local input strings, converted to ISO merged into a Competition on save.
 const EMPTY_COMP_CREATE = {
@@ -370,14 +381,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   useEffect(() => {
     if (page !== 'results') return;
     const available = competitions.length ? competitions : (comp.id ? [comp] : []);
-    const nearestUpcoming = available
-      .filter((competition) => getCompetitionPhase(competition) === 'upcoming')
-      .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
-    const live = available.find((competition) => getCompetitionPhase(competition) === 'live');
-    const fallback = nearestUpcoming || live || available[0];
-    if (fallback?.id) setResultsCompId(fallback.id);
+    const options = resultsCompetitionOptions(available);
+    const current = options.find((competition) => competition.id === resultsCompId);
+    const fallback = current || options[0];
+    setResultsCompId(fallback?.id || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [page, competitions, comp]);
 
   useEffect(() => {
     if (page !== 'checkin') return;
@@ -1797,6 +1806,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const compsEndedLast = [...competitionsForCms].sort((a, b) =>
     (getCompetitionPhase(a) === 'ended' ? 1 : 0) - (getCompetitionPhase(b) === 'ended' ? 1 : 0),
   );
+  const resultsCompsLiveFirst = resultsCompetitionOptions(competitionsForCms);
   const compOptionLabel = (c: Competition) =>
     `${c.name}${getCompetitionPhase(c) === 'ended' ? ' (tamat)' : ''}`;
   // Hadiah & Ranking only deals with competitions that haven't ended yet.
@@ -2980,7 +2990,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       value={resultsCompId}
                       onChange={(e) => { setResultsCompId(e.target.value); setScoreEntries([]); }}
                     >
-                      {compsEndedLast.map(c => (
+                      {resultsCompsLiveFirst.map(c => (
                         <option key={c.id || c.name} value={c.id || ''} style={{ color: getCompetitionPhase(c) === 'ended' ? '#9aa3ad' : undefined }}>
                           {compOptionLabel(c)}
                         </option>
