@@ -2043,7 +2043,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             </div>
           </div>
           <div className="topbar-right">
-            <a onClick={guardedClose} style={{ fontSize: '0.85rem', color: 'var(--gold)', cursor: 'pointer', fontWeight: 600 }}>🌐 Laman Web</a>
+            <a
+              href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                guardedClose();
+              }}
+              style={{ fontSize: '0.85rem', color: 'var(--gold)', cursor: 'pointer', fontWeight: 600 }}
+            >
+              🌐 Laman Web
+            </a>
           </div>
         </div>
 
