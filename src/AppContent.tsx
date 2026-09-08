@@ -529,6 +529,12 @@ const AppContent: React.FC = () => {
     const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     return myBookingsSort === 'latest' ? -diff : diff;
   });
+  const bookingCompetitionFor = (booking: Booking) => {
+    const bookingCompetitionId = booking.competitionId || db.comp.id || '';
+    return db.competitions.find(c => c.id === bookingCompetitionId)
+      || db.competitions.find(c => booking.competitionName && c.name === booking.competitionName)
+      || (db.comp.id === bookingCompetitionId ? db.comp : null);
+  };
 
   const openRulesPdf = () => {
     const pdfUrl = normalizePdfUrl(db.settings.rulesPdfUrl || '');
@@ -1673,6 +1679,7 @@ const AppContent: React.FC = () => {
               // Derived, not b.balanceDue: the server only stamps balanceDue once
               // staff act on a receipt, so a pending booking would render "Baki RM".
               const balanceDue = outstandingBalance(b);
+              const isBookingCompetitionEnded = isCompetitionEnded(bookingCompetitionFor(b));
               return (
               <div key={b.id} className="card booking-row" onClick={() => goToBookingDetail(b.id)}>
                 <div>
@@ -1703,11 +1710,16 @@ const AppContent: React.FC = () => {
                     )}
                   </div>
                 </div>
-                <div>
+                <div className="booking-status-list">
                   <span className={`status-badge st-${b.status}`}>
                     <i className={`fa-solid fa-${b.status === 'pending' ? 'clock' : b.status === 'confirmed' ? 'check-circle' : 'xmark-circle'}`}></i>{' '}
                     {bookingStatusLabel(b.status)}
                   </span>
+                  {isBookingCompetitionEnded && (
+                    <span className="status-badge st-competition-ended">
+                      PERTANDINGAN TAMAT
+                    </span>
+                  )}
                 </div>
               </div>
               );
@@ -1825,7 +1837,12 @@ const AppContent: React.FC = () => {
                   Butiran Tempahan
                 </h1>
               </div>
-              <BookingDetailContent booking={booking} inPage onReceiptSubmitted={reloadDB} />
+              <BookingDetailContent
+                booking={booking}
+                competitionEnded={isCompetitionEnded(bookingCompetitionFor(booking))}
+                inPage
+                onReceiptSubmitted={reloadDB}
+              />
             </div>
           </div>
         );
@@ -1909,6 +1926,7 @@ const AppContent: React.FC = () => {
       <BookingDetailsModal
         isOpen={bookingDetailsOpen}
         booking={selectedBooking}
+        competitionEnded={selectedBooking ? isCompetitionEnded(bookingCompetitionFor(selectedBooking)) : false}
         onClose={() => { setBookingDetailsOpen(false); setSelectedBooking(null); }}
       />
       <Toast />

@@ -11,6 +11,7 @@ import DocPreviewModal from './DocPreviewModal';
 
 interface Props {
   booking: Booking;
+  competitionEnded?: boolean;
   /** When true, hides the close button (rendered as a page, not a modal). */
   inPage?: boolean;
   onClose?: () => void;
@@ -28,7 +29,7 @@ const RECEIPT_STATUS_LABEL: Record<string, { label: string; color: string }> = {
   rejected: { label: 'Ditolak', color: 'var(--red)' },
 };
 
-const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onReceiptSubmitted }) => {
+const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, inPage, onClose, onReceiptSubmitted }) => {
   const [docPreview, setDocPreview] = useState<string | null>(null);
   const receipts = booking.receipts && booking.receipts.length
     ? booking.receipts
@@ -83,9 +84,16 @@ const BookingDetailContent: React.FC<Props> = ({ booking, inPage, onClose, onRec
         </div>
         <div>
           <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Status</div>
-          <span className={`status-badge st-${booking.status}`}>
-            {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
-          </span>
+          <div className="booking-status-list" style={{ alignItems: 'flex-start' }}>
+            <span className={`status-badge st-${booking.status}`}>
+              {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+            </span>
+            {competitionEnded && (
+              <span className="status-badge st-competition-ended">
+                PERTANDINGAN TAMAT
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

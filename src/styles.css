@@ -1276,6 +1276,7 @@ footer {
 .booking-id { font-family: var(--font-heading); font-size: 1rem; color: var(--gold); letter-spacing: .5px; }
 .booking-pond { font-weight: 700; font-size: .95rem; margin-bottom: 4px; }
 .booking-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: .78rem; color: var(--text-muted); }
+.booking-status-list { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .status-badge {
   display: inline-flex; align-items: center; gap: 6px; font-size: .72rem;
   font-weight: 700; padding: 5px 14px; border-radius: 20px; text-transform: uppercase; letter-spacing: .5px;
@@ -1283,6 +1284,7 @@ footer {
 .st-pending { background: rgba(231,25,45,.12); color: var(--gold); }
 .st-confirmed { background: rgba(45,106,45,.12); color: var(--green); }
 .st-rejected { background: rgba(139,26,26,.12); color: var(--red); }
+.st-competition-ended { background: #eef1f4; color: var(--text-muted); border: 1px solid #d5dbe1; }
 
 /* ===== CONFIRMED PAGE ===== */
 .confirm-page {
@@ -1595,6 +1597,7 @@ tr:hover td { background: var(--cream); }
   .countdown-wrap { flex-direction: column; padding: 20px; gap: 16px; }
   .my-score-card { flex-direction: column; text-align: center; padding: 20px; }
   .booking-row { grid-template-columns: 1fr; gap: 12px; padding: 16px; }
+  .booking-status-list { align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
   .seat-btn { width: 44px; height: 38px; font-size: .8rem; }
 }
 /* (legacy second :root block kept intentionally empty — primary tokens defined at top of file) */
@@ -2462,6 +2465,7 @@ textarea.form-input { resize: vertical; }
 .booking-id { font-family: var(--font-heading); font-size: 1rem; color: var(--gold); letter-spacing: .5px; }
 .booking-pond { font-weight: 700; font-size: .95rem; margin-bottom: 4px; }
 .booking-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: .78rem; color: var(--text-muted); }
+.booking-status-list { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .status-badge {
   display: inline-flex; align-items: center; gap: 6px; font-size: .72rem;
   font-weight: 700; padding: 5px 14px; border-radius: 20px; text-transform: uppercase; letter-spacing: .5px;
@@ -2469,6 +2473,7 @@ textarea.form-input { resize: vertical; }
 .st-pending { background: rgba(231,25,45,.12); color: var(--gold); }
 .st-confirmed { background: rgba(45,106,45,.12); color: var(--green); }
 .st-rejected { background: rgba(139,26,26,.12); color: var(--red); }
+.st-competition-ended { background: #eef1f4; color: var(--text-muted); border: 1px solid #d5dbe1; }
 
 /* ===== CONFIRMED PAGE ===== */
 .confirm-page {
@@ -2763,6 +2768,7 @@ textarea.form-input { resize: vertical; }
   .w-cell { font-size: 1.2rem; }
   .booking-row { grid-template-columns: 1fr; gap: 12px; padding: 16px; }
   .booking-row > div:last-child { justify-self: start; }
+  .booking-status-list { align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
   .seat-btn { width: 44px; height: 38px; font-size: .8rem; }
   .panel { padding: 16px; }
   .booking-form-card { padding: 16px; }

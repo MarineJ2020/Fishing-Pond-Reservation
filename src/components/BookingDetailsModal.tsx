@@ -5,10 +5,11 @@ import BookingDetailContent from './BookingDetailContent';
 interface BookingDetailsModalProps {
   isOpen: boolean;
   booking: Booking | null;
+  competitionEnded?: boolean;
   onClose: () => void;
 }
 
-const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booking, onClose }) => {
+const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booking, competitionEnded, onClose }) => {
   if (!isOpen || !booking) return null;
 
   return (
@@ -18,7 +19,7 @@ const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booki
           <div className="modal-title">Butiran Tempahan</div>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
-        <BookingDetailContent booking={booking} onClose={onClose} />
+        <BookingDetailContent booking={booking} competitionEnded={competitionEnded} onClose={onClose} />
       </div>
     </div>
   );
