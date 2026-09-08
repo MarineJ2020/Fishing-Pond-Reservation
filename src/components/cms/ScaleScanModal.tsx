@@ -219,7 +219,8 @@ const ScaleScanModal: React.FC<Props> = ({
   // or manual entry. weight=null means "no usable reading yet".
   const [activeReading, setActiveReading] = useState<{ source: ReadingSource; weight: number | null; displayText: string; rawText: string } | null>(null);
   const [fallbackBusy, setFallbackBusy] = useState(false);
-  // Final failsafe: staff types the weight and attaches a FRESH proof photo.
+  // Final failsafe: staff types the weight. The captured scale photo is reused
+  // as proof by default; staff can replace it with a separate proof photo.
   const [manualMode, setManualMode] = useState(false);
   const [manualWeightInput, setManualWeightInput] = useState('');
   const [manualPhotoBlob, setManualPhotoBlob] = useState<Blob | null>(null);
@@ -632,10 +633,8 @@ const ScaleScanModal: React.FC<Props> = ({
   const handleApprove = () => {
     if (!activeReading || activeReading.weight === null || !confirmedBooking) return;
     const isManual = activeReading.source === 'manual';
-    // Manual entry requires a freshly-captured proof photo; the scanners reuse
-    // the captured weight photo.
-    const proofBlob = isManual ? manualPhotoBlob : photoBlob;
-    const proofName = isManual ? manualPhotoFileName : photoFileName;
+    const proofBlob = isManual ? (manualPhotoBlob || photoBlob) : photoBlob;
+    const proofName = isManual && manualPhotoBlob ? manualPhotoFileName : photoFileName;
     if (!proofBlob) return;
     onApprove({
       weight: activeReading.weight,
@@ -653,8 +652,7 @@ const ScaleScanModal: React.FC<Props> = ({
   };
 
   const approveDisabled =
-    !activeReading || activeReading.weight === null ||
-    (activeReading.source === 'manual' && !manualPhotoBlob);
+    !activeReading || activeReading.weight === null || !photoBlob;
 
   const showBookingChip =
     confirmedBooking
@@ -983,13 +981,13 @@ const ScaleScanModal: React.FC<Props> = ({
               }}>
                 ℹ️ Tidak tepat? <strong>Ambil Semula</strong> untuk cuba AI lagi. Jika AI gagal,
                 cuba <strong>Imbas Tanpa AI</strong>. Jika masih gagal, <strong>Masukkan Manual</strong>
-                {' '}berat sambil melampirkan gambar bukti baharu.
+                {' '}berat. Gambar timbangan yang telah diambil akan digunakan sebagai bukti.
               </div>
 
               {manualMode && (
                 <div style={{ marginTop: 12, padding: 12, border: '1px dashed #b45309', borderRadius: 8, background: '#fffbeb' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 8 }}>
-                    ✍️ Kemasukan Manual — wajib lampirkan gambar bukti baharu
+                    ✍️ Kemasukan Manual — gambar timbangan sedia ada digunakan sebagai bukti
                   </div>
                   <label style={{ fontSize: 12, color: '#92400e' }}>Berat (kg)</label>
                   <input
@@ -1005,13 +1003,13 @@ const ScaleScanModal: React.FC<Props> = ({
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) handleManualPhotoChosen(f); e.currentTarget.value = ''; }}
                   />
                   <button className="btn" onClick={() => manualPhotoInputRef.current?.click()}>
-                    📷 {manualPhotoBlob ? 'Tukar Gambar Bukti' : 'Ambil Gambar Bukti'}
+                    📷 {manualPhotoBlob ? 'Tukar Gambar Bukti' : 'Guna Gambar Bukti Lain'}
                   </button>
                   {manualPhotoUrl && (
                     <img src={manualPhotoUrl} alt="bukti" style={{ display: 'block', marginTop: 8, maxWidth: '100%', maxHeight: 160, borderRadius: 6, border: '1px solid var(--line)' }} />
                   )}
-                  {!manualPhotoBlob && (
-                    <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>Gambar bukti diperlukan sebelum simpan.</div>
+                  {!manualPhotoBlob && photoUrl && (
+                    <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>Jika tidak pilih gambar lain, gambar timbangan asal akan digunakan sebagai bukti.</div>
                   )}
                 </div>
               )}
