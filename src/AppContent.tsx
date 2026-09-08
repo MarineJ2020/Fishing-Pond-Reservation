@@ -1331,7 +1331,7 @@ const AppContent: React.FC = () => {
                             <p style={{ color: 'var(--muted)', maxWidth: '460px', margin: '0 auto', fontSize: '.9rem', lineHeight: 1.6 }}>
                               {bookingClosedMsg || 'Tempahan untuk pertandingan ini tidak dibuka buat masa ini.'}
                               <br /><br />
-                              <em>Booking for this competition is not open right now. Please choose another competition.</em>
+                              <em>Tempahan untuk pertandingan ini belum dibuka. Sila pilih pertandingan lain.</em>
                             </p>
                           </div>
                         </section>
