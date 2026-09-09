@@ -2721,7 +2721,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
 
               <div className="card">
-                <div className="card-body"><div className="table-wrap"><table>
+                <div className="card-body"><div className="table-wrap"><table className="cms-all-bookings-table">
                   <thead><tr>
                     <th>Ref</th>
                     {sortableTh('Tarikh Tempahan', 'createdAt', allSortField, allSortOrder, handleAllSort)}
@@ -2737,7 +2737,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     {!allLoading && filteredEntries.map(b => (
                       <tr key={b.id}>
                         <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
-                        <td style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>{b.createdAt ? formatDate(b.createdAt, { time: true }) : '-'}</td>
+                        <td className="cms-booking-date-cell">
+                          {b.createdAt ? (
+                            <>
+                              <div>{formatDate(b.createdAt)}</div>
+                              <div className="cms-booking-time">{formatDate(b.createdAt, { time: true }).slice(-5)}</div>
+                            </>
+                          ) : '-'}
+                        </td>
                         <td>{b.competitionName || comp.name || '-'}</td>
                         <td className="td-name">
                           {b.userName}
@@ -2759,7 +2766,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {(b.balanceDue ?? 0) > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {b.balanceDue}</div>}
                           {(b.receipts?.some(receipt => receipt.url) || b.receiptData) && (
                             <div style={{ display: 'block', marginTop: 6 }}>
-                              <button className="btn btn-sm btn-ghost" onClick={() => setReceiptHistoryBooking(b)}>Receipt</button>
+                              <button className="btn btn-sm btn-ghost" onClick={() => setReceiptHistoryBooking(b)}>Resit</button>
                             </div>
                           )}
                         </td>

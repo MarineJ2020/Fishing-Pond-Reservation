@@ -263,6 +263,14 @@
 .cms-v5 .table-wrap td { padding: 12px 14px; border-bottom: 1px solid var(--cv-line); color: var(--cv-text); font-size: 14px; }
 .cms-v5 .table-wrap tr:last-child td { border-bottom: 0; }
 .cms-v5 .table-wrap tbody tr:hover { background: #fbfdff; }
+.cms-v5 .cms-all-bookings-table th:nth-child(2),
+.cms-v5 .cms-all-bookings-table td:nth-child(2) { width: 104px; min-width: 104px; }
+.cms-v5 .cms-all-bookings-table th:nth-child(3),
+.cms-v5 .cms-all-bookings-table td:nth-child(3) { min-width: 190px; }
+.cms-v5 .cms-all-bookings-table th:nth-child(4),
+.cms-v5 .cms-all-bookings-table td:nth-child(4) { min-width: 220px; }
+.cms-v5 .cms-booking-date-cell { font-size: 13px; line-height: 1.25; white-space: nowrap; }
+.cms-v5 .cms-booking-time { margin-top: 3px; color: var(--cv-soft); font-size: 11px; font-weight: 700; }
 
 /* Soft status badges */
 .cms-v5 .badge {
