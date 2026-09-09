@@ -515,7 +515,8 @@ app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
     }
 });
 
-export const api = functions.https.onRequest(app);
+// Browser requests reach Express; each write route verifies Firebase Auth itself.
+export const api = functions.runWith({ invoker: 'public' }).https.onRequest(app);
 
 // Re-read current state so delayed trigger delivery cannot release a reused peg.
 export const releaseBookingSeatClaims = functions.firestore.document('bookings/{bookingId}')

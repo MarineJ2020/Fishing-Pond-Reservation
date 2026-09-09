@@ -8,6 +8,7 @@
 - Booking creation validates competition dates, booking windows, configured ponds and peg limits on the server. Prices, deposits, identity, status and references are server controlled. Existing booking windows are preserved: an upcoming event can accept advance bookings when its booking window is already open.
 - Transactions check both legacy competition ID encodings and deterministic private peg claims. Cancelled/rejected claims are immediately reusable; a trigger cleans them up without deleting a replacement booking's claim.
 - Customer receipt submission and replacement use transactions. Accepted receipt history, payment totals and booking status cannot be edited through these endpoints or direct client writes.
+- The HTTP API permits public invocation so browsers can reach it. Every write route still verifies a Firebase Auth token and its required role or booking ownership; only seat availability is readable anonymously.
 - CMS approval/check-in workflows keep their existing APIs. Private booking data is cleared on account changes and is no longer written to the browser's shared application cache.
 
 ## Verification
