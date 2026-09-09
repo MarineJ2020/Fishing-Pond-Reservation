@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { receiptUploadFolder } from '../utils/receiptStorage';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { useSearchParams } from 'react-router-dom';
@@ -989,7 +990,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(true);
     try {
       const webp = await compressBlobToWebp(file, file.name);
-      const proofUrl = await uploadImageToFirebaseStorage(webp, 'fishing-pond-receipts', webp.name);
+      const proofUrl = await uploadImageToFirebaseStorage(webp, receiptUploadFolder(), webp.name);
       await approveDepositWithProofDirect(booking.id, proofUrl, amount);
       await refetchCurrentBookingList();
       await logAuditEvent({

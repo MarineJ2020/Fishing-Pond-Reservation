@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
+import { receiptUploadFolder } from '../utils/receiptStorage';
 import { useUI } from '../context/UIContext';
 import { compressImageToDataUrl, uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
-import { replaceBookingReceiptDirect } from '../lib/firestore';
+import { replaceBookingReceipt } from '../lib/api';
 
 interface Props {
   bookingId: string;
@@ -30,12 +31,12 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, receiptStat
     setBusy(true);
     try {
       const receiptUrl = isPdfFile(file)
-        ? await uploadPdfToFirebaseStorage(file, 'fishing-pond-receipts', file.name)
+        ? await uploadPdfToFirebaseStorage(file, receiptUploadFolder(), file.name)
         : await (async () => {
             const dataUrl = await compressImageToDataUrl(file);
-            return uploadDataUrlToFirebaseStorage(dataUrl, 'fishing-pond-receipts', file.name);
+            return uploadDataUrlToFirebaseStorage(dataUrl, receiptUploadFolder(), file.name);
           })();
-      await replaceBookingReceiptDirect(bookingId, receiptIndex, receiptUrl);
+      await replaceBookingReceipt(bookingId, receiptIndex, receiptUrl);
       addToast('Resit telah dikemaskini. / Receipt updated.', 'success');
       await onSubmitted();
     } catch (err: any) {

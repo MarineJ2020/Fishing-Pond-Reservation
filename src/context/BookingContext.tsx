@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect, useRef } from 'react';
+import { receiptUploadFolder } from '../utils/receiptStorage';
 import { DB, User, Pond, Booking, BookingPondSelection, Settings } from '../types';
 import { emptyDB, setDB } from '../data';
 import { loadAppDB, subscribeSettings } from '../lib/firestore';
@@ -7,6 +8,7 @@ import { uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel } from '../utils/competition';
 import { auth } from '../../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 interface BookingContextType {
   db: DB;
@@ -52,9 +54,9 @@ const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
 const uploadReceipt = async (receiptData: string, receiptFile: File): Promise<string> => {
   if (isPdfFile(receiptFile)) {
-    return uploadPdfToFirebaseStorage(receiptFile, 'fishing-pond-receipts', receiptFile.name);
+    return uploadPdfToFirebaseStorage(receiptFile, receiptUploadFolder(), receiptFile.name);
   }
-  return uploadDataUrlToFirebaseStorage(receiptData, 'fishing-pond-receipts', receiptFile.name);
+  return uploadDataUrlToFirebaseStorage(receiptData, receiptUploadFolder(), receiptFile.name);
 };
 
 export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -95,15 +97,18 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   useEffect(() => {
     let canceled = false;
-    const load = async () => {
+    let generation = 0;
+    const unsubscribe = onAuthStateChanged(auth, async () => {
+      const current = ++generation;
+      setDbState((previous) => ({ ...previous, bookings: [], users: [] }));
+      setDbLoading(true);
       const remoteDb = await loadAppDB();
-      if (!canceled) {
+      if (!canceled && current === generation) {
         applyLoadedDB(remoteDb);
         setDbLoading(false);
       }
-    };
-    load().catch(() => { if (!canceled) setDbLoading(false); });
-    return () => { canceled = true; };
+    });
+    return () => { canceled = true; unsubscribe(); };
   }, [applyLoadedDB]);
 
   useEffect(() => {
@@ -118,8 +123,9 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const reloadDB = useCallback(async () => {
     try {
+      const uid = auth.currentUser?.uid;
       const remoteDb = await loadAppDB();
-      applyLoadedDB(remoteDb);
+      if (auth.currentUser?.uid === uid) applyLoadedDB(remoteDb);
     } catch (err) {
       console.error('reloadDB failed:', err);
     }
@@ -136,7 +142,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const seatTakenMap = React.useMemo(() => {
     const map = new Map<string, boolean>();
-    for (const booking of db.bookings) {
+    for (const booking of [...db.availability, ...db.bookings]) {
       const competitionId = booking.competitionId || db.comp.id || '';
       if (!competitionId || competitionId !== (selectedCompetitionId || db.comp.id || '')) continue;
       if (booking.status !== 'pending' && booking.status !== 'confirmed') continue;
@@ -150,9 +156,10 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
     }
     return map;
-  }, [db.bookings, db.comp.id, selectedCompetitionId]);
+  }, [db.availability, db.bookings, db.comp.id, selectedCompetitionId]);
 
   const toggleSeat = useCallback((num: number) => {
+    if (db.availabilityError) return;
     const pond = db.ponds.find(p => p.id === selectedPond);
     const seat = pond?.seats.find(s => s.num === num);
     if (!seat) return;
@@ -170,7 +177,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       return { ...prev, [selectedPond]: next };
     });
-  }, [db.ponds, selectedPond, seatTakenMap]);
+  }, [db.availabilityError, db.ponds, selectedPond, seatTakenMap]);
 
   const setSeats = useCallback((seats: number[]) => {
     if (!seats.length) {
@@ -226,6 +233,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   const submitBooking = useCallback(async (pond: Pond): Promise<Booking | null> => {
+    if (db.availabilityError) throw new Error('Ketersediaan No Pancang tidak dapat dimuatkan. Sila muat semula halaman.');
     const totalSelectedSeats = Object.values(selectedPondSeats).reduce((sum, seats) => sum + seats.length, 0);
     if (!user || !totalSelectedSeats || !receiptData || !receiptFile || !bankReference.trim()) return null;
 
@@ -288,10 +296,6 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const tot = totalSelectedSeats * getCompetitionPricePerPeg(pond);
     const payAmt = payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
 
-    // Short, simple, still-unique ref. Unambiguous charset (no 0/O/1/I).
-    const REF_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
-    const bookingRef = `KKS-${Array.from({ length: 4 }, () => REF_CHARS[Math.floor(Math.random() * REF_CHARS.length)]).join('')}`;
-
     const receiptUrl = await uploadReceipt(receiptData, receiptFile);
 
     const payload = {
@@ -312,7 +316,6 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       totalAmount: tot,
       receiptUrl,
       bankReference: bankReference.trim(),
-      bookingRef,
       notes: bookingNotes,
       createdByStaff: isStaff,
       ...(isStaff && user.uid ? { createdByUid: user.uid } : {}),
@@ -339,21 +342,21 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       seatIds,
       pondSelections,
       paymentType: payType,
-      amount: payAmt,
-      totalAmount: tot,
+      amount: result.amount,
+      totalAmount: result.totalAmount,
       receiptData: receiptUrl,
       receiptName: receiptFile.name,
       bankReference: bankReference.trim(),
       receipts: [{
         url: receiptUrl,
-        amount: payAmt,
+        amount: result.amount,
         status: isStaff ? 'accepted' : 'pending',
         submittedAt: new Date().toISOString(),
       }],
-      paidAmount: isStaff ? payAmt : 0,
-      balanceDue: Math.max(0, tot - (isStaff ? payAmt : 0)),
+      paidAmount: isStaff ? result.amount : 0,
+      balanceDue: Math.max(0, result.totalAmount - (isStaff ? result.amount : 0)),
       balanceStage: isStaff
-        ? (tot > payAmt ? 'pending-balance' : 'fully-paid')
+        ? (result.totalAmount > result.amount ? 'pending-balance' : 'fully-paid')
         : undefined,
       notes: bookingNotes,
       status: isStaff ? 'confirmed' : 'pending',

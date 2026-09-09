@@ -350,6 +350,8 @@ export interface User {
 }
 
 export interface DB {
+  availabilityError?: boolean;
+  availability: Pick<Booking, 'competitionId' | 'pondId' | 'seats' | 'pondSelections' | 'status'>[];
   ponds: Pond[];
   bookings: Booking[];
   scores: Record<number, Score>;

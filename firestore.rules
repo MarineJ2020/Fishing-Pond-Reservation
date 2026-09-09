@@ -70,28 +70,18 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Bookings remain publicly readable by current product policy. Direct creates
-    // must belong to the caller; admins may create proxy bookings.
-    match /bookings/{bookingId} {
-      // The booking owner is matched by email — bookings store userId/userEmail as
-      // the signing email on the no-Functions direct-write path.
-      function ownsBooking() {
-        return isSignedIn() && request.auth.token.email != null && (
-          request.auth.token.email == resource.data.userId ||
-          request.auth.token.email == resource.data.userEmail
-        );
-      }
+    function ownsBookingData(data) {
+      return isSignedIn() && (
+        data.get('userId', '') == request.auth.uid
+        || data.get('userId', '') == userDocPath(request.auth.uid)
+        || (request.auth.token.get('email_verified', false) == true
+          && request.auth.token.get('email', '') != ''
+          && request.auth.token.email in [data.get('userId', ''), data.get('userEmail', '')])
+      );
+    }
 
-      // Owners may append payment receipts (deposit balance flow) when there is no
-      // Cloud Functions backend. Constrained to receipt fields only so a client can
-      // never self-approve (status/paidAmount/totals stay admin-only). Rejected
-      // bookings are frozen.
-      function ownerReceiptUpdate() {
-        return ownsBooking()
-          && resource.data.status != 'REJECTED'
-          && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['receipts', 'receiptUrl', 'receiptReuploadUsed', 'updatedAt', 'updatedBy']);
-      }
+    // Creation and customer receipt transitions run through trusted Functions.
+    match /bookings/{bookingId} {
 
       function staffCheckInUpdate() {
         return isStaff()
@@ -102,22 +92,13 @@ service cloud.firestore {
           ]);
       }
 
-      allow read: if true;
-      // Direct client bookings must be owned by the authenticated identity. This
-      // prevents a forged booking document from making the server email a third party.
-      allow create: if isAdmin() || (
-        isSignedIn()
-        && request.auth.token.email is string
-        && request.resource.data.userEmail == request.auth.token.email
-        && request.resource.data.userId in [request.auth.uid, request.auth.token.email]
-        && (!('createdByStaff' in request.resource.data)
-          || request.resource.data.createdByStaff != true)
-      );
-      allow update: if isAdmin() || ownerReceiptUpdate() || staffCheckInUpdate();
+      allow read: if isStaff() || ownsBookingData(resource.data);
+      allow create: if false;
+      allow update: if isAdmin() || staffCheckInUpdate();
       allow delete: if isAdmin();
 
       match /payments/{paymentId} {
-        allow read: if isAdmin() || (isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId);
+        allow read: if isStaff() || ownsBookingData(get(/databases/$(database)/documents/bookings/$(bookingId)).data);
         allow create: if isAdmin() || (isStaff()
           && request.resource.data.keys().hasOnly(['amount', 'method', 'recordedBy', 'createdAt'])
           && request.resource.data.amount is number

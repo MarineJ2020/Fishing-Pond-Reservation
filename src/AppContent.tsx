@@ -157,7 +157,7 @@ const AppContent: React.FC = () => {
     const allowedPondIds = selectedCompetition?.activePondIds || [];
     const pondSeatCaps = selectedCompetition?.pondSeats || {};
     const occupied = new Set<string>();
-    db.bookings.forEach((booking) => {
+    [...db.availability, ...db.bookings].forEach((booking) => {
       const bookingCompetitionId = booking.competitionId || db.comp?.id || '';
       if (bookingCompetitionId !== activeCompetitionId) return;
       if (booking.status !== 'pending' && booking.status !== 'confirmed') return;
@@ -180,7 +180,7 @@ const AppContent: React.FC = () => {
         .slice(0, cap)
         .map((seat) => ({
           ...seat,
-          status: occupied.has(`${pond.id}-${seat.num}`) ? ('booked' as const) : ('available' as const)
+          status: db.availabilityError || occupied.has(`${pond.id}-${seat.num}`) ? ('booked' as const) : ('available' as const)
         }));
 
       return {
@@ -194,7 +194,7 @@ const AppContent: React.FC = () => {
       const docId = pond._docId || pond.id.toString();
       return allowedPondIds.includes(docId);
     });
-  }, [db.bookings, db.comp?.id, db.ponds, selectedCompetition?.activePondIds, selectedCompetition?.id, selectedCompetition?.pondSeats]);
+  }, [db.availability, db.availabilityError, db.bookings, db.comp?.id, db.ponds, selectedCompetition?.activePondIds, selectedCompetition?.id, selectedCompetition?.pondSeats]);
 
   const availablePegs = useMemo(
     () => competitionScopedPonds.reduce((sum, pond) => sum + pond.seats.filter(s => s.status === 'available').length, 0),
@@ -209,7 +209,7 @@ const AppContent: React.FC = () => {
       const allowedPondIds: string[] = comp.activePondIds || [];
       const pondSeatCaps: Record<string, number> = comp.pondSeats || {};
       const occupied = new Set<string>();
-      db.bookings.forEach((booking) => {
+      [...db.availability, ...db.bookings].forEach((booking) => {
         const bookingCompId = booking.competitionId || db.comp?.id || '';
         if (bookingCompId !== compId) return;
         if (booking.status !== 'pending' && booking.status !== 'confirmed') return;
@@ -240,10 +240,10 @@ const AppContent: React.FC = () => {
       result.set(compId, count);
     });
     return result;
-  }, [competitions, db.bookings, db.comp?.id, db.ponds]);
+  }, [competitions, db.availability, db.bookings, db.comp?.id, db.ponds]);
 
   const totalPonds = db.ponds.length;
-  const confirmedBookings = db.bookings.filter(b => b.status === 'confirmed').length;
+  const confirmedBookings = db.availability.filter(b => b.status === 'confirmed').length;
   const bookablePonds = useMemo(() => competitionScopedPonds.filter((p) => p.open), [competitionScopedPonds]);
 
   // Featured event derivation for the new homepage Competition section.
@@ -627,10 +627,9 @@ const AppContent: React.FC = () => {
   // same physical ponds are reused across competitions with independent bookings.
   // A seat held/booked in one competition must not appear taken in another, so we
   // intentionally do NOT watch the global seat-doc status here. Integrity at
-  // submission is enforced by the competition-scoped clash check in
-  // createBookingDocument (and the server booking endpoint).
+  // submission is enforced by the server transaction and competition-specific claims.
 
-  const totalRegistered = db.bookings.length;
+  const totalRegistered = db.availability.length;
   const totalPrizePool = selectedCompetition?.prizes?.reduce((sum: number, prize: any) => {
     const raw = (prize?.prize || prize?.amount || '').toString();
     const n = parseFloat(raw.replace(/[^0-9.]/g, ''));
@@ -1267,6 +1266,7 @@ const AppContent: React.FC = () => {
 
         return (
           <div className="bk-page">
+            {db.availabilityError && <p role="alert">Ketersediaan No Pancang tidak dapat dimuatkan. Sila muat semula halaman.</p>}
             <section className="bk-shell">
               <div className="bk-progress" aria-label="Kemajuan tempahan">
                 <div className={stepClass(step1 as any)}><span>1</span>Pilih Pertandingan</div>
@@ -1622,7 +1622,7 @@ const AppContent: React.FC = () => {
         )}
       }
       case 'live':
-        return <LiveResults decimalPlaces={db.settings.ocrDecimalPlaces} comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} user={user} />;
+        return <LiveResults decimalPlaces={db.settings.ocrDecimalPlaces} comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} availability={db.availability} user={user} />;
       case 'mybookings':
         if (!authReady) {
           return (

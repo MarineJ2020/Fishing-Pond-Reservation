@@ -11,6 +11,7 @@ export const gs = (pid: number, st: number, cnt: number, pr: number) => Array.fr
 
 /** Empty DB — no placeholder data. All real data comes from Firestore. */
 export const emptyDB: DB = {
+  availability: [],
   ponds: [],
   bookings: [],
   scores: {},
@@ -71,7 +72,7 @@ export const getDB = (): DB => {
     const v = localStorage.getItem('cb_DB');
     if (v) {
       const parsed = JSON.parse(v);
-      return { ...initialDB, ...parsed, settings: { ...initialDB.settings, ...parsed.settings } };
+      return { ...initialDB, ...parsed, bookings: [], users: [], settings: { ...initialDB.settings, ...parsed.settings } };
     }
     return initialDB;
   } catch {
@@ -80,5 +81,5 @@ export const getDB = (): DB => {
 };
 
 export const setDB = (db: DB) => {
-  localStorage.setItem('cb_DB', JSON.stringify(db));
+  localStorage.setItem('cb_DB', JSON.stringify({ ...db, bookings: [], users: [] }));
 };

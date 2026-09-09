@@ -21,9 +21,20 @@ service firebase.storage {
       allow write: if isAdmin();
     }
 
-    // Booking receipts uploaded by signed-in users/staff.
-    match /fishing-pond-receipts/{allPaths=**} {
-      allow read, write: if request.auth != null;
+    // Temporary compatibility for historical, single-folder receipt URLs.
+    match /fishing-pond-receipts/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // New files are immutable: replacing a receipt uploads a fresh object.
+    match /fishing-pond-receipts/{uid}/{fileName} {
+      allow read: if request.auth != null && (request.auth.uid == uid || isStaff());
+      allow create: if request.auth != null && request.auth.uid == uid
+        && resource == null
+        && request.resource.size > 0 && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|application/pdf');
+      allow update, delete: if false;
     }
 
     // Pond layout/arrangement map shown on the public booking page (admin-managed).

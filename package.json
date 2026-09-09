@@ -7,6 +7,7 @@
     "build": "vite build && node scripts/copy-seo-template.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test:security": "node --test tests/security/*.test.mjs",
     "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {
@@ -38,6 +39,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@firebase/rules-unit-testing": "^3.0.4",
     "@types/bcryptjs": "^2.4.6",
     "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-react": "^4.3.1",

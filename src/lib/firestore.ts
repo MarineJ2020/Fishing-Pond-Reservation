@@ -26,6 +26,20 @@ import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry, User
 import { emptyDB } from '../data';
 import { LANDING_DEFAULTS, SEO_DEFAULTS } from '../config/landingDefaults';
 import { normalizeLandingSections } from '../config/landingSections';
+import { bookingRequest } from './bookingApi';
+
+const getVisibleBookingDocs = async () => {
+  const user = auth.currentUser;
+  if (!user) return [];
+  const profile = await getDoc(doc(db, 'users', user.uid));
+  if (['ADMIN', 'STAFF'].includes(profile.data()?.role)) return (await getDocs(collection(db, 'bookings'))).docs;
+  const ownerValues: unknown[] = [user.uid, doc(db, 'users', user.uid)];
+  if (user.emailVerified && user.email) ownerValues.push(user.email);
+  const requests = ownerValues.map((value) => getDocs(query(collection(db, 'bookings'), where('userId', '==', value))));
+  if (user.emailVerified && user.email) requests.push(getDocs(query(collection(db, 'bookings'), where('userEmail', '==', user.email))));
+  const snapshots = await Promise.all(requests);
+  return [...new Map(snapshots.flatMap((snap) => snap.docs).map((snap) => [snap.id, snap])).values()];
+};
 
 const normalizeTimestamp = (value: any) => {
   if (!value) return null;
@@ -479,7 +493,7 @@ export const getBookings = async (
     bookingDocs?: QueryDocumentSnapshot<DocumentData>[];
   }
 ): Promise<Booking[]> => {
-  const bookingDocs = preFetched?.bookingDocs ?? (await getDocs(collection(db, 'bookings'))).docs;
+  const bookingDocs = preFetched?.bookingDocs ?? await getVisibleBookingDocs();
 
   const ponds = preFetched?.ponds ?? await getPondsWithSeats();
   const pondMap = new Map<string, Pond>();
@@ -595,12 +609,19 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
 
 export const loadAppDB = async (): Promise<DB> => {
   try {
-    const [pondSnapshot, seatSnapshot, competitionSnapshot, bookingSnapshot, settings] = await Promise.all([
+    const [pondSnapshot, seatSnapshot, competitionSnapshot, bookingDocs, settings, availabilityResult] = await Promise.all([
       getDocs(collection(db, 'ponds')),
       getDocs(collection(db, 'seats')),
       getDocs(collection(db, 'competitions')),
-      getDocs(collection(db, 'bookings')),
+      getVisibleBookingDocs(),
       getSettings(),
+      bookingRequest('/bookingAvailability').then((result) => {
+        if (!Array.isArray(result.availability)) throw new Error('Invalid availability response.');
+        return result;
+      }).catch((error) => {
+        console.error('Failed to load availability:', error);
+        return { availability: [], availabilityError: true };
+      }),
     ]);
 
     const ponds = await getPondsWithSeats({ pondDocs: pondSnapshot.docs, seatDocs: seatSnapshot.docs });
@@ -613,12 +634,14 @@ export const loadAppDB = async (): Promise<DB> => {
     const bookings = await getBookings(undefined, competitions, {
       ponds,
       seatDocs: seatSnapshot.docs,
-      bookingDocs: bookingSnapshot.docs,
+      bookingDocs,
     });
 
     const scores = competition && competition.id ? await buildScores(competition.id, bookings) : {};
 
     return {
+      availability: availabilityResult.availability,
+      availabilityError: availabilityResult.availabilityError || false,
       ponds,
       bookings,
       scores,
@@ -687,65 +710,6 @@ export const createUserProfile = async (uid: string, data: { email: string; name
   });
 };
 
-export const createBookingDocument = async (data: any) => {
-  const snap = await getDocs(
-    query(
-      collection(db, 'bookings'),
-      where('competitionId', '==', data.competitionId)
-    )
-  );
-  // Seats are implicitly locked between submission and staff decision: any existing
-  // booking in PENDING_APPROVAL / APPROVED / CONFIRMED holds its seats here.
-  const requestedSelections = Array.isArray(data.pondSelections) && data.pondSelections.length
-    ? data.pondSelections
-    : [{ pondId: data.pondId, seats: data.seatNumbers ?? [] }];
-  const requestedSeats = new Set<string>();
-  requestedSelections.forEach((selection: any) => {
-    (selection.seats ?? []).forEach((seatNum: number) => requestedSeats.add(`${selection.pondId}-${seatNum}`));
-  });
-  snap.forEach((d) => {
-    const existingData = d.data();
-    const s = (existingData.status || '').toUpperCase();
-    if (!['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED'].includes(s)) return;
-    const existingSelections = Array.isArray(existingData.pondSelections) && existingData.pondSelections.length
-      ? existingData.pondSelections
-      : [{ pondId: existingData.pondId, seats: existingData.seatNumbers ?? [] }];
-    for (const selection of existingSelections) {
-      const clash = (selection.seats ?? []).find((seatNum: number) => requestedSeats.has(`${selection.pondId}-${seatNum}`));
-      if (clash) throw new Error(`Pancang #${clash} telah ditempah. Sila pilih pancang lain. / Seat #${clash} is already booked. Please choose another seat.`);
-    }
-  });
-
-  // Bookings made by staff/admin on behalf of a customer are trusted and
-  // confirmed immediately — no separate approval step. Self-service bookings
-  // still go through PENDING_APPROVAL for staff to verify the receipt.
-  const isStaffBooking = data.createdByStaff === true;
-  const totalAmount = Number(data.totalAmount ?? data.amount) || 0;
-  const paymentAmount = Number(data.amount) || 0;
-  const paidAmount = isStaffBooking ? paymentAmount : 0;
-  const balanceDue = Math.max(0, totalAmount - paidAmount);
-  const initialReceipts = data.receiptUrl
-    ? [{
-        url: data.receiptUrl,
-        amount: paymentAmount,
-        status: isStaffBooking ? 'accepted' : 'pending',
-        submittedAt: new Date().toISOString(),
-      }]
-    : [];
-
-  const bookingsRef = collection(db, 'bookings');
-  return await addDoc(bookingsRef, {
-    ...data,
-    receipts: initialReceipts,
-    paidAmount,
-    balanceDue,
-    ...(isStaffBooking ? { balanceStage: balanceDue > 0 ? 'pending-balance' : 'fully-paid' } : {}),
-    status: isStaffBooking ? 'CONFIRMED' : 'PENDING_APPROVAL',
-    paymentStatus: isStaffBooking ? (balanceDue > 0 ? 'PARTIAL' : 'APPROVED') : 'PENDING',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-};
 
 interface DirectCheckInPayload {
   bookingId: string;
@@ -1401,83 +1365,6 @@ const setSeatStatusForBooking = async (bookingData: any, nextStatus: 'booked' | 
     batch.set(doc(db, 'seats', seatId), { status: nextStatus, updatedAt: serverTimestamp() }, { merge: true });
   });
   await batch.commit();
-};
-
-const MAX_RECEIPTS = 3;
-
-export const submitBookingReceiptDirect = async (bookingId: string, receiptUrl: string, amount: number, bankReference?: string) => {
-  const bookingRef = doc(db, 'bookings', bookingId);
-  const snap = await getDoc(bookingRef);
-  if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
-  const booking = snap.data() as any;
-
-  if ((booking.status || '').toUpperCase() === 'REJECTED') {
-    throw new Error('Tempahan ini telah ditolak. / This booking has been rejected.');
-  }
-
-  const receipts = deriveReceiptsFromBooking(booking);
-  if (receipts.length >= MAX_RECEIPTS) {
-    throw new Error(`Maksimum ${MAX_RECEIPTS} resit telah dicapai. / Maximum of ${MAX_RECEIPTS} receipts reached.`);
-  }
-
-  const totalAmount = Number(booking.totalAmount) || 0;
-  if (totalAmount > 0 && sumAcceptedReceipts(receipts) >= totalAmount) {
-    throw new Error('Tempahan ini telah dibayar sepenuhnya. / This booking is already fully paid.');
-  }
-
-  const next = [
-    ...receipts,
-    {
-      url: receiptUrl,
-      amount: Number(amount) || 0,
-      status: 'pending' as const,
-      submittedAt: new Date().toISOString(),
-      ...(bankReference?.trim() ? { bankReference: bankReference.trim() } : {}),
-    },
-  ];
-  await setDoc(bookingRef, {
-    receipts: next,
-    receiptUrl,
-    updatedAt: serverTimestamp(),
-    updatedBy: auth.currentUser?.uid || null,
-  }, { merge: true });
-
-  return { receipts: next };
-};
-
-// Receipt correction: the owner replaces the file of any not-yet-approved receipt
-// (e.g. wrong photo, or a staff-rejected receipt). A rejected receipt returns to
-// 'pending' so staff re-review it. Approved receipts and rejected bookings are
-// frozen. Owner-scoped write (see firestore.rules).
-export const replaceBookingReceiptDirect = async (bookingId: string, receiptIndex: number, newReceiptUrl: string) => {
-  const bookingRef = doc(db, 'bookings', bookingId);
-  const snap = await getDoc(bookingRef);
-  if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
-  const booking = snap.data() as any;
-
-  if ((booking.status || '').toUpperCase() === 'REJECTED') {
-    throw new Error('Tempahan ini telah ditolak. / This booking has been rejected.');
-  }
-
-  const receipts = deriveReceiptsFromBooking(booking);
-  if (receiptIndex < 0 || receiptIndex >= receipts.length) {
-    throw new Error('Indeks resit tidak sah. / Invalid receipt index.');
-  }
-  if (receipts[receiptIndex].status === 'accepted') {
-    throw new Error('Resit yang telah disahkan tidak boleh digantikan. / An approved receipt cannot be replaced.');
-  }
-
-  // Replacing a receipt always (re)submits it for review, so it goes/stays pending.
-  receipts[receiptIndex] = { ...receipts[receiptIndex], url: newReceiptUrl, status: 'pending', submittedAt: new Date().toISOString() };
-
-  await setDoc(bookingRef, {
-    receipts,
-    receiptUrl: newReceiptUrl,
-    updatedAt: serverTimestamp(),
-    updatedBy: auth.currentUser?.uid || null,
-  }, { merge: true });
-
-  return { receipts };
 };
 
 export const acceptBookingReceiptDirect = async (bookingId: string, receiptIndex: number) => {

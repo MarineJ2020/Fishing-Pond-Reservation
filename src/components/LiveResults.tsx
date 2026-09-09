@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Competition, Score, ScoreEntry, Pond, Booking, User } from '../types';
+import { Competition, Score, ScoreEntry, Pond, Booking, User, DB } from '../types';
 import { formatWeight } from '../utils/weight';
 import type { Settings } from '../types';
 import { getLB, getPrize, p2, formatDate } from '../utils';
@@ -15,6 +15,7 @@ interface LiveResultsProps {
   scores: Record<number, Score>;
   ponds: Pond[];
   bookings: Booking[];
+  availability: DB['availability'];
   user: User | null;
 }
 
@@ -50,7 +51,7 @@ const getLiveCompetitions = (competitions: Competition[], fallback?: Competition
   });
 };
 
-const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bookings, user, decimalPlaces }) => {
+const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bookings, availability, user, decimalPlaces }) => {
   const [selectedCompId, setSelectedCompId] = useState(() => defaultCompetitionId(competitions, comp));
   const [liveScores, setLiveScores] = useState<ScoreEntry[]>([]);
   const [loadingScores, setLoadingScores] = useState(false);
@@ -173,7 +174,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
       });
     return map;
   }, [displayBookings]);
-  const userPegs = user ? displayBookings.filter(b => b.userId === user.email && b.status === 'confirmed').flatMap(b => b.seats) : [];
+  const userPegs = user ? displayBookings.filter(b => (b.userId === user.uid || b.userId === user.email || b.userEmail === user.email) && b.status === 'confirmed').flatMap(b => b.pondSelections?.length ? b.pondSelections.flatMap(s => s.seats) : b.seats) : [];
 
   // User's rank across the FULL leaderboard (not just Top-N), so participants who
   // placed outside the Top-N can still be pinned at the bottom.
@@ -223,9 +224,8 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   });
   const pastLb = getLB(pastScoresRecord);
   const pastWinners = pastLb.slice(0, selectedPastComp?.topN || 10);
-  const pastParticipants = bookings
-    .filter(b => (b.competitionId || comp.id) === selectedPastId && b.status === 'confirmed')
-    .reduce((n, b) => n + b.seats.length, 0);
+  const pastParticipants = availability.filter(b => b.competitionId === selectedPastId && b.status === 'confirmed')
+    .reduce((total, b) => total + (b.pondSelections?.reduce((count, s) => count + s.seats.length, 0) || b.seats.length), 0);
   const pastPonds = selectedPastComp?.activePondIds?.length || 0;
   const pastChampWeight = pastLb[0]?.weight;
   const pastChampPrize = selectedPastComp ? getPrize(1, selectedPastComp.prizes) : '';
@@ -341,7 +341,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                       <div className="kl-angler">
                         <strong>{e.name}{isMe ? ' · Anda' : ''}</strong>
                         <span>{pond?.code ? formatSeat(pond.code, e.peg) : `Peg #${e.peg}${pondName ? ` · ${pondName}` : ''}`}</span>
-                        <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>Ref: {bookingRefByPeg[e.peg] || '-'}</span>
+                        {bookingRefByPeg[e.peg] && <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>Ref: {bookingRefByPeg[e.peg]}</span>}
                       </div>
                       <div className="kl-weight">
                         <small>Berat</small>

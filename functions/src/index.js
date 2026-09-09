@@ -14,10 +14,12 @@ import {
 } from './email-service.js';
 import { buildCancelCheckInState, buildCheckInState } from './booking-seats.js';
 import { ALLOWED_ROLES, normalizeRole, roleChangeBlockReason } from './role-policy.js';
+import { registerBookingRoutes, releaseClaims } from './booking-service.js';
 
 const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
+registerBookingRoutes(app);
 
 const randomTempPassword = () => Math.random().toString(36).slice(2, 10) + '!1A';
 const syncAuthRoleClaim = async (uid, rawRole) => {
@@ -35,7 +37,6 @@ const syncAuthRoleClaim = async (uid, rawRole) => {
     return { updated: true, role: nextRole };
 };
 
-const MAX_RECEIPTS = 3;
 
 const sumAccepted = (receipts) =>
     (Array.isArray(receipts) ? receipts : [])
@@ -61,28 +62,6 @@ const computeBalanceStage = (paidAmount, totalAmount, hasPendingReceipts) => {
     return hasPendingReceipts ? 'review-balance' : 'pending-balance';
 };
 
-// A booking's userId is stored as a users/{uid} DocumentReference (server path)
-// or, on the legacy direct-write path, the raw email string.
-const ownsBooking = (bookingData, user) => {
-    const ownerId = bookingData?.userId?.id || bookingData?.userId;
-    return ownerId === user.uid
-        || (!!bookingData?.userEmail && bookingData.userEmail === user.email)
-        || (!!user.email && ownerId === user.email);
-};
-
-const ensureAdminForCreatedByStaff = async (req, res, next) => {
-    if (!req.body?.createdByStaff) return next();
-    try {
-        const profile = await adminDb.collection('users').doc(req.user.uid).get();
-        if (!profile.exists || normalizeRole(profile.data()?.role) !== 'ADMIN') {
-            return res.status(403).json({ error: 'Forbidden: admin role required for proxy booking mode.' });
-        }
-        return next();
-    } catch (error) {
-        console.error('Failed to verify proxy booking role:', error);
-        return res.status(500).json({ error: 'Failed to verify permissions.' });
-    }
-};
 
 const updateSeatsForBooking = async (bookingData, nextSeatStatus) => {
     const seatRefs = Array.isArray(bookingData?.seatIds)
@@ -101,21 +80,6 @@ const updateSeatsForBooking = async (bookingData, nextSeatStatus) => {
     await batch.commit();
 };
 
-const validateSeatLocks = async ({ seatIds, competitionId, userUid }) => {
-    const now = new Date();
-    const lockSnapshot = await adminDb.collection('seatLocks')
-        .where('competitionId', '==', adminDb.doc(`competitions/${competitionId}`))
-        .where('userId', '==', adminDb.doc(`users/${userUid}`))
-        .where('expiresAt', '>', now)
-        .get();
-
-    const lockPaths = new Set(
-        lockSnapshot.docs.map((docSnap) => docSnap.data()?.seatId?.path).filter(Boolean)
-    );
-
-    const missing = seatIds.filter((id) => !lockPaths.has(`seats/${id}`));
-    return { ok: missing.length === 0, missing };
-};
 
 const assertSeatsNotBooked = async ({ seatIds, competitionId }) => {
     const checks = await Promise.all(seatIds.map(async (seatId) => {
@@ -204,158 +168,6 @@ app.post('/acquireSeatLock', verifyToken, async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to acquire seat lock.' });
-    }
-});
-
-app.post('/createBooking', verifyToken, ensureAdminForCreatedByStaff, async (req, res) => {
-    const {
-        competitionId, competitionName, pondId, pondCode, pondSelections,
-        seatIds, seatNumbers, paymentType, amount, totalAmount, receiptUrl,
-        bankReference, notes, createdByStaff, userEmail, userName, userPhone,
-        bookingPhone,
-    } = req.body;
-    const user = req.user;
-
-    if (!competitionId || !pondId || !seatIds?.length || !paymentType || amount == null) {
-        return res.status(400).json({ error: 'Missing booking payload.' });
-    }
-
-    try {
-        const staffMode = !!createdByStaff;
-
-        const bookedCheck = await assertSeatsNotBooked({ seatIds, competitionId });
-        if (!bookedCheck.ok) {
-            return res.status(409).json({ error: `Seat(s) already booked: ${bookedCheck.conflicts.join(', ')}` });
-        }
-
-        if (!staffMode) {
-            const lockCheck = await validateSeatLocks({ seatIds, competitionId, userUid: user.uid });
-            if (!lockCheck.ok) {
-                return res.status(409).json({ error: `Missing active seat lock for seat(s): ${lockCheck.missing.join(', ')}` });
-            }
-        }
-
-        const bookingRef = `BKG-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
-        const now = new Date();
-        const bookingTotal = Number(totalAmount ?? amount) || 0;
-        const initialPaidAmount = staffMode ? (Number(amount) || 0) : 0;
-        const initialBalanceDue = Math.max(0, bookingTotal - initialPaidAmount);
-        // Seed the receipts array with the initial payment receipt. Staff-mode
-        // bookings are pre-accepted; self-service start as pending staff review.
-        const initialReceipts = receiptUrl
-            ? [{ url: receiptUrl, amount, status: staffMode ? 'accepted' : 'pending', submittedAt: now }]
-            : [];
-        const bookingDoc = await adminDb.collection('bookings').add({
-            bookingRef,
-            userId: adminDb.doc(`users/${user.uid}`),
-            userEmail: staffMode ? (userEmail || '') : (user.email || userEmail || ''),
-            userName: staffMode ? (userName || '') : (userName || user.name || ''),
-            userPhone: userPhone || '',
-            bookingPhone: bookingPhone || '',
-            createdByUid: staffMode ? user.uid : null,
-            competitionId: adminDb.doc(`competitions/${competitionId}`),
-            competitionName: competitionName || '',
-            pondId: adminDb.doc(`ponds/${pondId}`),
-            pondCode: pondCode || '',
-            pondSelections: Array.isArray(pondSelections) ? pondSelections : [],
-            seatIds: seatIds.map((id) => adminDb.doc(`seats/${id}`)),
-            seatNumbers: seatNumbers || [],
-            paymentType,
-            paymentStatus: staffMode ? (initialBalanceDue > 0 ? 'PARTIAL' : 'APPROVED') : 'PENDING_APPROVAL',
-            receiptUrl: receiptUrl || null,
-            bankReference: bankReference || '',
-            receipts: initialReceipts,
-            paidAmount: initialPaidAmount,
-            balanceDue: initialBalanceDue,
-            ...(staffMode ? { balanceStage: initialBalanceDue > 0 ? 'pending-balance' : 'fully-paid' } : {}),
-            staffNotes: notes || '',
-            createdByStaff: staffMode,
-            checkedIn: false,
-            status: staffMode ? 'APPROVED' : 'PENDING_APPROVAL',
-            amount,
-            totalAmount: bookingTotal,
-            createdAt: now,
-            updatedAt: now,
-            updatedBy: user.uid,
-        });
-
-        await bookingDoc.collection('payments').add({
-            amount,
-            type: paymentType,
-            method: receiptUrl ? 'receipt' : 'manual',
-            recordedBy: user.uid,
-            createdAt: new Date(),
-        });
-
-        await updateSeatsForBooking({ seatIds: seatIds.map((id) => adminDb.doc(`seats/${id}`)) }, staffMode ? 'booked' : 'pending');
-
-        await adminDb.collection('seatLocks')
-            .where('competitionId', '==', adminDb.doc(`competitions/${competitionId}`))
-            .where('userId', '==', adminDb.doc(`users/${user.uid}`))
-            .get()
-            .then((snapshot) => {
-                snapshot.forEach((docSnap) => docSnap.ref.delete());
-            });
-
-        return res.json({ bookingId: bookingDoc.id, bookingRef, status: staffMode ? 'confirmed' : 'pending' });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Failed to create booking.' });
-    }
-});
-
-// A booking owner submits an additional payment receipt (e.g. the balance for a
-// deposit booking). Capped at MAX_RECEIPTS total; appended as 'pending' for staff review.
-app.post('/submitBookingReceipt', verifyToken, async (req, res) => {
-    const { bookingId, receiptUrl, amount, bankReference } = req.body;
-    if (!bookingId || !receiptUrl || amount == null) {
-        return res.status(400).json({ error: 'bookingId, receiptUrl and amount are required.' });
-    }
-
-    try {
-        const bookingDocRef = adminDb.collection('bookings').doc(bookingId);
-        const bookingSnap = await bookingDocRef.get();
-        if (!bookingSnap.exists) {
-            return res.status(404).json({ error: 'Booking not found.' });
-        }
-
-        const booking = bookingSnap.data();
-        if (!ownsBooking(booking, req.user)) {
-            return res.status(403).json({ error: 'Forbidden: not your booking.' });
-        }
-        if ((booking.status || '').toUpperCase() === 'REJECTED') {
-            return res.status(409).json({ error: 'Booking has been rejected.' });
-        }
-
-        const receipts = Array.isArray(booking.receipts) ? booking.receipts : [];
-        if (receipts.length >= MAX_RECEIPTS) {
-            return res.status(409).json({ error: `Maximum of ${MAX_RECEIPTS} receipts reached.` });
-        }
-
-        const totalAmount = Number(booking.totalAmount) || 0;
-        if (sumAccepted(receipts) >= totalAmount && totalAmount > 0) {
-            return res.status(409).json({ error: 'Booking is already fully paid.' });
-        }
-
-        const reference = typeof bankReference === 'string' ? bankReference.trim().slice(0, 120) : '';
-        const next = [...receipts, {
-            url: receiptUrl,
-            amount: Number(amount) || 0,
-            status: 'pending',
-            submittedAt: new Date(),
-            ...(reference ? { bankReference: reference } : {}),
-        }];
-        await bookingDocRef.update({
-            receipts: next,
-            receiptUrl,
-            updatedAt: new Date(),
-            updatedBy: req.user.uid,
-        });
-
-        return res.json({ receipts: next });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Failed to submit receipt.' });
     }
 });
 
@@ -704,6 +516,13 @@ app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
 });
 
 export const api = functions.https.onRequest(app);
+
+// Re-read current state so delayed trigger delivery cannot release a reused peg.
+export const releaseBookingSeatClaims = functions.firestore.document('bookings/{bookingId}')
+    .onWrite(async (_change, context) => {
+        await releaseClaims(adminDb, context.params.bookingId);
+        return null;
+    });
 
 export { seoRender } from './seo.js';
 

@@ -2,11 +2,10 @@ import {
   acceptBookingReceiptDirect,
   cancelBookingCheckInDirect,
   checkInBookingDirect,
-  createBookingDocument,
   rejectBookingReceiptDirect,
-  submitBookingReceiptDirect,
 } from './firestore';
 import { auth } from '../../lib/firebase';
+import { bookingRequest } from './bookingApi';
 
 const baseUrl = (import.meta.env.VITE_FUNCTIONS_BASE_URL || '').replace(/\/$/, '');
 
@@ -41,20 +40,13 @@ const postJson = async (path: string, body: any) => {
 export const createClientAccount = async (payload: { name: string; email: string; phone?: string }) => postJson('/createClientAccount', payload);
 export const acquireSeatLock = async (payload: { seatId: string; competitionId: string }) => postJson('/acquireSeatLock', payload);
 export const createBooking = async (payload: any) => {
-  if (!baseUrl) {
-    const docRef = await createBookingDocument(payload);
-    return {
-      bookingId: docRef.id,
-      bookingRef: payload.bookingRef,
-      status: payload.createdByStaff ? 'confirmed' : 'pending',
-    };
-  }
-  return postJson('/createBooking', payload);
+  return bookingRequest('/createBooking', payload);
 };
 export const submitBookingReceipt = async (payload: { bookingId: string; receiptUrl: string; amount: number; bankReference?: string }) => {
-  if (!baseUrl) return submitBookingReceiptDirect(payload.bookingId, payload.receiptUrl, payload.amount, payload.bankReference);
-  return postJson('/submitBookingReceipt', payload);
+  return bookingRequest('/submitBookingReceipt', payload);
 };
+export const replaceBookingReceipt = (bookingId: string, receiptIndex: number, receiptUrl: string) =>
+  bookingRequest('/replaceBookingReceipt', { bookingId, receiptIndex, receiptUrl });
 export const acceptBookingReceipt = async (payload: { bookingId: string; receiptIndex: number }) => {
   if (!baseUrl) return acceptBookingReceiptDirect(payload.bookingId, payload.receiptIndex);
   return postJson('/acceptBookingReceipt', payload);
