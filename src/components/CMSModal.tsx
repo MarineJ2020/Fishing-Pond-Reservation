@@ -1808,8 +1808,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     (getCompetitionPhase(a) === 'ended' ? 1 : 0) - (getCompetitionPhase(b) === 'ended' ? 1 : 0),
   );
   const resultsCompsLiveFirst = resultsCompetitionOptions(competitionsForCms);
-  const compOptionLabel = (c: Competition) =>
-    `${c.name}${getCompetitionPhase(c) === 'ended' ? ' (tamat)' : ''}`;
+  const competitionFilterOptions = sortCompetitionsLatestFirst(competitionsForCms);
+  const compOptionLabel = (c: Competition) => {
+    const phaseLabel = {
+      live: 'Live',
+      upcoming: 'Akan Datang',
+      ended: 'Tamat',
+    }[getCompetitionPhase(c)];
+    return `${c.name} (${phaseLabel})`;
+  };
   // Hadiah & Ranking only deals with competitions that haven't ended yet.
   const compsNotEnded = competitionsForCms.filter(c => getCompetitionPhase(c) !== 'ended');
 
@@ -2545,7 +2552,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
               <div className="cms-filter-row">
                 <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, no resit..." value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} /></div>
-                <div className="field"><label>Pertandingan</label><select className="form-input" value={approvalCompFilter} onChange={e => setApprovalCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitions.map(c => <option key={c.id || c.name} value={c.id || ''}>{c.name}</option>)}</select></div>
+                <div className="field"><label>Pertandingan</label><select className="form-input" value={approvalCompFilter} onChange={e => setApprovalCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
                 <div className="field"><label>Bayaran</label><select className="form-input" value={approvalPayFilter} onChange={e => setApprovalPayFilter(e.target.value as any)}><option value="">Semua bayaran</option><option value="deposit">Deposit</option><option value="full">Full</option></select></div>
                 <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalSearch(''); setApprovalCompFilter(''); setApprovalPayFilter(''); }}>Reset</button></div>
               </div>
@@ -2707,7 +2714,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
               <div className="cms-filter-row">
                 <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, nombor seat..." value={bookingSearch} onChange={e => setBookingSearch(e.target.value)} /></div>
-                <div className="field"><label>Pertandingan</label><select className="form-input" value={allCompFilter} onChange={e => setAllCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitions.map(c => <option key={c.id || c.name} value={c.id || ''}>{c.name}</option>)}</select></div>
+                <div className="field"><label>Pertandingan</label><select className="form-input" value={allCompFilter} onChange={e => setAllCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
                 <div className="field"><label>Bayaran</label><select className="form-input" value={allPayFilter} onChange={e => setAllPayFilter(e.target.value as any)}><option value="">Semua bayaran</option><option value="deposit">Deposit</option><option value="full">Full</option></select></div>
                 <div className="field"><label>Kolam</label><select className="form-input" value={allPondFilter} onChange={e => setAllPondFilter(e.target.value)}><option value="">Semua kolam</option>{pondCodes.map(code => <option key={code} value={code}>Kolam {code}</option>)}</select></div>
                 <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(''); setAllPayFilter(''); setAllPondFilter(''); }}>Reset</button></div>
@@ -2926,8 +2933,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       value={checkinCompetitionId}
                       onChange={(event) => setCheckinCompetitionId(event.target.value)}
                     >
-                      {(competitions.length ? competitions : [comp]).map((competition) => (
-                        <option key={competition.id || competition.name} value={competition.id || ''}>{competition.name}</option>
+                      {competitionFilterOptions.map((competition) => (
+                        <option key={competition.id || competition.name} value={competition.id || ''}>{compOptionLabel(competition)}</option>
                       ))}
                     </select>
                   </div>
