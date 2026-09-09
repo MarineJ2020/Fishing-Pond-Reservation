@@ -23,6 +23,32 @@ export const initialBookingEmailKind = (status) =>
 export const shouldQueueBookingApprovedEmail = (beforeStatus, afterStatus) =>
     !isConfirmedStatus(beforeStatus) && isConfirmedStatus(afterStatus);
 
+const timestampIso = (value) => {
+    if (!value) return '';
+    const date = typeof value.toDate === 'function' ? value.toDate() : new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+};
+
+// Never expose `message` from mail jobs: verification and password-reset HTML
+// can contain one-time account links. The CMS only needs operational metadata.
+export const safeMailLogEntry = (id, data = {}) => {
+    const recipients = Array.isArray(data.to) ? data.to : [data.to];
+    const recipient = recipients.map((value) => String(value || '').trim()).filter(Boolean).join(', ');
+    const accepted = Array.isArray(data.delivery?.info?.accepted)
+        ? data.delivery.info.accepted.map((value) => String(value || '').trim().toLowerCase())
+        : [];
+    return {
+        id,
+        recipient,
+        kind: String(data.metadata?.kind || 'unknown'),
+        triggeredAt: timestampIso(data.metadata?.queuedAt || data.createdAt),
+        completedAt: timestampIso(data.delivery?.endTime),
+        status: String(data.delivery?.state || 'PENDING'),
+        attempts: Number(data.delivery?.attempts) || 0,
+        recipientAccepted: accepted.includes(recipient.toLowerCase()),
+    };
+};
+
 export const resolveBookingRecipient = async (booking) => {
     if (isEmail(booking.userEmail)) return booking.userEmail.trim();
     if (isEmail(booking.userId)) return booking.userId.trim();

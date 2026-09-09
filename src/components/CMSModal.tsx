@@ -35,7 +35,7 @@ import { asset, LANDING_ASSETS } from '../config/landingAssets';
 import { LANDING_SECTION_KEYS, LANDING_SECTION_LABELS } from '../config/landingSections';
 import { sanitizeLandingHtml } from '../utils/landingHtml';
 import { SeoSnippetPreview, SocialCardPreview } from './SeoPreview';
-import { requestBalanceReminderEmail } from '../lib/email';
+import { EmailLogEntry, getEmailLogsPage, requestBalanceReminderEmail } from '../lib/email';
 import {
   balanceReminderInfo,
   bookingSeatCheckInTime,
@@ -75,9 +75,9 @@ function pondCodeError(code: string | undefined, ponds: Pond[], excludeDocId?: s
   return null;
 }
 
-type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'audit-log';
+type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'email-log' | 'audit-log';
 
-const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'seo', 'users', 'audit-log'];
+const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'seo', 'users', 'email-log', 'audit-log'];
 const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins', 'users'];
 
 const resultsCompetitionOptions = (competitions: Competition[]): Competition[] =>
@@ -233,6 +233,56 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Audit Log page state
   const [auditLogEntries, setAuditLogEntries] = useState<AuditEntry[]>([]);
   const [auditLogSearch, setAuditLogSearch] = useState('');
+
+  // Admin-only email history. Data comes from a sanitizing callable so mail
+  // bodies and account-action links never reach the browser.
+  const [emailLogEntries, setEmailLogEntries] = useState<EmailLogEntry[]>([]);
+  const [emailLogSearch, setEmailLogSearch] = useState('');
+  const [emailLogLoading, setEmailLogLoading] = useState(false);
+  const [emailLogError, setEmailLogError] = useState<string | null>(null);
+  const [emailLogCursors, setEmailLogCursors] = useState<(string | null)[]>([null]);
+  const [emailLogPage, setEmailLogPage] = useState(0);
+  const [emailLogHasMore, setEmailLogHasMore] = useState(false);
+
+  const fetchEmailLogPage = async (cursor: string | null, pageIndex: number) => {
+    setEmailLogLoading(true);
+    setEmailLogError(null);
+    try {
+      const result = await getEmailLogsPage(cursor, 50);
+      setEmailLogEntries(result.items);
+      setEmailLogHasMore(result.hasMore);
+      setEmailLogCursors((previous) => {
+        const next = [...previous];
+        next[pageIndex + 1] = result.nextCursor;
+        return next;
+      });
+    } catch (error) {
+      console.error('Failed to load Log E-mel page:', error);
+      setEmailLogError('Log e-mel tidak dapat dimuatkan. Sila cuba lagi.');
+    } finally {
+      setEmailLogLoading(false);
+    }
+  };
+  const handleEmailLogNext = () => {
+    if (!emailLogHasMore) return;
+    const nextPage = emailLogPage + 1;
+    setEmailLogPage(nextPage);
+    fetchEmailLogPage(emailLogCursors[nextPage] ?? null, nextPage);
+  };
+  const handleEmailLogPrev = () => {
+    if (emailLogPage === 0) return;
+    const previousPage = emailLogPage - 1;
+    setEmailLogPage(previousPage);
+    fetchEmailLogPage(emailLogCursors[previousPage] ?? null, previousPage);
+  };
+
+  useEffect(() => {
+    if (!isOpen || page !== 'email-log' || !isAdmin) return;
+    setEmailLogPage(0);
+    setEmailLogCursors([null]);
+    fetchEmailLogPage(null, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, page, isAdmin]);
 
   // Weigh-in proof photo viewer — shared by "Papan Markah Semasa" and "Rekod Timbangan"
   const [scorePhotoUrl, setScorePhotoUrl] = useState<string | null>(null);
@@ -1970,6 +2020,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       { id: 'seo' as CMSPage, icon: '🔍', text: 'SEO' },
       { id: 'contact-settings' as CMSPage, icon: '☎️', text: 'Contact Us' },
       { id: 'users' as CMSPage, icon: '👥', text: 'Pengguna' },
+      { id: 'email-log' as CMSPage, icon: '✉️', text: 'Log E-mel' },
       { id: 'audit-log' as CMSPage, icon: '🗒️', text: 'Log Audit' },
     ] },
   ];
@@ -3873,6 +3924,93 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </table></div></div>
               </div>
             </div>
+            );
+          })()}
+          {page === 'email-log' && (() => {
+            const kindLabels: Record<string, string> = {
+              welcome: 'Selamat Datang',
+              verification: 'Pengesahan E-mel',
+              password_reset: 'Tetapan Semula Kata Laluan',
+              booking_received: 'Tempahan Diterima',
+              booking_approved: 'Tempahan Diluluskan',
+              balance_reminder: 'Peringatan Baki',
+              unknown: 'Tidak Diketahui',
+            };
+            const statusMeta = (entry: EmailLogEntry) => {
+              if (entry.status === 'SUCCESS' && entry.recipientAccepted) return { label: 'Dihantar', badge: 'badge-open' };
+              if (entry.status === 'ERROR' || entry.status === 'SUCCESS') return { label: 'Gagal', badge: 'badge-rejected' };
+              if (entry.status === 'PROCESSING') return { label: 'Sedang Dihantar', badge: 'badge-deposit' };
+              if (entry.status === 'RETRY') return { label: 'Cuba Semula', badge: 'badge-deposit' };
+              return { label: 'Menunggu', badge: 'badge-draft' };
+            };
+            const q = emailLogSearch.trim().toLowerCase();
+            const filtered = emailLogEntries.filter((entry) => !q
+              || entry.recipient.toLowerCase().includes(q)
+              || (kindLabels[entry.kind] || entry.kind).toLowerCase().includes(q));
+            return (
+              <div className="page active">
+                <div className="page-header">
+                  <div>
+                    <div className="page-title">Log E-mel</div>
+                    <div className="page-sub">Rekod e-mel sistem yang dicetuskan, 50 rekod setiap halaman</div>
+                  </div>
+                </div>
+                {emailLogError && (
+                  <div role="alert" style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(220,38,38,.35)', background: 'rgba(220,38,38,.08)', color: '#b91c1c' }}>
+                    {emailLogError}
+                  </div>
+                )}
+                <div className="card">
+                  <div className="card-header" style={{ justifyContent: 'flex-end', gap: 8 }}>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        className="form-input"
+                        style={{ width: '280px', maxWidth: '60vw', padding: '6px 28px 6px 10px' }}
+                        placeholder="Cari penerima atau jenis e-mel…"
+                        value={emailLogSearch}
+                        onChange={(event) => setEmailLogSearch(event.target.value)}
+                      />
+                      {emailLogSearch && (
+                        <button onClick={() => setEmailLogSearch('')} title="Kosongkan" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem' }}>×</button>
+                      )}
+                    </div>
+                    <button className="btn btn-sm btn-ghost" disabled={emailLogLoading} onClick={() => fetchEmailLogPage(emailLogCursors[emailLogPage] ?? null, emailLogPage)}>Muat Semula</button>
+                  </div>
+                  <div className="card-body"><div className="table-wrap"><table>
+                    <thead><tr><th>Tarikh Dicetuskan</th><th>Penerima</th><th>Jenis E-mel</th><th>Status</th><th>Percubaan</th></tr></thead>
+                    <tbody>
+                      {emailLogLoading && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
+                      {!emailLogLoading && filtered.map((entry) => {
+                        const status = statusMeta(entry);
+                        return (
+                          <tr key={entry.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <div>{formatDate(entry.triggeredAt) || '—'}</div>
+                              {entry.triggeredAt && <div style={{ marginTop: 2, color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDate(entry.triggeredAt, { time: true }).slice(-5)}</div>}
+                            </td>
+                            <td className="td-name">{entry.recipient || '—'}</td>
+                            <td>{kindLabels[entry.kind] || entry.kind}</td>
+                            <td>
+                              <span className={`badge ${status.badge}`}>{status.label}</span>
+                              {entry.completedAt && <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: '0.7rem' }}>Selesai: {formatDate(entry.completedAt, { time: true })}</div>}
+                            </td>
+                            <td>{entry.attempts || '—'}</td>
+                          </tr>
+                        );
+                      })}
+                      {!emailLogLoading && !emailLogError && filtered.length === 0 && (
+                        <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          {emailLogEntries.length === 0 ? 'Tiada rekod e-mel lagi' : 'Tiada rekod sepadan dengan carian'}
+                        </td></tr>
+                      )}
+                    </tbody>
+                  </table></div></div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 4px 4px' }}>
+                    <button className="btn btn-sm btn-ghost" disabled={emailLogPage === 0 || emailLogLoading} onClick={handleEmailLogPrev}>← Sebelum</button>
+                    <button className="btn btn-sm btn-ghost" disabled={!emailLogHasMore || emailLogLoading} onClick={handleEmailLogNext}>Seterus →</button>
+                  </div>
+                </div>
+              </div>
             );
           })()}
           {page === 'audit-log' && (() => {

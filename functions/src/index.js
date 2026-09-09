@@ -10,6 +10,7 @@ import {
     queuePasswordResetMail,
     queueVerificationMail,
     queueWelcomeMail,
+    safeMailLogEntry,
     shouldQueueBookingApprovedEmail,
 } from './email-service.js';
 import { buildCancelCheckInState, buildCheckInState } from './booking-seats.js';
@@ -808,6 +809,32 @@ const callableHasRole = async (context, allowedRoles) => {
     const role = profile.exists ? String(profile.data()?.role || '').toUpperCase() : '';
     return allowedRoles.includes(role);
 };
+
+export const listEmailLogs = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+    }
+    if (!await callableHasRole(context, ['ADMIN'])) {
+        throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
+    }
+
+    const pageSize = Math.min(100, Math.max(10, Number(data?.pageSize) || 50));
+    let mailQuery = adminDb.collection('mail').orderBy('createdAt', 'desc').limit(pageSize + 1);
+    const cursorId = typeof data?.cursor === 'string' ? data.cursor.trim() : '';
+    if (cursorId) {
+        const cursorSnap = await adminDb.collection('mail').doc(cursorId).get();
+        if (cursorSnap.exists) mailQuery = mailQuery.startAfter(cursorSnap);
+    }
+
+    const snapshot = await mailQuery.get();
+    const hasMore = snapshot.docs.length > pageSize;
+    const docs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
+    return {
+        items: docs.map((docSnap) => safeMailLogEntry(docSnap.id, docSnap.data())),
+        nextCursor: hasMore ? docs[docs.length - 1]?.id || null : null,
+        hasMore,
+    };
+});
 
 export const requestBalanceReminder = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
