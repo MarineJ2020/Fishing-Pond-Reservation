@@ -46,46 +46,53 @@ export const useAuth = () => {
   const { setUser } = useBooking();
   const { addToast } = useUI();
   const [authReady, setAuthReady] = useState(false);
+  const [userProfileReady, setUserProfileReady] = useState(false);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       unsubscribeProfile?.();
       unsubscribeProfile = null;
+      setUserProfileReady(false);
       if (!firebaseUser) {
         localStorage.removeItem('cb_session');
         setUser(null);
         setAuthReady(true);
+        setUserProfileReady(true);
         return;
       }
-      // Show basic identity immediately instead of blocking authReady on the
-      // Firestore profile getDoc — role defaults to 'CLIENT' (fail-safe: an
-      // ADMIN/STAFF-only UI just appears a beat later once the real role loads).
-      if (firebaseUser.email) {
-        setUser({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          emailVerified: firebaseUser.emailVerified,
-          name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-          phone: '',
-          role: 'CLIENT',
-        });
-      }
       setAuthReady(true);
+      if (!firebaseUser.email) {
+        setUser(null);
+        setUserProfileReady(true);
+        return;
+      }
+      const email = firebaseUser.email;
+      // Show basic identity immediately instead of blocking the public UI on
+      // the Firestore profile. CMS waits for userProfileReady before checking role.
+      setUser({
+        uid: firebaseUser.uid,
+        email,
+        emailVerified: firebaseUser.emailVerified,
+        name: firebaseUser.displayName || email.split('@')[0],
+        phone: '',
+        role: 'CLIENT',
+      });
       const profileRef = doc(firestoreDb, 'users', firebaseUser.uid);
       unsubscribeProfile = onSnapshot(profileRef, (profileSnap) => {
-        if (!firebaseUser.email) return;
         const profileData = profileSnap.exists() ? profileSnap.data() : null;
         setUser({
           uid: firebaseUser.uid,
-          email: firebaseUser.email,
+          email,
           emailVerified: firebaseUser.emailVerified,
-          name: profileData?.name || firebaseUser.displayName || firebaseUser.email.split('@')[0],
+          name: profileData?.name || firebaseUser.displayName || email.split('@')[0],
           phone: profileData?.phone || '',
           role: profileData?.role || 'CLIENT',
         });
+        if (!profileSnap.metadata.fromCache) setUserProfileReady(true);
       }, (error) => {
         console.error('Failed to watch user profile:', error);
+        setUserProfileReady(true);
       });
     });
     return () => {
@@ -302,5 +309,5 @@ export const useAuth = () => {
     }
   }, [setUser, addToast]);
 
-  return { login, resetPassword, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady };
+  return { login, resetPassword, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady, userProfileReady };
 };

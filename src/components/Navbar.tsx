@@ -15,6 +15,17 @@ interface NavbarProps {
   settings?: Settings;
 }
 
+const sectionHref = (section: string): string => {
+  if (section === 'home') return '/';
+  if (section === 'lokasi') return '/#lokasi';
+  if (section === 'live') return '/live';
+  if (section === 'book') return '/book';
+  if (section === 'mybookings') return '/my-bookings';
+  if (section === 'profile') return '/profile';
+  if (section === 'cms') return '/cms';
+  return `/${section}`;
+};
+
 const Navbar: React.FC<NavbarProps> = ({ user, authReady, onSectionChange, onOpenAuth, onOpenCMS, onLogout, outstandingCount = 0, settings }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -28,9 +39,11 @@ const Navbar: React.FC<NavbarProps> = ({ user, authReady, onSectionChange, onOpe
     return () => document.removeEventListener('mousedown', onClick);
   }, [menuOpen]);
 
-  const handleNav = (section: string) => {
-    onSectionChange(section);
+  const handleNav = (event: React.MouseEvent<HTMLAnchorElement>, section: string) => {
     setMenuOpen(false);
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    onSectionChange(section);
   };
 
   const handleAction = (fn: () => void) => {
@@ -41,14 +54,14 @@ const Navbar: React.FC<NavbarProps> = ({ user, authReady, onSectionChange, onOpe
   return (
     <header className="kks-header">
       <div className="kks-nav-container">
-        <a className="kks-nav-logo" onClick={() => handleNav('home')} aria-label="Kolam Keli Sayang">
+        <a className="kks-nav-logo" href={sectionHref('home')} onClick={(event) => handleNav(event, 'home')} aria-label="Kolam Keli Sayang">
           <img src={asset('logo', settings)} alt="Kolam Keli Sayang" />
         </a>
 
         <nav className="kks-nav-links" aria-label="Navigasi utama">
-          <a onClick={() => handleNav('lokasi')}>Lokasi</a>
-          <a onClick={() => handleNav('live')}>Keputusan Pertandingan</a>
-          <a onClick={() => handleNav('book')}>Tempah Sekarang</a>
+          <a href={sectionHref('lokasi')} onClick={(event) => handleNav(event, 'lokasi')}>Lokasi</a>
+          <a href={sectionHref('live')} onClick={(event) => handleNav(event, 'live')}>Keputusan Pertandingan</a>
+          <a href={sectionHref('book')} onClick={(event) => handleNav(event, 'book')}>Tempah Sekarang</a>
         </nav>
 
         <div className="kks-nav-actions">
@@ -78,14 +91,14 @@ const Navbar: React.FC<NavbarProps> = ({ user, authReady, onSectionChange, onOpe
       </div>
 
       <div ref={menuRef} className={`kks-menu-drop${menuOpen ? ' open' : ''}`}>
-        <a onClick={() => handleNav('home')}><i className="fa-solid fa-house"></i> Utama</a>
-        <a onClick={() => handleNav('lokasi')}><i className="fa-solid fa-location-dot"></i> Lokasi</a>
-        <a onClick={() => handleNav('live')}><i className="fa-solid fa-bolt"></i> Keputusan / Live</a>
-        <a onClick={() => handleNav('book')}><i className="fa-solid fa-ticket"></i> Tempah Sekarang</a>
+        <a href={sectionHref('home')} onClick={(event) => handleNav(event, 'home')}><i className="fa-solid fa-house"></i> Utama</a>
+        <a href={sectionHref('lokasi')} onClick={(event) => handleNav(event, 'lokasi')}><i className="fa-solid fa-location-dot"></i> Lokasi</a>
+        <a href={sectionHref('live')} onClick={(event) => handleNav(event, 'live')}><i className="fa-solid fa-bolt"></i> Keputusan / Live</a>
+        <a href={sectionHref('book')} onClick={(event) => handleNav(event, 'book')}><i className="fa-solid fa-ticket"></i> Tempah Sekarang</a>
         <hr />
         {!authReady ? null : user ? (
           <>
-            <a onClick={() => handleNav('mybookings')}>
+            <a href={sectionHref('mybookings')} onClick={(event) => handleNav(event, 'mybookings')}>
               <i className="fa-solid fa-clipboard-list"></i> Tempahan Saya
               {outstandingCount > 0 && (
                 <span style={{ marginLeft: '8px', background: 'var(--red)', color: '#fff', fontSize: '11px', fontWeight: 700, borderRadius: '999px', padding: '1px 8px' }}>
@@ -93,9 +106,14 @@ const Navbar: React.FC<NavbarProps> = ({ user, authReady, onSectionChange, onOpe
                 </span>
               )}
             </a>
-            <a onClick={() => handleNav('profile')}><i className="fa-solid fa-user"></i> Profil Saya</a>
+            <a href={sectionHref('profile')} onClick={(event) => handleNav(event, 'profile')}><i className="fa-solid fa-user"></i> Profil Saya</a>
             {(user.role === 'ADMIN' || user.role === 'STAFF') && (
-              <a onClick={() => handleAction(onOpenCMS)}><i className="fa-solid fa-shield-halved"></i> Staff CMS</a>
+              <a href={sectionHref('cms')} onClick={(event) => {
+                setMenuOpen(false);
+                if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                onOpenCMS();
+              }}><i className="fa-solid fa-shield-halved"></i> Staff CMS</a>
             )}
             <a onClick={() => handleAction(onLogout)}><i className="fa-solid fa-right-from-bracket"></i> Log Keluar</a>
           </>

@@ -93,7 +93,7 @@ const AppContent: React.FC = () => {
   const { addToast, setAuthModalOpen, authModalOpen } = useUI();
   const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToProfile, goToConfirmed, goToBookingDetail, goToCMS } = useNavigation();
   const location = useLocation();
-  const { login, resetPassword, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady } = useAuth();
+  const { login, resetPassword, register, signInWithGoogle, logout, resendVerification, refreshUser, updateUserProfile, authReady, userProfileReady } = useAuth();
   const [completeProfileOpen, setCompleteProfileOpen] = useState(false);
   useSEO(currentSection, db.settings);
 
@@ -1861,6 +1861,16 @@ const AppContent: React.FC = () => {
         );
       }
       case 'cms': {
+        if (!authReady || !userProfileReady) {
+          return (
+            <div style={{ minHeight: 'calc(100vh - 72px)', display: 'grid', placeItems: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '1rem' }}><i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i></div>
+                <div style={{ fontWeight: 700 }}>Memuatkan akses CMS...</div>
+              </div>
+            </div>
+          );
+        }
         // Client-side guard: signed-out users get a sign-in prompt; the CMSModal
         // itself renders an "Akses Terhad" screen for signed-in non-staff. Real
         // enforcement is server-side (Firestore rules require an admin role).
