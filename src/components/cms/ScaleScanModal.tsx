@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
-import { sevenSegmentScan } from '../../utils/sevenSegmentFallback';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
 import { parseQrPayload, decodeQr, openQrCameraStream } from '../../utils/qr';
 
@@ -218,7 +217,6 @@ const ScaleScanModal: React.FC<Props> = ({
   // Unified reading consumed by handleApprove — set by ONNX, the no-AI fallback,
   // or manual entry. weight=null means "no usable reading yet".
   const [activeReading, setActiveReading] = useState<{ source: ReadingSource; weight: number | null; displayText: string; rawText: string } | null>(null);
-  const [fallbackBusy, setFallbackBusy] = useState(false);
   // Final failsafe: staff types the weight. The captured scale photo is reused
   // as proof by default; staff can replace it with a separate proof photo.
   const [manualMode, setManualMode] = useState(false);
@@ -238,7 +236,8 @@ const ScaleScanModal: React.FC<Props> = ({
   const [liveQrActive, setLiveQrActive] = useState(false);
   const [liveQrBusy, setLiveQrBusy] = useState(false);
   const qrFileInputRef = useRef<HTMLInputElement>(null);
-  const weightFileInputRef = useRef<HTMLInputElement>(null);
+  const weightCameraInputRef = useRef<HTMLInputElement>(null);
+  const weightUploadInputRef = useRef<HTMLInputElement>(null);
   const previewBoxRef = useRef<HTMLDivElement>(null);
   const liveQrVideoRef = useRef<HTMLVideoElement | null>(null);
   const liveQrCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -272,7 +271,6 @@ const ScaleScanModal: React.FC<Props> = ({
       setCropRect(DEFAULT_CROP);
       setResult(null);
       setActiveReading(null);
-      setFallbackBusy(false);
       setManualMode(false);
       setManualWeightInput('');
       setManualPhotoBlob(null);
@@ -560,32 +558,6 @@ const ScaleScanModal: React.FC<Props> = ({
     }
   };
 
-  // Failsafe #1: deterministic no-ML 7-segment scan of the SAME crop, run when
-  // staff decide the ONNX read isn't worth retrying.
-  const handleFallbackScan = async () => {
-    if (!photoBlob) return;
-    setFallbackBusy(true);
-    setError(null);
-    try {
-      const cropCanvas = await buildCropCanvas();
-      const fb = sevenSegmentScan(cloneCanvas(cropCanvas));
-      const displayText = formatScannedWeight(fb.text, decimalPlaces);
-      const num = parseFloat(displayText);
-      setActiveReading({
-        source: 'sevenseg',
-        weight: displayText && Number.isFinite(num) && num > 0 ? num : null,
-        displayText,
-        rawText: fb.text,
-      });
-      setManualMode(false);
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.message || 'Imbasan sandaran gagal.');
-    } finally {
-      setFallbackBusy(false);
-    }
-  };
-
   const handleManualPhotoChosen = (file: File) => {
     setManualPhotoFileName(file.name || 'manual-scale.jpg');
     setManualPhotoBlob(file);
@@ -618,7 +590,6 @@ const ScaleScanModal: React.FC<Props> = ({
     setManualPhotoUrl(null);
     setError(null);
     setStep('capture');
-    setTimeout(() => weightFileInputRef.current?.click(), 50);
   };
 
   const handleResetIdentify = () => {
@@ -867,7 +838,7 @@ const ScaleScanModal: React.FC<Props> = ({
                 Ambil gambar paparan timbangan digital dengan jelas. Pastikan nombor kelihatan penuh.
               </p>
               <input
-                ref={weightFileInputRef}
+                ref={weightCameraInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
@@ -878,9 +849,25 @@ const ScaleScanModal: React.FC<Props> = ({
                   e.target.value = '';
                 }}
               />
-              <button className="btn btn-primary" onClick={() => weightFileInputRef.current?.click()}>
-                Ambil / Pilih Gambar Timbangan
-              </button>
+              <input
+                ref={weightUploadInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleWeightFileChosen(f);
+                  e.target.value = '';
+                }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button className="btn btn-primary" onClick={() => weightCameraInputRef.current?.click()}>
+                  📷 Ambil Gambar Timbangan
+                </button>
+                <button className="btn" onClick={() => weightUploadInputRef.current?.click()}>
+                  🖼️ Pilih Gambar Timbangan
+                </button>
+              </div>
             </div>
           )}
 
@@ -979,9 +966,9 @@ const ScaleScanModal: React.FC<Props> = ({
                 marginTop: 12, padding: 10, borderRadius: 6,
                 background: '#eff6ff', color: '#1e3a8a', fontSize: 13,
               }}>
-                ℹ️ Tidak tepat? <strong>Ambil Semula</strong> untuk cuba AI lagi. Jika AI gagal,
-                cuba <strong>Imbas Tanpa AI</strong>. Jika masih gagal, <strong>Masukkan Manual</strong>
-                {' '}berat. Gambar timbangan yang telah diambil akan digunakan sebagai bukti.
+                ℹ️ Tidak tepat? <strong>Imbas Semula</strong> untuk cuba AI lagi, atau <strong>Ambil Semula</strong>
+                {' '}untuk guna gambar lain. Jika masih gagal, <strong>Masukkan Manual</strong> berat.
+                Gambar timbangan yang telah diambil akan digunakan sebagai bukti.
               </div>
 
               {manualMode && (
@@ -1016,10 +1003,7 @@ const ScaleScanModal: React.FC<Props> = ({
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16, flexWrap: 'wrap' }}>
                 <button className="btn" onClick={handleRetakeWeight}>🔄 Ambil Semula</button>
-                <button className="btn" disabled={!photoBlob} onClick={handleScan}>🤖 Imbas AI Semula</button>
-                <button className="btn" disabled={fallbackBusy || !photoBlob} onClick={handleFallbackScan}>
-                  {fallbackBusy ? 'Mengimbas…' : '🔢 Imbas Tanpa AI'}
-                </button>
+                <button className="btn" disabled={!photoBlob} onClick={handleScan}>🤖 Imbas Semula</button>
                 <button className="btn" onClick={() => setManualMode((m) => !m)}>
                   ✍️ Masukkan Manual
                 </button>
