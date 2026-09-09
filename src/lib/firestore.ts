@@ -31,13 +31,15 @@ import { bookingRequest } from './bookingApi';
 const getVisibleBookingDocs = async () => {
   const user = auth.currentUser;
   if (!user) return [];
-  const profile = await getDoc(doc(db, 'users', user.uid));
-  if (['ADMIN', 'STAFF'].includes(profile.data()?.role)) return (await getDocs(collection(db, 'bookings'))).docs;
+  const profilePromise = getDoc(doc(db, 'users', user.uid));
   const ownerValues: unknown[] = [user.uid, doc(db, 'users', user.uid)];
   if (user.emailVerified && user.email) ownerValues.push(user.email);
   const requests = ownerValues.map((value) => getDocs(query(collection(db, 'bookings'), where('userId', '==', value))));
   if (user.emailVerified && user.email) requests.push(getDocs(query(collection(db, 'bookings'), where('userEmail', '==', user.email))));
-  const snapshots = await Promise.all(requests);
+  const ownerBookingsPromise = Promise.all(requests);
+  const profile = await profilePromise;
+  if (['ADMIN', 'STAFF'].includes(profile.data()?.role)) return (await getDocs(collection(db, 'bookings'))).docs;
+  const snapshots = await ownerBookingsPromise;
   return [...new Map(snapshots.flatMap((snap) => snap.docs).map((snap) => [snap.id, snap])).values()];
 };
 
@@ -607,21 +609,21 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
   };
 };
 
-export const loadAppDB = async (): Promise<DB> => {
+export const loadAppDB = async (onCoreLoaded?: (core: DB) => void): Promise<DB> => {
   try {
-    const [pondSnapshot, seatSnapshot, competitionSnapshot, bookingDocs, settings, availabilityResult] = await Promise.all([
+    const availabilityPromise = bookingRequest('/bookingAvailability').then((result) => {
+      if (!Array.isArray(result.availability)) throw new Error('Invalid availability response.');
+      return result;
+    }).catch((error) => {
+      console.error('Failed to load availability:', error);
+      return { availability: [], availabilityError: true };
+    });
+    const [pondSnapshot, seatSnapshot, competitionSnapshot, bookingDocs, settings] = await Promise.all([
       getDocs(collection(db, 'ponds')),
       getDocs(collection(db, 'seats')),
       getDocs(collection(db, 'competitions')),
       getVisibleBookingDocs(),
       getSettings(),
-      bookingRequest('/bookingAvailability').then((result) => {
-        if (!Array.isArray(result.availability)) throw new Error('Invalid availability response.');
-        return result;
-      }).catch((error) => {
-        console.error('Failed to load availability:', error);
-        return { availability: [], availabilityError: true };
-      }),
     ]);
 
     const ponds = await getPondsWithSeats({ pondDocs: pondSnapshot.docs, seatDocs: seatSnapshot.docs });
@@ -637,18 +639,28 @@ export const loadAppDB = async (): Promise<DB> => {
       bookingDocs,
     });
 
-    const scores = competition && competition.id ? await buildScores(competition.id, bookings) : {};
-
-    return {
-      availability: availabilityResult.availability,
-      availabilityError: availabilityResult.availabilityError || false,
+    const core: DB = {
+      availability: [],
+      availabilityError: false,
       ponds,
       bookings,
-      scores,
+      scores: {},
       comp: competition,
       competitions: competitions.length ? competitions : [competition],
       settings,
       users: [],
+    };
+    onCoreLoaded?.(core);
+
+    const [availabilityResult, scores] = await Promise.all([
+      availabilityPromise,
+      competition && competition.id ? buildScores(competition.id, bookings) : Promise.resolve({}),
+    ]);
+    return {
+      ...core,
+      availability: availabilityResult.availability,
+      availabilityError: availabilityResult.availabilityError || false,
+      scores,
     };
   } catch (error) {
     console.error('Failed to load Firestore DB:', error);

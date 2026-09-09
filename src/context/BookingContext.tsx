@@ -14,6 +14,8 @@ interface BookingContextType {
   db: DB;
   /** True until the first Firestore DB load resolves. See dbLoading state below. */
   dbLoading: boolean;
+  /** Resolves as soon as the current user's bookings are ready, before slower availability data. */
+  bookingsLoading: boolean;
   user: User | null;
   selectedCompetitionId: string | null;
   selectedPond: number | null;
@@ -79,11 +81,21 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   // blank placeholder until then, so callers checking e.g. db.settings.whatsapp
   // right after mount must not treat "still loading" as "genuinely unset".
   const [dbLoading, setDbLoading] = useState(true);
+  const [bookingsLoading, setBookingsLoading] = useState(true);
   const liveSettings = useRef<Settings | null>(null);
 
   // A live snapshot wins over initial loads/reloads already in flight.
   const applyLoadedDB = useCallback((loaded: DB) => {
     setDbState({ ...loaded, settings: liveSettings.current ?? loaded.settings });
+  }, []);
+
+  const applyCoreLoadedDB = useCallback((loaded: DB) => {
+    setDbState((current) => ({
+      ...current,
+      bookings: loaded.bookings,
+      comp: loaded.comp,
+      competitions: loaded.competitions,
+    }));
   }, []);
 
   useEffect(() => subscribeSettings((settings) => {
@@ -102,14 +114,21 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       const current = ++generation;
       setDbState((previous) => ({ ...previous, bookings: [], users: [] }));
       setDbLoading(true);
-      const remoteDb = await loadAppDB();
+      setBookingsLoading(true);
+      const remoteDb = await loadAppDB((coreDb) => {
+        if (!canceled && current === generation) {
+          applyCoreLoadedDB(coreDb);
+          setBookingsLoading(false);
+        }
+      });
       if (!canceled && current === generation) {
         applyLoadedDB(remoteDb);
         setDbLoading(false);
+        setBookingsLoading(false);
       }
     });
     return () => { canceled = true; unsubscribe(); };
-  }, [applyLoadedDB]);
+  }, [applyCoreLoadedDB, applyLoadedDB]);
 
   useEffect(() => {
     if (!selectedCompetitionId && db.comp?.id) {
@@ -376,6 +395,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       value={{
         db,
         dbLoading,
+        bookingsLoading,
         user,
         selectedCompetitionId,
         selectedPond,

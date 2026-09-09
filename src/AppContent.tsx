@@ -63,6 +63,7 @@ const AppContent: React.FC = () => {
   const {
     db,
     dbLoading,
+    bookingsLoading,
     selectedPond,
     selectedCompetitionId,
     selectedSeats,
@@ -1624,12 +1625,12 @@ const AppContent: React.FC = () => {
       case 'live':
         return <LiveResults decimalPlaces={db.settings.ocrDecimalPlaces} comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} availability={db.availability} user={user} />;
       case 'mybookings':
-        if (!authReady) {
+        if (!authReady || bookingsLoading) {
           return (
             <div className="bookings-page">
               <div className="empty-state">
                 <span className="empty-icon">⏳</span>
-                <div className="empty-text">Checking your session...</div>
+                <div className="empty-text">Memuatkan tempahan...</div>
               </div>
             </div>
           );
@@ -1739,7 +1740,7 @@ const AppContent: React.FC = () => {
               <div className="empty-state">
                 <span className="empty-icon">🎣</span>
                 <div className="empty-text">
-                  No bookings yet. <a onClick={() => goToBook()} style={{ color: 'var(--accent)', cursor: 'pointer' }}>Book a peg</a> to get started.
+                  Belum ada tempahan. <a onClick={() => goToBook()} style={{ color: 'var(--accent)', cursor: 'pointer' }}>Tempah pancang</a> untuk bermula.
                 </div>
               </div>
             )}
@@ -1802,6 +1803,14 @@ const AppContent: React.FC = () => {
         );
       }
       case 'bookingDetail': {
+        if (!authReady || bookingsLoading) {
+          return (
+            <div style={{ textAlign: 'center', padding: '6rem 2rem', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '2rem', marginBottom: '1rem' }}><i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i></div>
+              <div style={{ fontWeight: 700 }}>Memuatkan tempahan...</div>
+            </div>
+          );
+        }
         const booking = bookingDetailId
           ? db.bookings.find((b) => b.id === bookingDetailId) || null
           : null;
