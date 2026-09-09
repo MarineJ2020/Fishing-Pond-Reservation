@@ -811,29 +811,35 @@ const callableHasRole = async (context, allowedRoles) => {
 };
 
 export const listEmailLogs = functions.https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
-    }
-    if (!await callableHasRole(context, ['ADMIN'])) {
-        throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
-    }
+    try {
+        if (!context.auth) {
+            throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+        }
+        if (!await callableHasRole(context, ['ADMIN'])) {
+            throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
+        }
 
-    const pageSize = Math.min(100, Math.max(10, Number(data?.pageSize) || 50));
-    let mailQuery = adminDb.collection('mail').orderBy('createdAt', 'desc').limit(pageSize + 1);
-    const cursorId = typeof data?.cursor === 'string' ? data.cursor.trim() : '';
-    if (cursorId) {
-        const cursorSnap = await adminDb.collection('mail').doc(cursorId).get();
-        if (cursorSnap.exists) mailQuery = mailQuery.startAfter(cursorSnap);
-    }
+        const pageSize = Math.min(100, Math.max(10, Number(data?.pageSize) || 50));
+        let mailQuery = adminDb.collection('mail').orderBy('createdAt', 'desc').limit(pageSize + 1);
+        const cursorId = typeof data?.cursor === 'string' ? data.cursor.trim() : '';
+        if (cursorId) {
+            const cursorSnap = await adminDb.collection('mail').doc(cursorId).get();
+            if (cursorSnap.exists) mailQuery = mailQuery.startAfter(cursorSnap);
+        }
 
-    const snapshot = await mailQuery.get();
-    const hasMore = snapshot.docs.length > pageSize;
-    const docs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
-    return {
-        items: docs.map((docSnap) => safeMailLogEntry(docSnap.id, docSnap.data())),
-        nextCursor: hasMore ? docs[docs.length - 1]?.id || null : null,
-        hasMore,
-    };
+        const snapshot = await mailQuery.get();
+        const hasMore = snapshot.docs.length > pageSize;
+        const docs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
+        return {
+            items: docs.map((docSnap) => safeMailLogEntry(docSnap.id, docSnap.data())),
+            nextCursor: hasMore ? docs[docs.length - 1]?.id || null : null,
+            hasMore,
+        };
+    } catch (error) {
+        if (error instanceof functions.https.HttpsError) throw error;
+        console.error('listEmailLogs failed:', error);
+        throw new functions.https.HttpsError('internal', 'Email logs could not be loaded.');
+    }
 });
 
 export const requestBalanceReminder = functions.https.onCall(async (data, context) => {
