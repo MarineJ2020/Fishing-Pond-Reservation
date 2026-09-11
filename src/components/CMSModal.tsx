@@ -79,6 +79,13 @@ type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes
 
 const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'seo', 'users', 'email-log', 'audit-log'];
 const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins', 'users'];
+const ALL_BOOKING_STATUS_OPTIONS = [
+  ['all', 'Semua'],
+  ['review-balance', 'Menunggu Semak (Baki)'],
+  ['pending-balance', 'Baki Belum Dibayar'],
+  ['fully-paid', 'Selesai Dibayar'],
+  ['cancelled', 'Dibatalkan'],
+] as const;
 
 const resultsCompetitionOptions = (competitions: Competition[]): Competition[] =>
   competitions
@@ -2754,8 +2761,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="cms-queue-groups">
                   <div className="cms-filter-block">
                     <span className="cms-filter-label">Status</span>
+                    <select
+                      className="form-input cms-status-select"
+                      value={allStatus}
+                      onChange={e => setAllStatus(e.target.value as typeof allStatus)}
+                      aria-label="Tapis status tempahan"
+                    >
+                      {ALL_BOOKING_STATUS_OPTIONS.map(([v, label]) => (
+                        <option key={v} value={v}>{label}</option>
+                      ))}
+                    </select>
                     <div className="cms-segmented">
-                      {([['all','Semua'],['review-balance','Menunggu Semak (Baki)'],['pending-balance','Baki Belum Dibayar'],['fully-paid','Selesai Dibayar'],['cancelled','Dibatalkan']] as const).map(([v,label]) => (
+                      {ALL_BOOKING_STATUS_OPTIONS.map(([v,label]) => (
                         <button key={v} type="button" className={`btn btn-pill ${allStatus === v ? 'active' : ''}`} onClick={() => setAllStatus(v)}>{label}</button>
                       ))}
                     </div>
@@ -2769,6 +2786,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="field"><label>Bayaran</label><select className="form-input" value={allPayFilter} onChange={e => setAllPayFilter(e.target.value as any)}><option value="">Semua bayaran</option><option value="deposit">Deposit</option><option value="full">Full</option></select></div>
                 <div className="field"><label>Kolam</label><select className="form-input" value={allPondFilter} onChange={e => setAllPondFilter(e.target.value)}><option value="">Semua kolam</option>{pondCodes.map(code => <option key={code} value={code}>Kolam {code}</option>)}</select></div>
                 <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(''); setAllPayFilter(''); setAllPondFilter(''); }}>Reset</button></div>
+              </div>
+
+              <div className="cms-pagination cms-pagination-mobile">
+                <button className="btn btn-sm btn-ghost" disabled={allPage === 0} onClick={handleAllPrev}>← Sebelum</button>
+                <span>Halaman {allPage + 1}</span>
+                <button className="btn btn-sm btn-ghost" disabled={!allHasMore} onClick={handleAllNext}>Seterus →</button>
               </div>
 
               <div className="card">
@@ -2874,8 +2897,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     {!allLoading && filteredEntries.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan sepadan</td></tr>}
                   </tbody>
                 </table></div></div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 4px 4px' }}>
+                <div className="cms-pagination">
                   <button className="btn btn-sm btn-ghost" disabled={allPage === 0} onClick={handleAllPrev}>← Sebelum</button>
+                  <span>Halaman {allPage + 1}</span>
                   <button className="btn btn-sm btn-ghost" disabled={!allHasMore} onClick={handleAllNext}>Seterus →</button>
                 </div>
               </div>

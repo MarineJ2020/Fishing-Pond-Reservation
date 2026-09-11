@@ -387,6 +387,7 @@
 .cms-v5 .cms-queue-groups { display: flex; gap: 18px; flex-wrap: wrap; }
 .cms-v5 .cms-filter-block { display: flex; align-items: center; gap: 10px; }
 .cms-v5 .cms-filter-label { font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--cv-soft); }
+.cms-v5 .cms-status-select { display: none; }
 .cms-v5 .cms-segmented { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .cms-v5 .btn-pill {
   padding: 7px 14px; border-radius: 999px;
@@ -395,6 +396,20 @@
 }
 .cms-v5 .btn-pill:hover { border-color: var(--cv-blue); color: var(--cv-blue); }
 .cms-v5 .btn-pill.active { background: var(--cv-accent); border-color: var(--cv-accent); color: #fff; }
+.cms-v5 .cms-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 4px 4px;
+}
+.cms-v5 .cms-pagination span {
+  color: var(--cv-soft);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.cms-v5 .cms-pagination-mobile { display: none; }
 
 .cms-v5 .cms-notice-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
@@ -592,6 +607,63 @@
 }
 
 @media (max-width: 768px) {
+  .cms-v5 .cms-queue-toolbar {
+    align-items: stretch;
+    gap: 10px;
+  }
+  .cms-v5 .cms-queue-counter { order: 2; }
+  .cms-v5 .cms-queue-groups,
+  .cms-v5 .cms-filter-block,
+  .cms-v5 .cms-status-select {
+    width: 100%;
+  }
+  .cms-v5 .cms-filter-block {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .cms-v5 .cms-segmented { display: none; }
+  .cms-v5 .cms-status-select {
+    display: block;
+    min-height: 42px;
+    font-weight: 800;
+  }
+  .cms-v5 .cms-filter-row {
+    padding: 12px;
+    gap: 10px;
+  }
+  .cms-v5 .cms-filter-row .field {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+  .cms-v5 .cms-filter-actions,
+  .cms-v5 .cms-filter-actions .btn {
+    width: 100%;
+  }
+  .cms-v5 .cms-pagination {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    justify-content: space-between;
+    margin: 0 -1px;
+    padding: 10px;
+    border-top: 1px solid var(--cv-line);
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 -10px 24px rgba(16, 43, 70, .08);
+    backdrop-filter: blur(10px);
+  }
+  .cms-v5 .cms-pagination .btn {
+    min-height: 38px;
+    flex: 1 1 0;
+  }
+  .cms-v5 .cms-pagination-mobile {
+    display: flex;
+    position: static;
+    margin: 0 0 12px;
+    border: 1px solid var(--cv-line);
+    border-radius: 12px;
+    box-shadow: none;
+  }
   .bk-seat-modal .bk-seat-modal-body { padding-bottom: 220px; }
   .bk-seat-modal .bk-seat-modal-foot {
     left: 8px;
