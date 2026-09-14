@@ -1113,47 +1113,65 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         'Baki',
         'Kolam',
         'No Pancang',
+        'Jumlah Pancang Tempahan',
         'Status Check-in',
-        'Pancang Sudah Check-in',
         'Masa Check-in',
         'Hadir Manual',
+        'Berat Manual',
+        'Bilangan Ikan',
         'Catatan Manual',
       ];
-      const rows = filteredRows.map((b, index) => {
-        const seatEntries = bookingSeatEntries(b);
-        const checkedSeats = seatEntries
-          .filter((entry) => isBookingSeatCheckedIn(b, entry))
-          .map((entry) => formatSeat(entry.pondCode || ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum));
-        const checkInTimes = seatEntries
-          .map((entry) => bookingSeatCheckInTime(b, entry))
-          .filter(Boolean)
-          .map(csvDateTime);
+      const rows = filteredRows.flatMap((b) => {
+        const seatEntries = bookingSeatEntries(b)
+          .sort((a, b) => {
+            const pondA = (a.pondCode || ponds.find((pond) => pond.id === a.pondId)?.code || '').localeCompare(
+              b.pondCode || ponds.find((pond) => pond.id === b.pondId)?.code || '',
+              'ms',
+              { sensitivity: 'base' },
+            );
+            return pondA || a.seatNum - b.seatNum;
+          });
         const paid = b.paidAmount ?? b.amount ?? 0;
         const total = b.totalAmount ?? b.amount ?? 0;
         const balance = b.balanceDue ?? Math.max(0, total - paid);
-        return [
-          index + 1,
-          b.userName || '',
-          b.userPhone || '',
-          b.bookingPhone || '',
-          b.userEmail || b.userId || '',
-          b.bookingRef || b.id,
-          b.competitionName || comp.name || '',
-          b.status === 'rejected' ? 'Dibatalkan' : 'Disahkan',
-          b.status === 'rejected' ? 'Dibatalkan' : (deriveBalanceStage(b) === 'fully-paid' ? 'Selesai Bayar' : deriveBalanceStage(b) === 'review-balance' ? 'Menunggu Semak Baki' : 'Baki Belum Dibayar'),
-          b.paymentType || '',
-          total,
-          paid,
-          balance,
-          bookingPondList(b),
-          bookingSeatList(b),
-          seatEntries.length && checkedSeats.length >= seatEntries.length ? 'Selesai' : checkedSeats.length ? 'Sebahagian' : 'Belum',
-          checkedSeats.join(', '),
-          Array.from(new Set(checkInTimes)).join(', '),
-          '',
-          '',
-        ];
+        const entries = seatEntries.length ? seatEntries : [{
+          key: `${b.pondId}:`,
+          pondId: b.pondId,
+          pondName: b.pondName,
+          pondCode: b.pondCode,
+          pondDate: b.pondDate,
+          seatNum: 0,
+        } as BookingSeatEntry];
+        return entries.map((entry) => {
+          const pondCode = entry.pondCode || ponds.find((pond) => pond.id === entry.pondId)?.code;
+          const checkedIn = entry.seatNum ? isBookingSeatCheckedIn(b, entry) : !!b.checkedIn;
+          return [
+            0,
+            b.userName || '',
+            b.userPhone || '',
+            b.bookingPhone || '',
+            b.userEmail || b.userId || '',
+            b.bookingRef || b.id,
+            b.competitionName || comp.name || '',
+            b.status === 'rejected' ? 'Dibatalkan' : 'Disahkan',
+            b.status === 'rejected' ? 'Dibatalkan' : (deriveBalanceStage(b) === 'fully-paid' ? 'Selesai Bayar' : deriveBalanceStage(b) === 'review-balance' ? 'Menunggu Semak Baki' : 'Baki Belum Dibayar'),
+            b.paymentType || '',
+            total,
+            paid,
+            balance,
+            entry.pondName || bookingPondList(b),
+            entry.seatNum ? formatSeat(pondCode, entry.seatNum) : bookingSeatList(b),
+            seatEntries.length,
+            checkedIn ? 'Selesai' : 'Belum',
+            csvDateTime(entry.seatNum ? bookingSeatCheckInTime(b, entry) : b.checkedInAt),
+            '',
+            '',
+            '',
+            '',
+          ];
+        });
       });
+      rows.forEach((row, index) => { row[0] = index + 1; });
 
       const csv = '\uFEFF' + [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
       const competitionName = competitions.find((c) => c.id === allCompFilter)?.name || 'pertandingan';
