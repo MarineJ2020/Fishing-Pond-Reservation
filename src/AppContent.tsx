@@ -937,6 +937,11 @@ const AppContent: React.FC = () => {
     const featuredBookingOpen = !!featuredCompetition && !isCompetitionEnded(featuredCompetition, nowTick) && isBookingOpen(featuredCompetition, nowTick);
     const featuredBookingNotice = bookingWindowLabel(featuredCompetition, nowTick);
     const secondBookingOpenLabel = secondCompetition ? formatBookingOpenDate(secondCompetition.bookingOpenAt) : '';
+    const secondPondsCount = secondCompetition?.activePondIds?.length || null;
+    const secondAvailablePegs = secondCompetition?.id && competitionAvailableSeats.has(secondCompetition.id)
+      ? competitionAvailableSeats.get(secondCompetition.id) ?? null
+      : null;
+    const showSecondMeta = !!secondCompetition && (secondPondsCount !== null || secondAvailablePegs !== null);
 
     return (
     <div className="home-shell">
@@ -1072,10 +1077,12 @@ const AppContent: React.FC = () => {
                     {secondBookingOpenLabel && (
                       <p className="kks-mini-booking-open">Tempahan Dibuka: {secondBookingOpenLabel}</p>
                     )}
-                    <div className="kks-mini-meta">
-                      <span>{(secondCompetition?.activePondIds?.length || totalPonds || 12) + ' Kolam Mega'}</span>
-                      <span>{(secondCompetition?.id ? competitionAvailableSeats.get(secondCompetition.id) : null) ?? availablePegs} Pancang</span>
-                    </div>
+                    {showSecondMeta && (
+                      <div className="kks-mini-meta">
+                        {secondPondsCount !== null && <span>{secondPondsCount} Kolam Mega</span>}
+                        {secondAvailablePegs !== null && <span>{secondAvailablePegs} Pancang</span>}
+                      </div>
+                    )}
                   </article>
                 </aside>
               </div>
