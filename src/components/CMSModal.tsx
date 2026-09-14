@@ -78,7 +78,7 @@ function pondCodeError(code: string | undefined, ponds: Pond[], excludeDocId?: s
 type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'email-log' | 'audit-log';
 
 const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'seo', 'users', 'email-log', 'audit-log'];
-const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins', 'users'];
+const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins'];
 const ALL_BOOKING_STATUS_OPTIONS = [
   ['all', 'Semua'],
   ['review-balance', 'Menunggu Semak (Baki)'],
@@ -320,7 +320,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [ogImageUploading, setOgImageUploading] = useState<string | null>(null);
   // Users page search query (narrows the currently-loaded page only).
   const [userSearch, setUserSearch] = useState('');
-  // Registered accounts (admin-managed, staff-readable), cursor-paginated so
+  // Registered accounts (admin-managed), cursor-paginated so
   // this stays fast once accounts number in the thousands.
   const [userSortOrder, setUserSortOrder] = useState<'asc' | 'desc'>('asc');
   const [userEntries, setUserEntries] = useState<User[]>([]);
@@ -361,12 +361,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     fetchUsersPage(userCursors[prevPage] ?? null, prevPage);
   };
   useEffect(() => {
-    if (!isOpen || page !== 'users') return;
+    if (!isOpen || page !== 'users' || !isAdmin) return;
     setUserPage(0);
     setUserCursors([null]);
     fetchUsersPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, page, userSortOrder]);
+  }, [isOpen, page, isAdmin, userSortOrder]);
 
   // Reorder state for the ponds CMS.
   const [pondReordering, setPondReordering] = useState(false);
@@ -1821,28 +1821,36 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
    * competition so staff can't accidentally score a booking for a different
    * event.
    */
-  const toScannedBookingFull = (bookingId: string): ScannedBookingFull | null => {
+  const toScannedBookingFull = (bookingId: string, pondId?: number): ScannedBookingFull | null => {
     const booking = bookings.find((b) => b.id === bookingId || b.bookingRef === bookingId);
     if (!booking) return null;
     const compId = booking.competitionId || '';
     if (resultsCompId && compId && compId !== resultsCompId) return null;
     if (!booking.seats.length) return null;
-    const pond = ponds.find((p) => p.id === booking.pondId);
+    const seatEntries = bookingSeatEntries(booking);
+    const scopedEntries = pondId != null ? seatEntries.filter((entry) => entry.pondId === pondId) : [];
+    const entries = scopedEntries.length ? scopedEntries : seatEntries.filter((entry) => entry.pondId === booking.pondId);
+    const firstEntry = entries[0];
+    if (!firstEntry) return null;
+    const pond = ponds.find((p) => p.id === firstEntry.pondId);
     return {
       bookingId: booking.id,
       bookingRef: booking.bookingRef,
       userId: booking.userId,
       anglerName: booking.userName,
-      pondId: booking.pondId,
-      pondName: pond?.name || booking.pondName,
-      pondCode: pond?.code || booking.pondCode,
-      seats: [...booking.seats].sort((a, b) => a - b),
+      pondId: firstEntry.pondId,
+      pondName: pond?.name || firstEntry.pondName,
+      pondCode: pond?.code || firstEntry.pondCode,
+      seats: entries.map((entry) => entry.seatNum).sort((a, b) => a - b),
+      amount: booking.amount,
+      checkedInSeats: booking.checkedInSeats,
+      checkedInSeatKeys: booking.checkedInSeatKeys,
       competitionId: booking.competitionId,
       competitionName: booking.competitionName,
     };
   };
 
-  const lookupBookingFullForScan = (bookingId: string) => toScannedBookingFull(bookingId);
+  const lookupBookingFullForScan = (bookingId: string, pondId?: number) => toScannedBookingFull(bookingId, pondId);
 
   /**
    * Power the manual booking picker: return every booking the staff is allowed
@@ -1858,22 +1866,57 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         if (resultsCompId && compId && compId !== resultsCompId) return false;
         return true;
       })
-      .map((b): ScannedBookingFull => {
-        const pond = ponds.find((p) => p.id === b.pondId);
-        return {
-          bookingId: b.id,
-          bookingRef: b.bookingRef,
-          userId: b.userId,
-          anglerName: b.userName,
-          pondId: b.pondId,
-          pondName: pond?.name || b.pondName,
-          pondCode: pond?.code || b.pondCode,
-          seats: [...b.seats].sort((x, y) => x - y),
-          competitionId: b.competitionId,
-          competitionName: b.competitionName,
-        };
+      .flatMap((b): ScannedBookingFull[] => {
+        const grouped = new Map<number, BookingSeatEntry[]>();
+        bookingSeatEntries(b).forEach((entry) => {
+          const existing = grouped.get(entry.pondId) || [];
+          existing.push(entry);
+          grouped.set(entry.pondId, existing);
+        });
+        return Array.from(grouped.values()).map((entries) => {
+          const firstEntry = entries[0];
+          const pond = ponds.find((p) => p.id === firstEntry.pondId);
+          return {
+            bookingId: b.id,
+            bookingRef: b.bookingRef,
+            userId: b.userId,
+            anglerName: b.userName,
+            pondId: firstEntry.pondId,
+            pondName: pond?.name || firstEntry.pondName,
+            pondCode: pond?.code || firstEntry.pondCode,
+            seats: entries.map((entry) => entry.seatNum).sort((x, y) => x - y),
+            amount: b.amount,
+            checkedInSeats: b.checkedInSeats,
+            checkedInSeatKeys: b.checkedInSeatKeys,
+            competitionId: b.competitionId,
+            competitionName: b.competitionName,
+          };
+        });
       })
       .sort((a, b) => a.anglerName.localeCompare(b.anglerName));
+  };
+
+  const handleScanCheckInBeforeWeigh = async (booking: ScannedBookingFull, seatNum: number): Promise<ScannedBookingFull> => {
+    const result = await checkInBooking({
+      bookingId: booking.bookingId,
+      bookingRef: booking.bookingRef || booking.bookingId,
+      amount: booking.amount || 0,
+      method: 'manual',
+      seatNum,
+      pondId: booking.pondId,
+    });
+    await reloadDB();
+    await logAuditEvent({
+      action: 'booking.checkin', actionLabel: 'Check-In Peserta', entityType: 'booking',
+      entityId: booking.bookingId,
+      entityLabel: `${booking.bookingRef || booking.bookingId} · peg ${formatSeat(booking.pondCode, seatNum)}`,
+      actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+    });
+    return {
+      ...booking,
+      checkedInSeats: result.checkedInSeats || booking.checkedInSeats,
+      checkedInSeatKeys: result.checkedInSeatKeys || booking.checkedInSeatKeys,
+    };
   };
 
   /**
@@ -2188,7 +2231,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   ];
   const navSections = isAdmin ? adminNavSections : [
     { label: 'Hari Pertandingan', items: adminNavSections.flatMap((section) => section.items).filter((item) => ['checkin', 'results', 'all-weigh-ins'].includes(item.id)) },
-    { label: 'Rujukan', items: adminNavSections.flatMap((section) => section.items).filter((item) => item.id === 'users') },
   ];
 
   const pageTitle = navSections.flatMap(s => s.items).find(i => i.id === page)?.text || 'Dashboard';
@@ -4491,6 +4533,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         decimalPlaces={settingsEdit.ocrDecimalPlaces}
         lookupBookingFull={lookupBookingFullForScan}
         listBookings={listBookingsForScan}
+        onCheckInBeforeWeigh={handleScanCheckInBeforeWeigh}
       />
 
       <DocPreviewModal url={scorePhotoUrl} title="Bukti Timbangan" onClose={() => setScorePhotoUrl(null)} />

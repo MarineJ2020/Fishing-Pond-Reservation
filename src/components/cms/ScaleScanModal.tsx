@@ -20,6 +20,9 @@ export interface ScannedBookingFull {
   competitionId?: string;
   competitionName?: string;
   seats: number[];
+  amount?: number;
+  checkedInSeats?: number[];
+  checkedInSeatKeys?: string[];
 }
 
 /** Final shape passed to the CMS once seat is chosen. */
@@ -59,13 +62,15 @@ interface Props {
   usePreprocess?: boolean;
   decimalPlaces?: 0 | 1 | 2 | 3;
   /** Resolve a scanned booking id into the full booking (with seat list). */
-  lookupBookingFull: (bookingId: string) => ScannedBookingFull | null;
+  lookupBookingFull: (bookingId: string, pondId?: number) => ScannedBookingFull | null;
   /**
    * Return all bookings the staff is allowed to weigh for right now — usually
    * scoped to the currently-selected Results competition. Powers the manual
    * picker as a fallback to QR scanning.
    */
   listBookings: () => ScannedBookingFull[];
+  /** Check in the selected booking/seat before allowing weigh-in capture. */
+  onCheckInBeforeWeigh?: (booking: ScannedBookingFull, seatNum: number) => Promise<ScannedBookingFull | void>;
   /** Booking/seat already selected in the parent Results form. */
   initialSelection?: { booking: ScannedBookingFull; seatNum: number } | null;
 }
@@ -75,6 +80,7 @@ type Step =
   | 'qr-processing'    // decoding scanned QR
   | 'manual-picker'    // searchable list of bookings
   | 'pick-seat'        // choose which peg (only when the booking/QR didn't specify one)
+  | 'check-in-required'// booking/seat is known but has not checked in yet
   | 'capture'          // weight photo capture
   | 'crop'             // crop the weight photo
   | 'processing'       // running OCR
@@ -196,6 +202,14 @@ function toLite(full: ScannedBookingFull, seatNum: number): ScannedBookingLite {
   };
 }
 
+function isScannedSeatCheckedIn(full: ScannedBookingFull, seatNum: number): boolean {
+  const seat = Number(seatNum);
+  if (!Number.isFinite(seat)) return false;
+  const seatKey = `${full.pondId}:${seat}`;
+  if (full.checkedInSeatKeys?.length) return full.checkedInSeatKeys.includes(seatKey);
+  return !!full.checkedInSeats?.includes(seat);
+}
+
 const ScaleScanModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -204,6 +218,7 @@ const ScaleScanModal: React.FC<Props> = ({
   decimalPlaces,
   lookupBookingFull,
   listBookings,
+  onCheckInBeforeWeigh,
   initialSelection,
 }) => {
   const [step, setStep] = useState<Step>('identify');
@@ -232,6 +247,8 @@ const ScaleScanModal: React.FC<Props> = ({
   // Held only while on the 'pick-seat' step — the booking is known but which
   // peg is being weighed isn't (legacy QR / manual pick with 2+ seats).
   const [pendingFullBooking, setPendingFullBooking] = useState<ScannedBookingFull | null>(null);
+  const [pendingCheckIn, setPendingCheckIn] = useState<{ booking: ScannedBookingFull; seatNum: number } | null>(null);
+  const [checkInBusy, setCheckInBusy] = useState(false);
   const [manualSearch, setManualSearch] = useState('');
   const [liveQrActive, setLiveQrActive] = useState(false);
   const [liveQrBusy, setLiveQrBusy] = useState(false);
@@ -279,6 +296,8 @@ const ScaleScanModal: React.FC<Props> = ({
       setProgress('');
       setConfirmedBooking(null);
       setPendingFullBooking(null);
+      setPendingCheckIn(null);
+      setCheckInBusy(false);
       setManualSearch('');
       lastInvalidQrRef.current = null;
       liveQrActiveRef.current = false;
@@ -287,8 +306,7 @@ const ScaleScanModal: React.FC<Props> = ({
     } else {
       prewarmOcr();
       if (initialSelection?.booking && initialSelection.seatNum) {
-        setConfirmedBooking(toLite(initialSelection.booking, initialSelection.seatNum));
-        setStep('capture');
+        continueAfterSeatResolved(initialSelection.booking, initialSelection.seatNum);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -340,19 +358,28 @@ const ScaleScanModal: React.FC<Props> = ({
     );
   }, [bookingsForPicker, manualSearch]);
 
-  if (!isOpen) return null;
-
   /**
    * After we have a booking (from QR or manual pick), decide the peg:
-   *   • per-seat QR already told us which peg → go straight to capture.
+   *   • per-seat QR already told us which peg → check in gate, then capture.
    *   • no seat known and the booking has 2+ pegs → ask staff to pick one.
    *   • single-peg booking → that's the only choice, no need to ask.
    */
+  const continueAfterSeatResolved = (full: ScannedBookingFull, seatNum: number) => {
+    const lite = toLite(full, seatNum);
+    setConfirmedBooking(lite);
+    if (isScannedSeatCheckedIn(full, seatNum)) {
+      setPendingCheckIn(null);
+      setStep('capture');
+      return;
+    }
+    setPendingCheckIn({ booking: full, seatNum });
+    setStep('check-in-required');
+  };
+
   const onBookingResolved = (full: ScannedBookingFull, seatNum?: number) => {
     setError(null);
     if (seatNum != null) {
-      setConfirmedBooking(toLite(full, seatNum));
-      setStep('capture');
+      continueAfterSeatResolved(full, seatNum);
       return;
     }
     if (full.seats.length > 1) {
@@ -360,15 +387,33 @@ const ScaleScanModal: React.FC<Props> = ({
       setStep('pick-seat');
       return;
     }
-    setConfirmedBooking(toLite(full, full.seats[0] ?? 0));
-    setStep('capture');
+    continueAfterSeatResolved(full, full.seats[0] ?? 0);
   };
 
   const handleSeatPicked = (seatNum: number) => {
     if (!pendingFullBooking) return;
-    setConfirmedBooking(toLite(pendingFullBooking, seatNum));
+    continueAfterSeatResolved(pendingFullBooking, seatNum);
     setPendingFullBooking(null);
-    setStep('capture');
+  };
+
+  const handleCheckInBeforeWeigh = async () => {
+    if (!pendingCheckIn) return;
+    if (!onCheckInBeforeWeigh) {
+      setError('Peserta belum check-in. Sila check-in di tab Check-In dahulu sebelum rekod timbangan.');
+      return;
+    }
+    setError(null);
+    setCheckInBusy(true);
+    try {
+      const { booking, seatNum } = pendingCheckIn;
+      const updated = await onCheckInBeforeWeigh(booking, seatNum);
+      continueAfterSeatResolved(updated || booking, seatNum);
+    } catch (err: any) {
+      console.error('Check-in before weigh failed:', err);
+      setError(err?.message || 'Check-in gagal. Sila cuba lagi.');
+    } finally {
+      setCheckInBusy(false);
+    }
   };
 
   const stopLiveQrScan = () => {
@@ -421,7 +466,7 @@ const ScaleScanModal: React.FC<Props> = ({
     const decoded = decodeQr(imageData.data, imageData.width, imageData.height);
     if (decoded) {
       const parsed = parseQrPayload(decoded);
-      const booking = parsed ? lookupBookingFull(parsed.bookingId) : null;
+      const booking = parsed ? lookupBookingFull(parsed.bookingId, parsed.pondId) : null;
       if (booking) {
         // Valid booking QR → auto-close the camera and proceed.
         lastInvalidQrRef.current = null;
@@ -479,7 +524,7 @@ const ScaleScanModal: React.FC<Props> = ({
         setStep('identify');
         return;
       }
-      const booking = lookupBookingFull(parsed.bookingId);
+      const booking = lookupBookingFull(parsed.bookingId, parsed.pondId);
       if (!booking) {
         setError('Tempahan tidak dijumpai untuk QR ini. Pastikan QR untuk pertandingan semasa.');
         setStep('identify');
@@ -597,6 +642,7 @@ const ScaleScanModal: React.FC<Props> = ({
     lastInvalidQrRef.current = null;
     setConfirmedBooking(null);
     setPendingFullBooking(null);
+    setPendingCheckIn(null);
     setManualSearch('');
     setStep('identify');
   };
@@ -631,6 +677,8 @@ const ScaleScanModal: React.FC<Props> = ({
     && step !== 'qr-processing'
     && step !== 'manual-picker';
 
+  if (!isOpen) return null;
+
   return (
     <div
       className="modal-overlay open"
@@ -644,7 +692,7 @@ const ScaleScanModal: React.FC<Props> = ({
       >
         <div className="modal-header">
           <div className="modal-title">
-            {(step === 'identify' || step === 'qr-processing' || step === 'manual-picker' || step === 'pick-seat')
+            {(step === 'identify' || step === 'qr-processing' || step === 'manual-picker' || step === 'pick-seat' || step === 'check-in-required')
               ? '📱 Kenal Pasti Pemancing'
               : '📷 Imbas Timbangan'}
           </div>
@@ -776,7 +824,7 @@ const ScaleScanModal: React.FC<Props> = ({
                 ) : (
                   filteredBookings.map((b) => (
                     <div
-                      key={b.bookingId}
+                      key={`${b.bookingId}:${b.pondId}`}
                       onClick={() => handleManualPick(b)}
                       style={{
                         padding: '12px 14px',
@@ -826,6 +874,51 @@ const ScaleScanModal: React.FC<Props> = ({
               </div>
               <div style={{ marginTop: 14 }}>
                 <button className="btn btn-ghost btn-sm" onClick={handleResetIdentify}>← Kembali</button>
+              </div>
+            </div>
+          )}
+
+          {step === 'check-in-required' && pendingCheckIn && confirmedBooking && (
+            <div style={{ padding: '8px 4px' }}>
+              <div style={{
+                padding: 14,
+                borderRadius: 8,
+                border: '1px solid #f59e0b',
+                background: '#fffbeb',
+                color: '#92400e',
+                marginBottom: 14,
+                lineHeight: 1.5,
+              }}>
+                <div style={{ fontWeight: 800, marginBottom: 4 }}>Peserta belum check-in</div>
+                <div style={{ fontSize: 13 }}>
+                  Check-in perlu dibuat dahulu sebelum terus imbas timbangan dan rekod berat.
+                </div>
+              </div>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr auto',
+                gap: 10,
+                alignItems: 'center',
+                border: '1px solid var(--line)',
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 14,
+              }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{confirmedBooking.anglerName}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {confirmedBooking.pondName} · {confirmedBooking.pondCode ? formatSeat(confirmedBooking.pondCode, confirmedBooking.seatNum) : `Peg #${confirmedBooking.seatNum}`}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                  {confirmedBooking.bookingRef || confirmedBooking.bookingId.slice(0, 8)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-ghost btn-sm" onClick={handleResetIdentify} disabled={checkInBusy}>← Kembali</button>
+                <button className="btn btn-primary" onClick={handleCheckInBeforeWeigh} disabled={checkInBusy}>
+                  {checkInBusy ? 'Sedang Check-In...' : 'Check-In & Terus Imbas Timbangan'}
+                </button>
               </div>
             </div>
           )}

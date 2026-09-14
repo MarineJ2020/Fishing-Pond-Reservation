@@ -49,10 +49,10 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Staff may browse accounts for competition-day operations. Client-side
-    // writes may never change roles; the updateUserRole callable owns that path.
+    // Users may read their own profile; only admins may browse other accounts.
+    // Client-side writes may never change roles; the updateUserRole callable owns that path.
     match /users/{uid} {
-      allow read: if isSignedIn() && (request.auth.uid == uid || isStaff());
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
 
       allow create: if request.auth.uid == uid
         && request.resource.data.email is string

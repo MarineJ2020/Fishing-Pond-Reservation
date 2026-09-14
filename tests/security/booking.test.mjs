@@ -71,6 +71,13 @@ test('private booking reads: owner encodings, staff and admin succeed; anonymous
     await assertSucceeds(getDocs(collection(firestoreFor(staff), 'bookings')));
 });
 
+test('user account list is admin-only while users can read their own profile', async () => {
+    await assertSucceeds(getDoc(doc(firestoreFor(staff), 'users', 'staff')));
+    await assertFails(getDoc(doc(firestoreFor(staff), 'users', 'owner')));
+    await assertFails(getDocs(collection(firestoreFor(staff), 'users')));
+    await assertSucceeds(getDocs(collection(firestoreFor(admin), 'users')));
+});
+
 test('forged creates and financial/receipt edits are denied, existing CMS checks remain allowed', async () => {
     for (const context of [owner, other, staff, admin]) await assertFails(setDoc(doc(firestoreFor(context), 'bookings', 'forged'), { userId: 'owner', userEmail: user.email, amount: 1, status: 'APPROVED' }));
     for (const update of [{ receipts: [{ amount: 9999, status: 'accepted' }] }, { paidAmount: 9999 }, { totalAmount: 1 }, { status: 'APPROVED' }, { receiptUrl: 'forged' }]) await assertFails(updateDoc(doc(firestoreFor(owner), 'bookings', 'uid'), update));

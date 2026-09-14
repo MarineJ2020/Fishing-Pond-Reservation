@@ -216,7 +216,7 @@ const AdminInstructions: React.FC<AdminInstructionsProps> = ({ onNavigate }) => 
       <GuideCard
         eyebrow="07 - Tadbir Urus"
         title="Pengguna, Peranan & Log Audit"
-        summary="Admin mengurus akses CMS; staf hanya melihat pengguna dan menjalankan operasi hari pertandingan."
+        summary="Admin mengurus akses CMS; staf hanya menjalankan operasi hari pertandingan."
         tone="governance"
         links={[
           { page: 'users', label: 'Pengguna' },
@@ -226,7 +226,7 @@ const AdminInstructions: React.FC<AdminInstructionsProps> = ({ onNavigate }) => 
       >
         <List>
           <li>Admin boleh menukar Pengguna kepada Staf atau Admin, dan menukar Staf kembali kepada Pengguna. Akaun Admin sedia ada dan peranan sendiri dikunci daripada perubahan dalam CMS.</li>
-          <li>Staf hanya boleh membuka Check-In, Keputusan &amp; Live, Semua Timbangan dan senarai Pengguna secara baca sahaja.</li>
+          <li>Staf hanya boleh membuka Check-In, Keputusan &amp; Live dan Semua Timbangan. Senarai Pengguna hanya untuk Admin.</li>
           <li>Senarai akaun dan Tempahan Manual Tanpa Akaun membantu membezakan pelanggan berdaftar daripada tempahan kaunter/proksi.</li>
           <li>Log Audit memaparkan 200 tindakan terkini dan tidak boleh disunting atau dipadam. Timbangan individu tidak dicatat di sini; pemadaman keputusan dicatat.</li>
           <li>Gunakan carian nama staf, e-mel, entiti atau tindakan apabila menyiasat perubahan.</li>
