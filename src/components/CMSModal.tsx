@@ -1843,6 +1843,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       pondCode: pond?.code || firstEntry.pondCode,
       seats: entries.map((entry) => entry.seatNum).sort((a, b) => a - b),
       amount: booking.amount,
+      paidAmount: booking.paidAmount,
+      totalAmount: booking.totalAmount,
+      balanceDue: booking.balanceDue,
+      paymentStatus: (booking as any).paymentStatus,
+      balanceStage: deriveBalanceStage(booking),
       checkedInSeats: booking.checkedInSeats,
       checkedInSeatKeys: booking.checkedInSeatKeys,
       competitionId: booking.competitionId,
@@ -1886,6 +1891,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             pondCode: pond?.code || firstEntry.pondCode,
             seats: entries.map((entry) => entry.seatNum).sort((x, y) => x - y),
             amount: b.amount,
+            paidAmount: b.paidAmount,
+            totalAmount: b.totalAmount,
+            balanceDue: b.balanceDue,
+            paymentStatus: (b as any).paymentStatus,
+            balanceStage: deriveBalanceStage(b),
             checkedInSeats: b.checkedInSeats,
             checkedInSeatKeys: b.checkedInSeatKeys,
             competitionId: b.competitionId,
@@ -1897,6 +1907,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleScanCheckInBeforeWeigh = async (booking: ScannedBookingFull, seatNum: number): Promise<ScannedBookingFull> => {
+    if (booking.balanceStage !== 'fully-paid') {
+      throw new Error('Tidak boleh check-in: bayaran peserta belum selesai / belum disahkan.');
+    }
     const result = await checkInBooking({
       bookingId: booking.bookingId,
       bookingRef: booking.bookingRef || booking.bookingId,
