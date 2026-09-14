@@ -353,7 +353,7 @@ app.post('/rejectBooking', verifyToken, requireAdmin, async (req, res) => {
 });
 
 app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
-    const { bookingId, bookingRef, amount, method, seatNum, pondId } = req.body;
+    const { bookingId, bookingRef, amount, method, seatNum, pondId, settleBalance } = req.body;
     if ((!bookingId && !bookingRef) || amount == null || !method) {
         return res.status(400).json({ error: 'bookingId or bookingRef, amount and method are required.' });
     }
@@ -376,6 +376,13 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
         if (!isConfirmedStatus(booking.status)) {
             return res.status(409).json({ error: 'Booking must be confirmed before check-in.' });
         }
+        const totalAmount = Number(booking.totalAmount ?? booking.amount) || 0;
+        const paidAmount = Number(booking.paidAmount ?? booking.amount) || 0;
+        const balanceDue = Math.max(0, totalAmount - paidAmount);
+        const manualPaymentAmount = settleBalance ? balanceDue : 0;
+        if (settleBalance && manualPaymentAmount <= 0) {
+            return res.status(409).json({ error: 'No outstanding balance to validate.' });
+        }
         const checkedInAt = new Date();
         let nextState;
         try {
@@ -388,7 +395,7 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
             return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid booking seat.' });
         }
 
-        await bookingDoc.ref.update({
+        const bookingUpdate = {
             checkedInSeatKeys: nextState.checkedInSeatKeys,
             checkedInSeats: nextState.checkedInSeats,
             checkedIn: nextState.checkedIn,
@@ -396,15 +403,25 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
             checkedInSeatTimes: nextState.checkedInSeatTimes,
             updatedAt: checkedInAt,
             updatedBy: req.user.uid,
-        });
+        };
+        if (settleBalance) {
+            bookingUpdate.paidAmount = totalAmount;
+            bookingUpdate.balanceDue = 0;
+            bookingUpdate.paymentStatus = 'APPROVED';
+            bookingUpdate.balanceStage = 'fully-paid';
+            bookingUpdate.paymentType = 'full';
+        }
+
+        await bookingDoc.ref.update(bookingUpdate);
 
         // Only log a payment record on the booking's first arrival — otherwise
         // checking in each seat of a group one-by-one would log the full booking
         // amount multiple times in the payments ledger.
-        if (nextState.isFirstArrival) {
+        if (settleBalance || nextState.isFirstArrival) {
             await bookingDoc.ref.collection('payments').add({
-                amount,
-                method,
+                amount: settleBalance ? manualPaymentAmount : amount,
+                method: settleBalance ? 'cash' : method,
+                ...(settleBalance ? { type: 'manual-checkin-balance' } : {}),
                 recordedBy: req.user.uid,
                 createdAt: new Date(),
             });
@@ -417,6 +434,14 @@ app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
             checkedIn: nextState.checkedIn,
             checkedInAt: checkedInAt.toISOString(),
             checkedInSeatTimes: nextState.checkedInSeatTimes,
+            ...(settleBalance ? {
+                paidAmount: totalAmount,
+                balanceDue: 0,
+                paymentStatus: 'APPROVED',
+                balanceStage: 'fully-paid',
+                paymentType: 'full',
+                manualPaymentAmount,
+            } : {}),
         });
     } catch (error) {
         console.error(error);
@@ -996,7 +1021,13 @@ export const syncMailDeliveryStatus = functions.firestore
             }
             const bookingRef = adminDb.collection('bookings').doc(metadata.bookingId);
             const bookingSnap = await bookingRef.get();
-            if (bookingSnap.exists) await bookingRef.update(update);
+            if (bookingSnap.exists) {
+                const existing = bookingSnap.data()?.emailDelivery?.[metadata.kind || 'unknown'];
+                const existingDelivered = existing?.state === 'SUCCESS' && existing?.recipientAccepted === true;
+                if (!existingDelivered || recipientAccepted) {
+                    await bookingRef.update(update);
+                }
+            }
         }
         return null;
     });

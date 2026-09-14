@@ -730,6 +730,7 @@ interface DirectCheckInPayload {
   method: string;
   seatNum?: number;
   pondId?: number;
+  settleBalance?: boolean;
 }
 
 interface RawBookingSeatEntry {
@@ -819,6 +820,13 @@ export const checkInBookingDirect = async (payload: DirectCheckInPayload) => {
     if (!['APPROVED', 'CONFIRMED', 'LIVE'].includes(status)) {
       throw new Error('Tempahan mesti disahkan sebelum check-in. / Booking must be confirmed before check-in.');
     }
+    const totalAmount = Number(booking.totalAmount ?? booking.amount) || 0;
+    const paidAmount = Number(booking.paidAmount ?? booking.amount) || 0;
+    const balanceDue = Math.max(0, totalAmount - paidAmount);
+    const manualPaymentAmount = payload.settleBalance ? balanceDue : 0;
+    if (payload.settleBalance && manualPaymentAmount <= 0) {
+      throw new Error('Tiada baki bayaran untuk disahkan. / No outstanding balance to validate.');
+    }
 
     const entries = rawBookingSeatEntries(booking);
     const targets = rawMatchingBookingSeats(entries, payload.seatNum, payload.pondId);
@@ -842,7 +850,7 @@ export const checkInBookingDirect = async (payload: DirectCheckInPayload) => {
       checkedInSeatTimes: nextTimes,
     };
 
-    transaction.update(bookingRef, {
+    const bookingUpdate: Record<string, any> = {
       checkedInSeatKeys: result.checkedInSeatKeys,
       checkedInSeats: result.checkedInSeats,
       checkedIn: result.checkedIn,
@@ -850,16 +858,35 @@ export const checkInBookingDirect = async (payload: DirectCheckInPayload) => {
       checkedInSeatTimes: result.checkedInSeatTimes,
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.uid || null,
-    });
-    if (isFirstArrival) {
+    };
+    if (payload.settleBalance) {
+      bookingUpdate.paidAmount = totalAmount;
+      bookingUpdate.balanceDue = 0;
+      bookingUpdate.paymentStatus = 'APPROVED';
+      bookingUpdate.balanceStage = 'fully-paid';
+      bookingUpdate.paymentType = 'full';
+    }
+    transaction.update(bookingRef, bookingUpdate);
+    if (payload.settleBalance || isFirstArrival) {
       transaction.set(paymentRef, {
-        amount: Number(payload.amount) || 0,
-        method: payload.method || 'manual',
+        amount: payload.settleBalance ? manualPaymentAmount : Number(payload.amount) || 0,
+        method: payload.settleBalance ? 'cash' : payload.method || 'manual',
+        ...(payload.settleBalance ? { type: 'manual-checkin-balance' } : {}),
         recordedBy: auth.currentUser?.uid || null,
         createdAt: serverTimestamp(),
       });
     }
-    return result;
+    return {
+      ...result,
+      ...(payload.settleBalance ? {
+        paidAmount: totalAmount,
+        balanceDue: 0,
+        paymentStatus: 'APPROVED',
+        balanceStage: 'fully-paid',
+        paymentType: 'full',
+        manualPaymentAmount,
+      } : {}),
+    };
   });
 };
 

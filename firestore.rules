@@ -92,15 +92,30 @@ service cloud.firestore {
           ]);
       }
 
+      function staffCheckInWithManualPaymentUpdate() {
+        return isStaff()
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'checkedInSeatKeys', 'checkedInSeats', 'checkedIn', 'checkedInAt',
+            'checkedInSeatTimes', 'paidAmount', 'balanceDue', 'paymentStatus',
+            'balanceStage', 'paymentType', 'updatedAt', 'updatedBy'
+          ])
+          && request.resource.data.paidAmount == resource.data.get('totalAmount', resource.data.amount)
+          && request.resource.data.balanceDue == 0
+          && request.resource.data.paymentStatus == 'APPROVED'
+          && request.resource.data.balanceStage == 'fully-paid'
+          && request.resource.data.paymentType == 'full';
+      }
+
       allow read: if isStaff() || ownsBookingData(resource.data);
       allow create: if false;
-      allow update: if isAdmin() || staffCheckInUpdate();
+      allow update: if isAdmin() || staffCheckInUpdate() || staffCheckInWithManualPaymentUpdate();
       allow delete: if isAdmin();
 
       match /payments/{paymentId} {
         allow read: if isStaff() || ownsBookingData(get(/databases/$(database)/documents/bookings/$(bookingId)).data);
         allow create: if isAdmin() || (isStaff()
-          && request.resource.data.keys().hasOnly(['amount', 'method', 'recordedBy', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['amount', 'method', 'type', 'recordedBy', 'createdAt'])
           && request.resource.data.amount is number
           && request.resource.data.method is string
           && request.resource.data.recordedBy == request.auth.uid
@@ -133,7 +148,7 @@ service cloud.firestore {
           'anglerName', 'pondId', 'pondName', 'seatNum', 'weight', 'photoUrl',
           'ocrConfidence', 'ocrRawText', 'ocrUserVerified', 'scanMethod', 'updatedAt'
         ]);
-      allow delete: if isStaff();
+      allow delete: if isAdmin();
     }
 
     // Admin activity log — append-only. Nothing may edit or delete an entry

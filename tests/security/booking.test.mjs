@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
-import { doc, getDoc, getDocs, setDoc, updateDoc, collection, query, where, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_STORAGE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST) throw new Error('Run with the isolated Auth, Firestore and Storage emulators.');
@@ -82,6 +82,29 @@ test('forged creates and financial/receipt edits are denied, existing CMS checks
     for (const context of [owner, other, staff, admin]) await assertFails(setDoc(doc(firestoreFor(context), 'bookings', 'forged'), { userId: 'owner', userEmail: user.email, amount: 1, status: 'APPROVED' }));
     for (const update of [{ receipts: [{ amount: 9999, status: 'accepted' }] }, { paidAmount: 9999 }, { totalAmount: 1 }, { status: 'APPROVED' }, { receiptUrl: 'forged' }]) await assertFails(updateDoc(doc(firestoreFor(owner), 'bookings', 'uid'), update));
     await assertSucceeds(updateDoc(doc(firestoreFor(staff), 'bookings', 'uid'), { checkedIn: true, updatedBy: 'staff', updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(firestoreFor(staff), 'bookings', 'uid'), {
+        checkedIn: true,
+        checkedInSeatKeys: ['legacy:1'],
+        checkedInSeats: [1],
+        checkedInAt: serverTimestamp(),
+        checkedInSeatTimes: { 'legacy:1': new Date().toISOString() },
+        paidAmount: 200,
+        balanceDue: 0,
+        paymentStatus: 'APPROVED',
+        balanceStage: 'fully-paid',
+        paymentType: 'full',
+        updatedBy: 'staff',
+        updatedAt: serverTimestamp(),
+    }));
+    await assertSucceeds(setDoc(doc(collection(firestoreFor(staff), 'bookings', 'uid', 'payments')), {
+        amount: 100,
+        method: 'cash',
+        type: 'manual-checkin-balance',
+        recordedBy: 'staff',
+        createdAt: serverTimestamp(),
+    }));
+    await assertFails(deleteDoc(doc(firestoreFor(staff), 'eventResults', 'winner')));
+    await assertSucceeds(deleteDoc(doc(firestoreFor(admin), 'eventResults', 'winner')));
     await assertSucceeds(updateDoc(doc(firestoreFor(admin), 'bookings', 'uid'), { paymentStatus: 'PARTIAL' }));
     await assertFails(setDoc(doc(firestoreFor(owner), 'bookingSeatClaims', 'claim'), { bookingId: 'forged' }));
     await assertSucceeds(getDoc(doc(firestoreFor(guest), 'eventResults', 'winner')));

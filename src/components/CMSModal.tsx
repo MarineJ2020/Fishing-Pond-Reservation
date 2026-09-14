@@ -241,6 +241,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Audit Log page state
   const [auditLogEntries, setAuditLogEntries] = useState<AuditEntry[]>([]);
   const [auditLogSearch, setAuditLogSearch] = useState('');
+  const [auditLogFilter, setAuditLogFilter] = useState<'all' | 'manual-payment'>('all');
 
   // Admin-only email history. Data comes from a sanitizing callable so mail
   // bodies and account-action links never reach the browser.
@@ -835,6 +836,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         entityId: target.id, entityLabel: target.bookingRef || target.id,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
+      window.setTimeout(() => { refetchCurrentBookingList(); }, 3000);
+      window.setTimeout(() => { refetchCurrentBookingList(); }, 8000);
     } catch (err) {
       console.error('Failed to send balance reminder:', err);
       window.alert(`Gagal menghantar peringatan / Failed to send reminder: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
@@ -1362,34 +1365,77 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Checks in one specific pond/seat entry. Omitting it falls
   // back to checking in every seat at once (legacy path — kept for safety, the
   // UI always passes a specific seat now).
-  const handlePerformCheckin = async (entry?: BookingSeatEntry) => {
-    if (!checkinResult) return;
+  const checkinPaymentMeta = (booking: Booking) => {
+    const paid = Number(booking.paidAmount ?? booking.amount ?? 0);
+    const total = Number(booking.totalAmount ?? booking.amount ?? 0);
+    const balanceDue = Math.max(0, Number.isFinite(Number(booking.balanceDue)) ? Number(booking.balanceDue) : total - paid);
+    const stage = deriveBalanceStage(booking);
+    return {
+      paid,
+      total,
+      balanceDue,
+      stage,
+      complete: stage === 'fully-paid',
+      label: stage === 'fully-paid'
+        ? 'Selesai Bayar'
+        : stage === 'review-balance'
+          ? 'Menunggu Semak Bayaran'
+          : 'Baki Belum Dibayar',
+    };
+  };
+
+  const performCheckinForBooking = async (booking: Booking, entry?: BookingSeatEntry, settleBalance = false) => {
+    const payment = checkinPaymentMeta(booking);
+    if (!payment.complete && !settleBalance) {
+      window.alert('Check-in tidak dibenarkan: bayaran penuh belum selesai.');
+      return;
+    }
+    if (settleBalance && payment.balanceDue <= 0) {
+      window.alert('Bayaran belum disahkan. Sila semak bayaran dahulu sebelum check-in.');
+      return;
+    }
     setCheckinActiveSeat(entry?.key ?? null);
     setCheckinLoading(true);
     try {
       const result = await checkInBooking({
-        bookingId: checkinResult.id,
-        bookingRef: checkinResult.bookingRef || checkinResult.id,
-        amount: checkinResult.amount,
-        method: 'manual',
+        bookingId: booking.id,
+        bookingRef: booking.bookingRef || booking.id,
+        amount: booking.totalAmount ?? booking.amount,
+        method: settleBalance ? 'cash' : 'manual',
         seatNum: entry?.seatNum,
         pondId: entry?.pondId,
+        settleBalance,
       });
-      setCheckinResult((prev: Booking | null) => prev ? { ...prev, ...result } : prev);
+      setCheckinResult((prev: Booking | null) => prev && prev.id === booking.id ? { ...prev, ...result } : prev);
       await reloadDB();
-      const bookingRef = checkinResult.bookingRef || checkinResult.id;
+      const bookingRef = booking.bookingRef || booking.id;
+      if (settleBalance) {
+        await logAuditEvent({
+          action: 'booking.manual_payment_validation', actionLabel: 'Validasi Bayaran Tunai', entityType: 'booking',
+          entityId: booking.id,
+          entityLabel: entry ? `${bookingRef} · peg ${formatSeat(entry.pondCode, entry.seatNum)}` : bookingRef,
+          details: `Staf sahkan bayaran tunai RM ${payment.balanceDue} semasa check-in.`,
+          actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+        });
+      }
       await logAuditEvent({
         action: 'booking.checkin', actionLabel: 'Check-In Peserta', entityType: 'booking',
-        entityId: checkinResult.id,
+        entityId: booking.id,
         entityLabel: entry ? `${bookingRef} · peg ${formatSeat(entry.pondCode, entry.seatNum)}` : bookingRef,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
     } catch (err) {
       console.error('Check-in failed:', err);
       window.alert(`Check-in gagal: ${err instanceof Error ? err.message : 'Ralat tidak diketahui.'}`);
+    } finally {
+      setCheckinLoading(false);
+      setCheckinActiveSeat(null);
     }
-    setCheckinLoading(false);
-    setCheckinActiveSeat(null);
+  };
+
+  const handlePerformCheckin = async (entry?: BookingSeatEntry, settleBalance = false) => {
+    if (!checkinResult) return;
+    await performCheckinForBooking(checkinResult, entry, settleBalance);
   };
 
   const handleCancelCheckin = async (booking: Booking, entry: BookingSeatEntry) => {
@@ -1803,6 +1849,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const handleDeleteEntry = async (id: string) => {
+    if (!isAdmin) {
+      window.alert('Hanya admin boleh padam rekod papan markah.');
+      return;
+    }
     try {
       const entry = scoreEntries.find(e => e.id === id);
       await deleteScoreEntry(id);
@@ -1906,19 +1956,34 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       .sort((a, b) => a.anglerName.localeCompare(b.anglerName));
   };
 
-  const handleScanCheckInBeforeWeigh = async (booking: ScannedBookingFull, seatNum: number): Promise<ScannedBookingFull> => {
-    if (booking.balanceStage !== 'fully-paid') {
+  const handleScanCheckInBeforeWeigh = async (booking: ScannedBookingFull, seatNum: number, options?: { settleBalance?: boolean }): Promise<ScannedBookingFull> => {
+    const settleBalance = options?.settleBalance === true;
+    const balanceDue = Math.max(0, Number(booking.balanceDue ?? ((booking.totalAmount ?? booking.amount ?? 0) - (booking.paidAmount ?? booking.amount ?? 0))));
+    if (booking.balanceStage !== 'fully-paid' && !settleBalance) {
       throw new Error('Tidak boleh check-in: bayaran peserta belum selesai / belum disahkan.');
+    }
+    if (settleBalance && balanceDue <= 0) {
+      throw new Error('Bayaran belum disahkan. Sila semak bayaran dahulu sebelum check-in.');
     }
     const result = await checkInBooking({
       bookingId: booking.bookingId,
       bookingRef: booking.bookingRef || booking.bookingId,
-      amount: booking.amount || 0,
-      method: 'manual',
+      amount: booking.totalAmount || booking.amount || 0,
+      method: settleBalance ? 'cash' : 'manual',
       seatNum,
       pondId: booking.pondId,
+      settleBalance,
     });
     await reloadDB();
+    if (settleBalance) {
+      await logAuditEvent({
+        action: 'booking.manual_payment_validation', actionLabel: 'Validasi Bayaran Tunai', entityType: 'booking',
+        entityId: booking.bookingId,
+        entityLabel: `${booking.bookingRef || booking.bookingId} · peg ${formatSeat(booking.pondCode, seatNum)}`,
+        details: `Staf sahkan bayaran tunai RM ${balanceDue} semasa imbas timbangan.`,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    }
     await logAuditEvent({
       action: 'booking.checkin', actionLabel: 'Check-In Peserta', entityType: 'booking',
       entityId: booking.bookingId,
@@ -1929,6 +1994,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       ...booking,
       checkedInSeats: result.checkedInSeats || booking.checkedInSeats,
       checkedInSeatKeys: result.checkedInSeatKeys || booking.checkedInSeatKeys,
+      paidAmount: result.paidAmount ?? booking.paidAmount,
+      balanceDue: result.balanceDue ?? booking.balanceDue,
+      paymentStatus: result.paymentStatus ?? booking.paymentStatus,
+      balanceStage: result.balanceStage ?? booking.balanceStage,
     };
   };
 
@@ -3094,8 +3163,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 : kind === 'balance_reminder'
                                   ? 'Peringatan baki'
                                   : kind;
-                            const delivered = delivery.state === 'SUCCESS' && delivery.recipientAccepted;
-                            const failed = delivery.state === 'ERROR' || (delivery.state === 'SUCCESS' && !delivery.recipientAccepted);
+                            const sentByReminderTimestamp = kind === 'balance_reminder' && Boolean(b.balanceReminderSentAt);
+                            const delivered = (delivery.state === 'SUCCESS' && delivery.recipientAccepted) || sentByReminderTimestamp;
+                            const failed = !sentByReminderTimestamp && (delivery.state === 'ERROR' || (delivery.state === 'SUCCESS' && !delivery.recipientAccepted));
                             return (
                               <div
                                 key={kind}
@@ -3157,6 +3227,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 const allSeatEntries = bookingSeatEntries(checkinResult);
                 const allDone = allSeatEntries.length > 0
                   && allSeatEntries.every((entry) => isBookingSeatCheckedIn(checkinResult, entry));
+                const payment = checkinPaymentMeta(checkinResult);
                 return (
                   <div className="checkin-result">
                     <div className="checkin-result-header"><h3>✓ Tempahan Dijumpai</h3><span className={`badge badge-${checkinResult.status === 'confirmed' ? 'approved' : checkinResult.status}`}>{checkinResult.status}</span></div>
@@ -3165,7 +3236,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{bookingPondList(checkinResult)}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingSeatList(checkinResult)}</span></div>
-                      <div className="checkin-detail-row"><span className="checkin-detail-key">Jumlah</span><span className="checkin-detail-val">RM {checkinResult.amount}</span></div>
+                      <div className="checkin-detail-row"><span className="checkin-detail-key">Jumlah Bayaran</span><span className="checkin-detail-val">RM {payment.total}</span></div>
+                      <div className="checkin-detail-row"><span className="checkin-detail-key">Dibayar</span><span className="checkin-detail-val">RM {payment.paid}</span></div>
+                      <div className="checkin-detail-row">
+                        <span className="checkin-detail-key">Status Bayaran</span>
+                        <span className="checkin-detail-val" style={{ color: payment.complete ? 'var(--green-dark, #16a34a)' : 'var(--red, #c0152a)' }}>
+                          {payment.label}{payment.balanceDue > 0 ? ` · Baki RM ${payment.balanceDue}` : ''}
+                        </span>
+                      </div>
+                      {!payment.complete && (
+                        <div className="warning-banner">
+                          ⚠️ Bayaran penuh belum selesai. Jika peserta bayar tunai kepada staf sekarang, guna butang “Sahkan Tunai & Check-In”.
+                        </div>
+                      )}
                       {checkinResult.status !== 'confirmed' && <div className="warning-banner">⚠️ Tempahan ini belum disahkan.</div>}
                       {checkinResult.status === 'confirmed' && (
                         <div style={{ marginTop: 12 }}>
@@ -3192,16 +3275,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   ) : (
                                     <button
                                       className="btn btn-sm btn-green"
-                                      disabled={checkinLoading}
+                                      disabled={checkinLoading || (!payment.complete && payment.balanceDue <= 0)}
                                       onClick={() => setConfirmDialog({
-                                        title: 'Check-In Peserta',
-                                        message: `Sahkan check-in untuk ${checkinResult.userName} (${pondDisplayName({ name: entry.pondName, code: entry.pondCode } as any)}, peg ${seatLabel})?`,
-                                        confirmLabel: 'Check-In',
+                                        title: payment.complete ? 'Check-In Peserta' : 'Sahkan Bayaran Tunai',
+                                        message: payment.complete
+                                          ? `Sahkan check-in untuk ${checkinResult.userName} (${pondDisplayName({ name: entry.pondName, code: entry.pondCode } as any)}, peg ${seatLabel})?`
+                                          : `Peserta masih ada baki RM ${payment.balanceDue}. Sahkan staf telah terima bayaran tunai dan terus check-in ${checkinResult.userName} (${pondDisplayName({ name: entry.pondName, code: entry.pondCode } as any)}, peg ${seatLabel})?`,
+                                        confirmLabel: payment.complete ? 'Check-In' : 'Sahkan Tunai & Check-In',
                                         tone: 'primary',
-                                        onConfirm: () => handlePerformCheckin(entry),
+                                        onConfirm: () => handlePerformCheckin(entry, !payment.complete),
                                       })}
                                     >
-                                      {checkinLoading && checkinActiveSeat === entry.key ? '⏳ Memproses...' : 'Check-In'}
+                                      {checkinLoading && checkinActiveSeat === entry.key
+                                        ? '⏳ Memproses...'
+                                        : payment.complete ? 'Check-In' : `Sahkan Tunai RM ${payment.balanceDue}`}
                                     </button>
                                   )}
                                 </div>
@@ -3247,6 +3334,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           .map(({ booking, entry }) => {
                             const checked = isBookingSeatCheckedIn(booking, entry);
                             const checkedAt = bookingSeatCheckInTime(booking, entry);
+                            const payment = checkinPaymentMeta(booking);
+                            const seatLabel = formatSeat(entry.pondCode, entry.seatNum);
                             return (
                               <tr key={`${booking.id}-${entry.key}`}>
                                 <td className="td-name">
@@ -3254,7 +3343,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{booking.userEmail || booking.userId || '-'}</div>
                                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{booking.bookingPhone || booking.userPhone || '-'}</div>
                                 </td>
-                                <td>{formatSeat(entry.pondCode, entry.seatNum)}</td>
+                                <td>{seatLabel}</td>
                                 <td>{checkedAt ? formatDate(checkedAt, { time: true }) : '-'}</td>
                                 <td><span className={`badge badge-${checked ? 'approved' : 'pending'}`}>{checked ? 'Checked in' : 'Pending'}</span></td>
                                 <td>
@@ -3265,16 +3354,35 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                         disabled={checkinLoading}
                                         onClick={() => setConfirmDialog({
                                           title: 'Batalkan Check in',
-                                          message: `Batalkan check in untuk ${booking.userName}, pancang ${formatSeat(entry.pondCode, entry.seatNum)}?`,
+                                          message: `Batalkan check in untuk ${booking.userName}, pancang ${seatLabel}?`,
                                           confirmLabel: 'Batalkan Check in',
                                           tone: 'danger',
                                           onConfirm: () => handleCancelCheckin(booking, entry),
                                         })}
-                                      >
-                                        Batalkan Check in
-                                      </button>
+                                    >
+                                      Batalkan Check in
+                                    </button>
                                     )
-                                    : <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>-</span>}
+                                    : (
+                                      <button
+                                        className="btn btn-sm btn-green"
+                                        disabled={checkinLoading || (!payment.complete && payment.balanceDue <= 0)}
+                                        title={payment.complete ? 'Check-in peserta' : payment.balanceDue > 0 ? 'Sahkan bayaran tunai baki dan check-in' : 'Bayaran belum disahkan'}
+                                        onClick={() => setConfirmDialog({
+                                          title: payment.complete ? 'Check-In Peserta' : 'Sahkan Bayaran Tunai',
+                                          message: payment.complete
+                                            ? `Sahkan check-in untuk ${booking.userName}, pancang ${seatLabel}?`
+                                            : `Peserta masih ada baki RM ${payment.balanceDue}. Sahkan staf telah terima bayaran tunai dan terus check-in ${booking.userName}, pancang ${seatLabel}?`,
+                                          confirmLabel: payment.complete ? 'Check-In' : 'Sahkan Tunai & Check-In',
+                                          tone: 'primary',
+                                          onConfirm: () => performCheckinForBooking(booking, entry, !payment.complete),
+                                        })}
+                                      >
+                                        {checkinLoading && checkinActiveSeat === entry.key
+                                          ? '⏳ Memproses...'
+                                          : payment.complete ? 'Check-In' : `Sahkan Tunai RM ${payment.balanceDue}`}
+                                      </button>
+                                    )}
                                 </td>
                               </tr>
                             );
@@ -3357,7 +3465,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             <th>No. Pancang</th>
                             <th style={{ textAlign: 'right' }}>Berat (kg)</th>
                             <th>Bukti</th>
-                            <th></th>
+                            {isAdmin && <th></th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -3380,17 +3488,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(e.photoUrl!)}>👁 Bukti</button>
                                 ) : '—'}
                               </td>
-                              <td>
-                                <button
-                                  className="btn btn-sm"
-                                  style={{ color: '#ef4444' }}
-                                  onClick={() => e.id && handleDeleteEntry(e.id)}
-                                >🗑</button>
-                              </td>
+                              {isAdmin && (
+                                <td>
+                                  <button
+                                    className="btn btn-sm"
+                                    style={{ color: '#ef4444' }}
+                                    onClick={() => e.id && handleDeleteEntry(e.id)}
+                                  >🗑</button>
+                                </td>
+                              )}
                             </tr>
                           ))}
                           {scoreEntries.length === 0 && (
-                            <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            <tr><td colSpan={isAdmin ? 8 : 7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                               Tiada rekod untuk pertandingan ini
                             </td></tr>
                           )}
@@ -4255,16 +4365,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           {page === 'audit-log' && (() => {
             const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
             const q = auditLogSearch.trim().toLowerCase();
-            const filtered = auditLogEntries.filter(e => !q
-              || e.actionLabel.toLowerCase().includes(q)
-              || (e.actorName || '').toLowerCase().includes(q)
-              || (e.actorEmail || '').toLowerCase().includes(q)
-              || (e.entityLabel || '').toLowerCase().includes(q));
+            const filtered = auditLogEntries
+              .filter(e => auditLogFilter === 'all' || e.action === 'booking.manual_payment_validation')
+              .filter(e => !q
+                || e.actionLabel.toLowerCase().includes(q)
+                || (e.actorName || '').toLowerCase().includes(q)
+                || (e.actorEmail || '').toLowerCase().includes(q)
+                || (e.entityLabel || '').toLowerCase().includes(q));
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Log Audit</div><div className="page-sub">Sejarah tindakan staf/admin dalam CMS (200 terkini)</div></div></div>
               <div className="card">
-                <div className="card-header" style={{ justifyContent: 'flex-end' }}>
+                <div className="card-header" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button className={`btn btn-sm ${auditLogFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAuditLogFilter('all')}>Semua</button>
+                    <button className={`btn btn-sm ${auditLogFilter === 'manual-payment' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAuditLogFilter('manual-payment')}>Validasi Tunai Staf</button>
+                  </div>
                   <div style={{ position: 'relative' }}>
                     <input
                       className="form-input"
