@@ -205,6 +205,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [allPage, setAllPage] = useState(0);
   const [allHasMore, setAllHasMore] = useState(false);
   const [allError, setAllError] = useState<string | null>(null);
+  const [allExporting, setAllExporting] = useState(false);
 
   // Shared receipt-review popup (Kelulusan's first receipt, Semua Tempahan's balance receipt).
   const [reviewTarget, setReviewTarget] = useState<Booking | null>(null);
@@ -1025,6 +1026,153 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const prevPage = allPage - 1;
     setAllPage(prevPage);
     fetchAllTempahanPage(allCursors[prevPage] ?? null, prevPage);
+  };
+
+  const allBookingFetchParams = () => {
+    const statuses = allStatus === 'cancelled'
+      ? ['REJECTED']
+      : allStatus === 'all'
+      ? ['APPROVED', 'CONFIRMED', 'REJECTED']
+      : ['APPROVED', 'CONFIRMED'];
+    const balanceStage = (allStatus === 'all' || allStatus === 'cancelled') ? undefined : allStatus;
+    return { statuses, balanceStage };
+  };
+
+  const csvCell = (value: unknown) => {
+    const text = value == null ? '' : String(value);
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+
+  const csvDateTime = (iso?: string) => {
+    if (!iso) return '';
+    const dateTime = formatDate(iso, { time: true });
+    return dateTime || iso;
+  };
+
+  const csvFileSlug = (value: string) => value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'pertandingan';
+
+  const handleExportAllBookingsCsv = async () => {
+    if (!allCompFilter) {
+      setAllError('Pilih pertandingan dahulu sebelum export CSV.');
+      return;
+    }
+
+    setAllExporting(true);
+    setAllError(null);
+    try {
+      const { statuses, balanceStage } = allBookingFetchParams();
+      const exportRows: Booking[] = [];
+      let cursor: any = null;
+      let hasMore = true;
+      while (hasMore) {
+        const result = await getBookingsPage({
+          statuses,
+          balanceStage,
+          sortField: 'userName',
+          sortDir: 'asc',
+          pageSize: 200,
+          cursor,
+          competitions,
+        });
+        exportRows.push(...result.items.filter((b) => (b.competitionId || '') === allCompFilter));
+        cursor = result.lastDoc;
+        hasMore = result.hasMore && !!cursor;
+      }
+
+      const q = bookingSearch.trim().toLowerCase();
+      const filteredRows = exportRows
+        .filter((b) => !allPayFilter || (allPayFilter === 'deposit' ? b.paymentType === 'deposit' : b.paymentType !== 'deposit'))
+        .filter((b) => !allPondFilter || ((ponds.find((p) => p.id === b.pondId)?.code || '').toUpperCase() === allPondFilter.toUpperCase()))
+        .filter((b) => {
+          if (!q) return true;
+          const haystack = [
+            b.id, b.bookingRef, b.userName, b.userId, b.userEmail, b.userPhone, b.bookingPhone,
+            b.pondName, b.competitionName, bookingSeatList(b),
+          ].filter(Boolean).join(' ').toLowerCase();
+          return haystack.includes(q);
+        })
+        .sort((a, b) => (a.userName || '').localeCompare(b.userName || '', 'ms', { sensitivity: 'base' }));
+
+      const headers = [
+        'No',
+        'Nama Peserta',
+        'Telefon',
+        'Telefon Tempahan',
+        'Email',
+        'Ref Tempahan',
+        'Pertandingan',
+        'Status',
+        'Peringkat Bayaran',
+        'Jenis Bayaran',
+        'Jumlah',
+        'Dibayar',
+        'Baki',
+        'Kolam',
+        'No Pancang',
+        'Status Check-in',
+        'Pancang Sudah Check-in',
+        'Masa Check-in',
+        'Hadir Manual',
+        'Catatan Manual',
+      ];
+      const rows = filteredRows.map((b, index) => {
+        const seatEntries = bookingSeatEntries(b);
+        const checkedSeats = seatEntries
+          .filter((entry) => isBookingSeatCheckedIn(b, entry))
+          .map((entry) => formatSeat(entry.pondCode || ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum));
+        const checkInTimes = seatEntries
+          .map((entry) => bookingSeatCheckInTime(b, entry))
+          .filter(Boolean)
+          .map(csvDateTime);
+        const paid = b.paidAmount ?? b.amount ?? 0;
+        const total = b.totalAmount ?? b.amount ?? 0;
+        const balance = b.balanceDue ?? Math.max(0, total - paid);
+        return [
+          index + 1,
+          b.userName || '',
+          b.userPhone || '',
+          b.bookingPhone || '',
+          b.userEmail || b.userId || '',
+          b.bookingRef || b.id,
+          b.competitionName || comp.name || '',
+          b.status === 'rejected' ? 'Dibatalkan' : 'Disahkan',
+          b.status === 'rejected' ? 'Dibatalkan' : (deriveBalanceStage(b) === 'fully-paid' ? 'Selesai Bayar' : deriveBalanceStage(b) === 'review-balance' ? 'Menunggu Semak Baki' : 'Baki Belum Dibayar'),
+          b.paymentType || '',
+          total,
+          paid,
+          balance,
+          bookingPondList(b),
+          bookingSeatList(b),
+          seatEntries.length && checkedSeats.length >= seatEntries.length ? 'Selesai' : checkedSeats.length ? 'Sebahagian' : 'Belum',
+          checkedSeats.join(', '),
+          Array.from(new Set(checkInTimes)).join(', '),
+          '',
+          '',
+        ];
+      });
+
+      const csv = '\uFEFF' + [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+      const competitionName = competitions.find((c) => c.id === allCompFilter)?.name || 'pertandingan';
+      const filename = `tempahan-${csvFileSlug(competitionName)}-${new Date().toISOString().slice(0, 10)}.csv`;
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to export Semua Tempahan CSV:', err);
+      setAllError(err instanceof Error ? err.message : 'Gagal export CSV.');
+    } finally {
+      setAllExporting(false);
+    }
   };
 
   useEffect(() => {
@@ -2785,7 +2933,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="field"><label>Pertandingan</label><select className="form-input" value={allCompFilter} onChange={e => setAllCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
                 <div className="field"><label>Bayaran</label><select className="form-input" value={allPayFilter} onChange={e => setAllPayFilter(e.target.value as any)}><option value="">Semua bayaran</option><option value="deposit">Deposit</option><option value="full">Full</option></select></div>
                 <div className="field"><label>Kolam</label><select className="form-input" value={allPondFilter} onChange={e => setAllPondFilter(e.target.value)}><option value="">Semua kolam</option>{pondCodes.map(code => <option key={code} value={code}>Kolam {code}</option>)}</select></div>
-                <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(''); setAllPayFilter(''); setAllPondFilter(''); }}>Reset</button></div>
+                <div className="cms-filter-actions">
+                  <button className="btn btn-primary btn-sm" disabled={!allCompFilter || allExporting} onClick={handleExportAllBookingsCsv}>
+                    {allExporting ? 'Export...' : 'Export CSV'}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(''); setAllPayFilter(''); setAllPondFilter(''); }}>Reset</button>
+                </div>
               </div>
 
               <div className="cms-pagination cms-pagination-mobile">
