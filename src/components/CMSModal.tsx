@@ -1114,11 +1114,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         'Kolam',
         'No Pancang',
         'Jumlah Pancang Tempahan',
-        'Status Check-in',
-        'Masa Check-in',
-        'Hadir Manual',
-        'Berat Manual',
-        'Bilangan Ikan',
         'Catatan Manual',
       ];
       const rows = filteredRows.flatMap((b) => {
@@ -1144,7 +1139,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         } as BookingSeatEntry];
         return entries.map((entry) => {
           const pondCode = entry.pondCode || ponds.find((pond) => pond.id === entry.pondId)?.code;
-          const checkedIn = entry.seatNum ? isBookingSeatCheckedIn(b, entry) : !!b.checkedIn;
           return [
             0,
             b.userName || '',
@@ -1162,11 +1156,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             entry.pondName || bookingPondList(b),
             entry.seatNum ? formatSeat(pondCode, entry.seatNum) : bookingSeatList(b),
             seatEntries.length,
-            checkedIn ? 'Selesai' : 'Belum',
-            csvDateTime(entry.seatNum ? bookingSeatCheckInTime(b, entry) : b.checkedInAt),
-            '',
-            '',
-            '',
             '',
           ];
         });
