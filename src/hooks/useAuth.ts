@@ -103,44 +103,39 @@ export const useAuth = () => {
 
   const login = useCallback(async (email: string, pass: string) => {
     if (!email || !pass) {
-      addToast('Enter email and password', 'error');
-      return false;
+      return { success: false, error: 'Masukkan email dan kata laluan.' };
     }
 
     try {
       await signInWithEmailAndPassword(auth, email, pass);
       trackEvent('login', { method: 'password' });
       addToast('Logged in successfully', 'success');
-      return true;
+      return { success: true };
     } catch (error) {
       console.error(error);
-      addToast('Login failed. Check your email and password.', 'error');
-      return false;
+      return { success: false, error: 'Log masuk gagal. Sila semak email dan kata laluan.' };
     }
   }, [addToast]);
 
   const resetPassword = useCallback(async (email: string) => {
     const normalizedEmail = email.trim();
     if (!normalizedEmail) {
-      addToast('Masukkan email berdaftar anda dahulu.', 'error');
-      return false;
+      return { status: 'error' as const, error: 'Masukkan email berdaftar anda dahulu.' };
     }
     try {
       const methods = await fetchSignInMethodsForEmail(auth, normalizedEmail);
       if (methods.includes('google.com') && !methods.includes('password')) {
-        return 'google' as const;
+        return { status: 'google' as const };
       }
       // Sent via the Zoho-backed Trigger Email extension (branded, Malay) rather
       // than Firebase Auth's default template — same pattern as verification.
       await requestPasswordResetEmail(normalizedEmail);
-      addToast('Pautan reset kata laluan telah dihantar. Sila semak email anda.', 'success');
-      return 'sent' as const;
+      return { status: 'sent' as const };
     } catch (error) {
       console.error(error);
       // Keep the response neutral so the login form does not reveal whether an
       // email address is registered.
-      addToast('Jika email itu berdaftar, pautan reset akan dihantar sebentar lagi.', 'info');
-      return 'neutral' as const;
+      return { status: 'neutral' as const };
     }
   }, [addToast]);
 
@@ -195,7 +190,7 @@ export const useAuth = () => {
   // collects a phone number, so the caller should immediately prompt for one
   // (see CompleteProfileModal) to keep "phone required at signup" true for
   // both signup paths without touching this account-creation write.
-  const signInWithGoogle = useCallback(async (): Promise<{ success: boolean; needsPhone?: boolean }> => {
+  const signInWithGoogle = useCallback(async (): Promise<{ success: boolean; needsPhone?: boolean; error?: string }> => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
@@ -226,8 +221,7 @@ export const useAuth = () => {
       return { success: true, needsPhone };
     } catch (error) {
       console.error(error);
-      addToast('Google sign-in failed. Please try again.', 'error');
-      return { success: false };
+      return { success: false, error: 'Log masuk Google gagal. Sila cuba lagi.' };
     }
   }, [addToast]);
 

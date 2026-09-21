@@ -6,10 +6,10 @@ import { formatMyPhone, isValidMyPhoneRest } from '../utils/phone';
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLogin: (email: string, pass: string) => Promise<boolean>;
-  onResetPassword: (email: string) => Promise<false | 'sent' | 'neutral' | 'google'>;
+  onLogin: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  onResetPassword: (email: string) => Promise<{ status: 'sent' | 'neutral' | 'google' | 'error'; error?: string }>;
   onRegister: (name: string, email: string, phone: string, pass: string) => Promise<{ success: boolean; error?: string }>;
-  onGoogleLogin: () => Promise<boolean>;
+  onGoogleLogin: () => Promise<{ success: boolean; error?: string }>;
   onResendVerification: () => Promise<boolean>;
 }
 
@@ -32,6 +32,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
   const [regPhonePrefix, setRegPhonePrefix] = useState('012');
   const [regPhoneRest, setRegPhoneRest] = useState('');
   const [regPass, setRegPass] = useState('');
+  const [loginError, setLoginError] = useState('');
   const [regError, setRegError] = useState('');
   const [verificationEmail, setVerificationEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -45,10 +46,37 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
     if (regError) setRegError('');
   };
 
+  const clearLoginMessages = () => {
+    if (loginError) setLoginError('');
+    if (resetSent) setResetSent(false);
+  };
+
+  const renderInlineError = (message: string) => (
+    <div
+      role="alert"
+      style={{
+        margin: '10px 0 12px',
+        padding: '10px 12px',
+        borderRadius: 8,
+        border: '1px solid rgba(190,18,60,0.28)',
+        background: '#fff1f2',
+        color: '#8f1321',
+        fontSize: '13px',
+        fontWeight: 700,
+        lineHeight: 1.45,
+      }}
+    >
+      {message}
+    </div>
+  );
+
   const handleLogin = async () => {
     setLoading(true);
-    await onLogin(loginEmail, loginPass);
+    const result = await onLogin(loginEmail, loginPass);
     setLoading(false);
+    if (!result.success) {
+      setLoginError(result.error || 'Log masuk gagal. Sila semak maklumat dan cuba lagi.');
+    }
   };
 
   const handleRegisterClick = () => {
@@ -78,26 +106,38 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
 
   const handleGoogleLogin = async () => {
     setLoading(true);
-    await onGoogleLogin();
+    const result = await onGoogleLogin();
     setLoading(false);
+    if (!result.success) {
+      const message = result.error || 'Log masuk Google gagal. Sila cuba lagi.';
+      if (tab === 'register') setRegError(message);
+      else setLoginError(message);
+    }
   };
 
   const handleResetPassword = async () => {
     setLoading(true);
     const result = await onResetPassword(loginEmail);
     setLoading(false);
-    if (result === 'google') {
+    if (result.status === 'google') {
       setGoogleAccountEmail(loginEmail.trim());
       setResetSent(false);
-    } else if (result) {
+      setLoginError('');
+    } else if (result.status === 'sent' || result.status === 'neutral') {
       setResetSent(true);
+      setLoginError('');
+    } else {
+      setResetSent(false);
+      setLoginError(result.error || 'Gagal memproses permintaan. Sila cuba lagi.');
     }
   };
 
   const handleClose = () => {
     setVerificationEmail('');
     setGoogleAccountEmail('');
+    setLoginError('');
     setRegError('');
+    setResetSent(false);
     onClose();
   };
 
@@ -183,10 +223,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
             </button>
             <div className="divider"><hr /><span>atau</span><hr /></div>
             <label className="form-label">Email</label>
-            <input type="email" className="form-input" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="you@example.com" />
+            <input type="email" className="form-input" value={loginEmail} onChange={(e) => { clearLoginMessages(); setLoginEmail(e.target.value); }} placeholder="you@example.com" />
             <label className="form-label">Password</label>
             <div className="pass-input-wrap">
-              <input type={showLoginPass ? 'text' : 'password'} className="form-input" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} placeholder="••••••••" onKeyDown={(e) => e.key === 'Enter' && handleLogin()} />
+              <input type={showLoginPass ? 'text' : 'password'} className="form-input" value={loginPass} onChange={(e) => { clearLoginMessages(); setLoginPass(e.target.value); }} placeholder="••••••••" onKeyDown={(e) => e.key === 'Enter' && handleLogin()} />
               <button type="button" className="pass-toggle-btn" onClick={() => setShowLoginPass(v => !v)} tabIndex={-1} aria-label={showLoginPass ? 'Sembunyikan kata laluan' : 'Papar kata laluan'}>
                 <i className={`fa-solid ${showLoginPass ? 'fa-eye-slash' : 'fa-eye'}`}></i>
               </button>
@@ -202,6 +242,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
             {resetSent && (
               <div className="auth-reset-note">Semak inbox atau folder spam untuk pautan menetapkan kata laluan baharu.</div>
             )}
+            {loginError && renderInlineError(loginError)}
             <button className="form-submit" onClick={handleLogin} disabled={loading}>Log Masuk</button>
             <div className="modal-switch">Belum ada akaun? <a onClick={() => setTab('register')}>Daftar sekarang</a></div>
           </div>
@@ -229,24 +270,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
                 <i className={`fa-solid ${showRegPass ? 'fa-eye-slash' : 'fa-eye'}`}></i>
               </button>
             </div>
-            {regError && (
-              <div
-                role="alert"
-                style={{
-                  margin: '10px 0 12px',
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  border: '1px solid rgba(190,18,60,0.28)',
-                  background: '#fff1f2',
-                  color: '#8f1321',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  lineHeight: 1.45,
-                }}
-              >
-                {regError}
-              </div>
-            )}
+            {regError && renderInlineError(regError)}
             <button className="form-submit" onClick={handleRegisterClick} disabled={loading}>Daftar Akaun</button>
             <div className="modal-switch">Sudah ada akaun? <a onClick={() => setTab('login')}>Log masuk</a></div>
           </div>

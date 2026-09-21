@@ -484,12 +484,12 @@ const AppContent: React.FC = () => {
   };
 
   const handleLogin = async (email: string, pass: string) => {
-    const success = await login(email, pass);
-    if (success) {
+    const result = await login(email, pass);
+    if (result.success) {
       setAuthModalOpen(false);
       goToMyBookings();
     }
-    return success;
+    return result;
   };
 
   const handleRegister = async (name: string, email: string, phone: string, pass: string) => {
@@ -497,16 +497,16 @@ const AppContent: React.FC = () => {
   };
 
   const handleGoogleLogin = async () => {
-    const { success, needsPhone } = await signInWithGoogle();
-    if (success) {
+    const result = await signInWithGoogle();
+    if (result.success) {
       setAuthModalOpen(false);
-      if (needsPhone) {
+      if (result.needsPhone) {
         setCompleteProfileOpen(true);
       } else {
         goToMyBookings();
       }
     }
-    return success;
+    return result;
   };
 
   const handleCompleteProfile = async (phone: string) => {
