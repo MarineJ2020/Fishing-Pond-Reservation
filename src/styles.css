@@ -3723,6 +3723,13 @@ nav.kks-legacy-v3-nav::before {
   .kks-countdown-label { font-size: 24px; }
   .kks-time { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .kks-time div { min-width: 0; padding: 12px 6px; border-radius: 12px; background: rgba(255,255,255,.1); }
+  .kks-time .kks-countdown-empty {
+    grid-column: 1 / -1;
+    width: 100%;
+    padding: 16px 18px;
+    white-space: normal;
+    line-height: 1.15;
+  }
   .kks-time strong { font-size: 30px; }
   .kks-event-main { border-radius: 22px; }
   .kks-event-top { display: block; padding: 28px 22px 16px; }
