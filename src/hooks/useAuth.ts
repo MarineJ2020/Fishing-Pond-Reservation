@@ -146,21 +146,19 @@ export const useAuth = () => {
 
   const register = useCallback(async (name: string, email: string, phone: string, pass: string) => {
     if (!name || !email || !phone || !pass) {
-      addToast('Fill all required fields', 'error');
-      return false;
+      return { success: false, error: 'Sila lengkapkan semua medan yang diperlukan.' };
     }
 
     try {
       const existingMethods = await fetchSignInMethodsForEmail(auth, email.trim());
       if (existingMethods.length > 0) {
         const googleOnly = existingMethods.includes('google.com') && !existingMethods.includes('password');
-        addToast(
-          googleOnly
+        return {
+          success: false,
+          error: googleOnly
             ? 'Email ini telah didaftarkan menggunakan Google. Sila log masuk dengan Google.'
             : 'Email ini telah didaftarkan. Sila log masuk atau gunakan Lupa Kata Laluan.',
-          'error',
-        );
-        return false;
+        };
       }
       const credential = await createUserWithEmailAndPassword(auth, email, pass);
       const user = credential.user;
@@ -178,20 +176,18 @@ export const useAuth = () => {
         console.error('Failed to send verification email:', verErr);
         addToast('Akaun dibuat, tetapi email pengesahan gagal dihantar. Cuba "Hantar semula".', 'info');
         trackEvent('sign_up', { method: 'password' });
-        return true;
+        return { success: true };
       }
       addToast(`Akaun dibuat! Semak email anda untuk pengesahan.`, 'success');
       trackEvent('sign_up', { method: 'password' });
-      return true;
+      return { success: true };
     } catch (error) {
       console.error(error);
       const errorCode = (error as { code?: string })?.code;
       if (errorCode === 'auth/email-already-in-use') {
-        addToast('Email ini telah didaftarkan. Sila log masuk atau gunakan akaun Google yang berkaitan.', 'error');
-      } else {
-        addToast('Registration failed. Please try again.', 'error');
+        return { success: false, error: 'Email ini telah didaftarkan. Sila log masuk atau gunakan akaun Google yang berkaitan.' };
       }
-      return false;
+      return { success: false, error: 'Pendaftaran gagal. Sila semak maklumat dan cuba lagi.' };
     }
   }, [addToast]);
 

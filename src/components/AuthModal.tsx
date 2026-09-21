@@ -8,7 +8,7 @@ interface AuthModalProps {
   onClose: () => void;
   onLogin: (email: string, pass: string) => Promise<boolean>;
   onResetPassword: (email: string) => Promise<false | 'sent' | 'neutral' | 'google'>;
-  onRegister: (name: string, email: string, phone: string, pass: string) => Promise<boolean>;
+  onRegister: (name: string, email: string, phone: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   onGoogleLogin: () => Promise<boolean>;
   onResendVerification: () => Promise<boolean>;
 }
@@ -41,6 +41,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
   const [resetSent, setResetSent] = useState(false);
   const [googleAccountEmail, setGoogleAccountEmail] = useState('');
 
+  const clearRegisterError = () => {
+    if (regError) setRegError('');
+  };
+
   const handleLogin = async () => {
     setLoading(true);
     await onLogin(loginEmail, loginPass);
@@ -62,11 +66,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
 
   const handleRegisterConfirmed = async () => {
     setLoading(true);
-    const success = await onRegister(regName, regEmail, formatMyPhone(regPhonePrefix, regPhoneRest), regPass);
+    const result = await onRegister(regName, regEmail, formatMyPhone(regPhonePrefix, regPhoneRest), regPass);
     setLoading(false);
     setPhoneToConfirm(null);
-    if (success) {
+    if (result.success) {
       setVerificationEmail(regEmail);
+    } else {
+      setRegError(result.error || 'Pendaftaran gagal. Sila semak maklumat dan cuba lagi.');
     }
   };
 
@@ -91,6 +97,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
   const handleClose = () => {
     setVerificationEmail('');
     setGoogleAccountEmail('');
+    setRegError('');
     onClose();
   };
 
@@ -205,24 +212,41 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, onReset
             </button>
             <div className="divider">atau</div>
             <label className="form-label">Nama Penuh <span style={{ color: 'var(--red)' }}>*</span></label>
-            <input type="text" className="form-input" value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="Ahmad bin Abdullah" />
+            <input type="text" className="form-input" value={regName} onChange={(e) => { clearRegisterError(); setRegName(e.target.value); }} placeholder="Ahmad bin Abdullah" />
             <label className="form-label">Email <span style={{ color: 'var(--red)' }}>*</span></label>
-            <input type="email" className="form-input" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="you@example.com" />
+            <input type="email" className="form-input" value={regEmail} onChange={(e) => { clearRegisterError(); setRegEmail(e.target.value); }} placeholder="you@example.com" />
             <PhoneNumberField
               prefix={regPhonePrefix}
               rest={regPhoneRest}
-              onPrefixChange={setRegPhonePrefix}
-              onRestChange={setRegPhoneRest}
+              onPrefixChange={(value) => { clearRegisterError(); setRegPhonePrefix(value); }}
+              onRestChange={(value) => { clearRegisterError(); setRegPhoneRest(value); }}
               required
             />
             <label className="form-label" style={{ marginTop: '14px' }}>Password</label>
             <div className="pass-input-wrap">
-              <input type={showRegPass ? 'text' : 'password'} className="form-input" value={regPass} onChange={(e) => setRegPass(e.target.value)} placeholder="Cipta kata laluan" />
+              <input type={showRegPass ? 'text' : 'password'} className="form-input" value={regPass} onChange={(e) => { clearRegisterError(); setRegPass(e.target.value); }} placeholder="Cipta kata laluan" />
               <button type="button" className="pass-toggle-btn" onClick={() => setShowRegPass(v => !v)} tabIndex={-1} aria-label={showRegPass ? 'Sembunyikan kata laluan' : 'Papar kata laluan'}>
                 <i className={`fa-solid ${showRegPass ? 'fa-eye-slash' : 'fa-eye'}`}></i>
               </button>
             </div>
-            {regError && <div style={{ color: 'var(--red, #c0152a)', fontSize: '13px', marginBottom: '10px' }}>{regError}</div>}
+            {regError && (
+              <div
+                role="alert"
+                style={{
+                  margin: '10px 0 12px',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(190,18,60,0.28)',
+                  background: '#fff1f2',
+                  color: '#8f1321',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  lineHeight: 1.45,
+                }}
+              >
+                {regError}
+              </div>
+            )}
             <button className="form-submit" onClick={handleRegisterClick} disabled={loading}>Daftar Akaun</button>
             <div className="modal-switch">Sudah ada akaun? <a onClick={() => setTab('login')}>Log masuk</a></div>
           </div>
