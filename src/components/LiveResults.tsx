@@ -86,7 +86,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
 
     const resultsRef = collection(firestoreDb, 'eventResults');
     const flush = () => {
-      const entries = Array.from(scoreMapRef.current.values());
+      const entries = Array.from(scoreMapRef.current.values()).filter((entry) => !(entry as any).deletedAt);
       setLiveScores(entries);
       setLastUpdated(new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       setLoadingScores(false);
@@ -96,7 +96,11 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     const unsubStr = onSnapshot(
       query(resultsRef, where('competitionId', '==', selectedCompId)),
       (snap) => {
-        snap.docs.forEach(d => scoreMapRef.current.set(d.id, { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) }));
+        snap.docs.forEach(d => {
+          const entry = { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) };
+          if ((entry as any).deletedAt) scoreMapRef.current.delete(d.id);
+          else scoreMapRef.current.set(d.id, entry);
+        });
         snap.docChanges().filter(c => c.type === 'removed').forEach(c => scoreMapRef.current.delete(c.doc.id));
         flush();
       }
@@ -104,7 +108,11 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     const unsubRef = onSnapshot(
       query(resultsRef, where('competitionId', '==', doc(firestoreDb, 'competitions', selectedCompId))),
       (snap) => {
-        snap.docs.forEach(d => scoreMapRef.current.set(d.id, { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) }));
+        snap.docs.forEach(d => {
+          const entry = { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) };
+          if ((entry as any).deletedAt) scoreMapRef.current.delete(d.id);
+          else scoreMapRef.current.set(d.id, entry);
+        });
         snap.docChanges().filter(c => c.type === 'removed').forEach(c => scoreMapRef.current.delete(c.doc.id));
         flush();
       }
@@ -209,8 +217,14 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
           getDocs(query(resultsRef, where('competitionId', '==', selectedPastId))),
           getDocs(query(resultsRef, where('competitionId', '==', doc(firestoreDb, 'competitions', selectedPastId)))),
         ]);
-        s1.docs.forEach(d => map.set(d.id, { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) }));
-        s2.docs.forEach(d => map.set(d.id, { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) }));
+        s1.docs.forEach(d => {
+          const entry = { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) };
+          if (!(entry as any).deletedAt) map.set(d.id, entry);
+        });
+        s2.docs.forEach(d => {
+          const entry = { id: d.id, ...(d.data() as Omit<ScoreEntry, 'id'>) };
+          if (!(entry as any).deletedAt) map.set(d.id, entry);
+        });
       } catch { /* ignore fetch errors — show empty state */ }
       if (!cancelled) { setPastScores(Array.from(map.values())); setPastLoading(false); }
     })();

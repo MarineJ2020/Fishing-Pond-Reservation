@@ -1853,6 +1853,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       window.alert('Hanya admin boleh padam rekod papan markah.');
       return;
     }
+    const confirmed = window.confirm('Pengesahan kedua: rekod ini akan dipadam dari Papan Markah Semasa sahaja dan masih kekal dalam Rekod Timbangan sebagai (dipadam). Teruskan?');
+    if (!confirmed) return;
     try {
       const entry = scoreEntries.find(e => e.id === id);
       await deleteScoreEntry(id);
@@ -3493,7 +3495,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   <button
                                     className="btn btn-sm"
                                     style={{ color: '#ef4444' }}
-                                    onClick={() => e.id && handleDeleteEntry(e.id)}
+                                    onClick={() => e.id && setConfirmDialog({
+                                      title: 'Padam dari Papan Markah?',
+                                      message: `Rekod ${e.anglerName}, ${e.pondName} peg ${e.seatNum}, ${formatWeight(e.weight, settings.ocrDecimalPlaces)}kg akan dibuang dari ranking live. Rekod asal masih kekal dalam Rekod Timbangan sebagai (dipadam).`,
+                                      confirmLabel: 'Teruskan',
+                                      tone: 'danger',
+                                      onConfirm: () => handleDeleteEntry(e.id!),
+                                    })}
                                   >🗑</button>
                                 </td>
                               )}
@@ -3585,9 +3593,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <tbody>
                       {allWeighLoading && <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
                       {!allWeighLoading && filtered.map((e) => (
-                        <tr key={e.id}>
+                        <tr key={e.id} style={e.deletedAt ? { opacity: 0.72 } : undefined}>
                           <td style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(e.capturedAt)}</td>
-                          <td className="td-name">{e.anglerName}</td>
+                          <td className="td-name">
+                            {e.anglerName}
+                            {e.deletedAt && (
+                              <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 800, color: 'var(--red)', border: '1px solid rgba(220,38,38,0.28)', borderRadius: 999, padding: '2px 7px', background: 'rgba(220,38,38,0.08)' }}>
+                                dipadam
+                              </span>
+                            )}
+                          </td>
                           <td>{compNameById.get(e.competitionId || '') || '—'}</td>
                           <td>{e.pondName}</td>
                           <td>{e.seatNum}</td>

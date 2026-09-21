@@ -104,7 +104,9 @@ test('forged creates and financial/receipt edits are denied, existing CMS checks
         createdAt: serverTimestamp(),
     }));
     await assertFails(deleteDoc(doc(firestoreFor(staff), 'eventResults', 'winner')));
-    await assertSucceeds(deleteDoc(doc(firestoreFor(admin), 'eventResults', 'winner')));
+    await assertFails(deleteDoc(doc(firestoreFor(admin), 'eventResults', 'winner')));
+    await assertFails(updateDoc(doc(firestoreFor(staff), 'eventResults', 'winner'), { deletedAt: serverTimestamp(), deletedBy: 'staff', updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(firestoreFor(admin), 'eventResults', 'winner'), { deletedAt: serverTimestamp(), deletedBy: 'admin', updatedAt: serverTimestamp() }));
     await assertSucceeds(updateDoc(doc(firestoreFor(admin), 'bookings', 'uid'), { paymentStatus: 'PARTIAL' }));
     await assertFails(setDoc(doc(firestoreFor(owner), 'bookingSeatClaims', 'claim'), { bookingId: 'forged' }));
     await assertSucceeds(getDoc(doc(firestoreFor(guest), 'eventResults', 'winner')));

@@ -187,8 +187,8 @@ const AdminInstructions: React.FC<AdminInstructionsProps> = ({ onNavigate }) => 
           <li>Pilih pertandingan, kemudian kenal pasti peserta melalui QR live, gambar QR atau carian manual. Pilih peg yang sedang ditimbang jika tempahan mempunyai lebih daripada satu peg.</li>
           <li>Ambil gambar jelas dan crop <strong>hanya baris angka</strong>. Bandingkan bacaan dengan timbangan sebelum <strong>Sahkan & Simpan</strong>.</li>
           <li>Jika AI salah, cuba Ambil Semula, Imbas AI Semula atau Imbas Tanpa AI. Kemasukan manual wajib menggunakan gambar bukti baharu.</li>
-          <li>Papan Markah Semasa membenarkan bukti dilihat dan rekod dipadam. Pemadaman tidak boleh dipulihkan dari CMS.</li>
-          <li>Semua Timbangan ialah sejarah baca sahaja merentas pertandingan; sunting atau padam hanya di Keputusan & Live.</li>
+          <li>Papan Markah Semasa membenarkan bukti dilihat dan rekod dipadam daripada ranking live selepas dua pengesahan admin.</li>
+          <li>Semua Timbangan ialah sejarah baca sahaja merentas pertandingan; rekod yang dibuang daripada ranking live masih dipaparkan sebagai dipadam.</li>
         </List>
       </GuideCard>
 

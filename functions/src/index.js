@@ -527,6 +527,7 @@ app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
 
         const sorted = allResults.docs
             .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+            .filter((entry) => !entry.deletedAt)
             .sort((a, b) => (b.totalWeight || 0) - (a.totalWeight || 0));
 
         await Promise.all(sorted.map(async (entry, index) => {

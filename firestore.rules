@@ -147,8 +147,13 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'anglerName', 'pondId', 'pondName', 'seatNum', 'weight', 'photoUrl',
           'ocrConfidence', 'ocrRawText', 'ocrUserVerified', 'scanMethod', 'updatedAt'
-        ]);
-      allow delete: if isAdmin();
+        ])
+        || (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'deletedAt', 'deletedBy', 'updatedAt'
+          ])
+          && request.resource.data.deletedBy == request.auth.uid);
+      allow delete: if false;
     }
 
     // Admin activity log — append-only. Nothing may edit or delete an entry

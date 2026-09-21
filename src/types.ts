@@ -155,6 +155,9 @@ export interface ScoreEntry {
   capturedBy?: string;
   /** ISO creation time; falls back to updatedAt for legacy records without createdAt. */
   capturedAt?: string;
+  /** Soft-delete marker: hidden from live ranking, still visible in weigh-in history. */
+  deletedAt?: string;
+  deletedBy?: string;
 }
 
 export interface AuditEntry {

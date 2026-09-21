@@ -8,6 +8,7 @@ import {
   getDocs,
   doc,
   getDoc,
+  updateDoc,
   addDoc,
   setDoc,
   deleteDoc,
@@ -1178,9 +1179,11 @@ export const getScoresForCompetition = async (competitionId: string): Promise<Sc
       ocrRawText: data.ocrRawText || undefined,
       capturedBy: data.capturedBy || undefined,
       capturedAt: normalizeTimestamp(data.createdAt) || normalizeTimestamp(data.updatedAt) || undefined,
+      deletedAt: normalizeTimestamp(data.deletedAt) || undefined,
+      deletedBy: data.deletedBy || undefined,
     });
   });
-  return entries;
+  return entries.filter((entry) => !entry.deletedAt);
 };
 
 const buildScoreEntryFromDoc = (d: QueryDocumentSnapshot<DocumentData>): ScoreEntry => {
@@ -1205,6 +1208,8 @@ const buildScoreEntryFromDoc = (d: QueryDocumentSnapshot<DocumentData>): ScoreEn
     scanMethod: data.scanMethod || undefined,
     capturedBy: data.capturedBy || undefined,
     capturedAt: normalizeTimestamp(data.createdAt) || normalizeTimestamp(data.updatedAt) || undefined,
+    deletedAt: normalizeTimestamp(data.deletedAt) || undefined,
+    deletedBy: data.deletedBy || undefined,
   } as ScoreEntry;
 };
 
@@ -1270,17 +1275,23 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
     );
     const snap = await getDocs(q);
     if (!snap.empty) {
-      const existingId = snap.docs[0].id;
-      await setDoc(doc(db, 'eventResults', existingId), {
-        anglerName: entry.anglerName,
-        pondId: entry.pondId,
-        pondName: entry.pondName,
-        seatNum: entry.seatNum,
-        weight: entry.weight,
-        ...evidenceFields,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      return existingId;
+      const activeDoc = snap.docs.find((d) => !d.data().deletedAt);
+      if (!activeDoc) {
+        // All matching historical records were removed from the leaderboard.
+        // Keep them in Rekod Timbangan and create a fresh live result instead.
+      } else {
+        const existingId = activeDoc.id;
+        await setDoc(doc(db, 'eventResults', existingId), {
+          anglerName: entry.anglerName,
+          pondId: entry.pondId,
+          pondName: entry.pondName,
+          seatNum: entry.seatNum,
+          weight: entry.weight,
+          ...evidenceFields,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        return existingId;
+      }
     }
   }
   const docRef = await addDoc(resultsRef, {
@@ -1299,7 +1310,11 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
 };
 
 export const deleteScoreEntry = async (id: string): Promise<void> => {
-  await deleteDoc(doc(db, 'eventResults', id));
+  await updateDoc(doc(db, 'eventResults', id), {
+    deletedAt: serverTimestamp(),
+    deletedBy: auth.currentUser?.uid || null,
+    updatedAt: serverTimestamp(),
+  });
 };
 
 // Append-only admin activity log. Logging failures are swallowed — recording
