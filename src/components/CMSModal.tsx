@@ -35,9 +35,8 @@ import { asset, LANDING_ASSETS } from '../config/landingAssets';
 import { LANDING_SECTION_KEYS, LANDING_SECTION_LABELS } from '../config/landingSections';
 import { sanitizeLandingHtml } from '../utils/landingHtml';
 import { SeoSnippetPreview, SocialCardPreview } from './SeoPreview';
-import { EmailLogEntry, getEmailLogsPage, requestBalanceReminderEmail } from '../lib/email';
+import { EmailLogEntry, getEmailLogsPage } from '../lib/email';
 import {
-  balanceReminderInfo,
   bookingSeatCheckInTime,
   bookingSeatEntries,
   BookingSeatEntry,
@@ -81,9 +80,7 @@ const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'pond
 const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins'];
 const ALL_BOOKING_STATUS_OPTIONS = [
   ['all', 'Semua'],
-  ['review-balance', 'Menunggu Semak (Baki)'],
-  ['pending-balance', 'Baki Belum Dibayar'],
-  ['fully-paid', 'Selesai Dibayar'],
+  ['confirmed', 'Disahkan'],
   ['cancelled', 'Dibatalkan'],
 ] as const;
 
@@ -191,7 +188,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Kelulusan (approvals) — pending-only decision queue.
   const [approvalSearch, setApprovalSearch] = useState('');
   const [approvalCompFilter, setApprovalCompFilter] = useState('');
-  const [approvalPayFilter, setApprovalPayFilter] = useState<'' | 'deposit' | 'full'>('');
   const [approvalSortField, setApprovalSortField] = useState<'createdAt' | 'userName' | 'totalAmount'>('createdAt');
   const [approvalsSortOrder, setApprovalsSortOrder] = useState<'desc' | 'asc'>('desc');
   const [kelulusanEntries, setKelulusanEntries] = useState<Booking[]>([]);
@@ -203,9 +199,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   // Semua Tempahan — everything already decided (confirmed/rejected).
   const [bookingSearch, setBookingSearch] = useState('');
-  const [allStatus, setAllStatus] = useState<'all' | 'review-balance' | 'pending-balance' | 'fully-paid' | 'cancelled'>('all');
+  const [allStatus, setAllStatus] = useState<'all' | 'confirmed' | 'cancelled'>('all');
   const [allCompFilter, setAllCompFilter] = useState('');
-  const [allPayFilter, setAllPayFilter] = useState<'' | 'deposit' | 'full'>('');
   const [allPondFilter, setAllPondFilter] = useState('');
   const [allSortField, setAllSortField] = useState<'createdAt' | 'userName' | 'totalAmount'>('createdAt');
   const [allSortOrder, setAllSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -836,30 +831,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
-  // Request a server-rendered balance reminder. The 7-day clock resets only after
-  // the email extension confirms delivery to the booking recipient.
-  // Takes the row's Booking, not just its id: "Semua Tempahan" renders the
-  // server-paginated `allEntries`, so looking the booking up in the `bookings`
-  // prop used to miss and abandon the send silently.
-  const handleSendBalanceReminder = async (target: Booking) => {
-    setSaving(true);
-    try {
-      await requestBalanceReminderEmail(target.id);
-      await refetchCurrentBookingList();
-      await logAuditEvent({
-        action: 'booking.balance_reminder', actionLabel: 'Hantar Peringatan Baki', entityType: 'booking',
-        entityId: target.id, entityLabel: target.bookingRef || target.id,
-        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
-      });
-      window.setTimeout(() => { refetchCurrentBookingList(); }, 3000);
-      window.setTimeout(() => { refetchCurrentBookingList(); }, 8000);
-    } catch (err) {
-      console.error('Failed to send balance reminder:', err);
-      window.alert(`Gagal menghantar peringatan / Failed to send reminder: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
-    }
-    setSaving(false);
-  };
-
   // Force-cancel a CONFIRMED booking. Frees its seats (status → rejected). Guarded
   // by a first confirm dialog AND a typed "DELETE BOOKING" confirmation.
   const handleForceCancel = async () => {
@@ -884,16 +855,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   // ── Confirmation-dialog wrappers ─────────────────────────────────────────
   // Each opens the shared confirm dialog; the real work runs only on confirm.
-  const askSendReminder = (booking: Booking) => {
-    setConfirmDialog({
-      title: 'Hantar Peringatan',
-      message: 'Hantar e-mel peringatan baki bayaran kepada pengguna sekarang? Kiraan auto-peringat akan ditetapkan semula ke 7 hari.',
-      confirmLabel: 'Hantar',
-      tone: 'primary',
-      onConfirm: () => handleSendBalanceReminder(booking),
-    });
-  };
-
   // First gate for force-cancelling a confirmed booking; the typed-confirmation
   // modal (DELETE BOOKING) is the second gate.
   const askForceCancel = (booking: Booking) => {
@@ -904,17 +865,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       tone: 'danger',
       onConfirm: () => { setForceCancelText(''); setForceCancelTarget(booking); },
     });
-  };
-
-  // Human-readable balance-reminder status for a deposit booking awaiting its balance.
-  const reminderLabel = (info: ReturnType<typeof balanceReminderInfo>): string => {
-    if (info.msUntilRemind <= 0) return 'tertunggak';
-    const totalMins = Math.floor(info.msUntilRemind / 60000);
-    const days = Math.floor(totalMins / (60 * 24));
-    const hours = Math.floor((totalMins % (60 * 24)) / 60);
-    if (days > 0) return `${days}h ${hours}j`;
-    const mins = totalMins % 60;
-    return `${hours}j ${mins}m`;
   };
 
   const handleViewReceipt = (receiptData: string) => {
@@ -937,10 +887,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   // ── Kelulusan (pending-only) paginated fetch ────────────────────────────
-  // competitionId/paymentType are applied client-side over the loaded page
-  // (see filteredEntries below) — only status/balanceStage are server
-  // where-clauses, matching the fixed set of composite indexes in
-  // firestore.indexes.json.
+  // competition/search filters narrow the currently-loaded pending page
+  // client-side; status is the only server where-clause for this queue.
   const fetchKelulusanPage = async (cursor: any, pageIndex: number) => {
     setKelulusanLoading(true);
     setKelulusanError(null);
@@ -994,7 +942,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   }, [page, approvalSortField, approvalsSortOrder]);
 
   // ── Semua Tempahan (decided: confirmed/rejected) paginated fetch ────────
-  // Same competitionId/paymentType-stay-client-side reasoning as Kelulusan.
+  // Same competition/search-stay-client-side reasoning as Kelulusan.
   const fetchAllTempahanPage = async (cursor: any, pageIndex: number) => {
     setAllLoading(true);
     setAllError(null);
@@ -1004,10 +952,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         : allStatus === 'all'
         ? ['APPROVED', 'CONFIRMED', 'REJECTED']
         : ['APPROVED', 'CONFIRMED'];
-      const balanceStage = (allStatus === 'all' || allStatus === 'cancelled') ? undefined : allStatus;
       const result = await getBookingsPage({
         statuses,
-        balanceStage,
         sortField: allSortField,
         sortDir: allSortOrder,
         pageSize: 50,
@@ -1052,8 +998,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       : allStatus === 'all'
       ? ['APPROVED', 'CONFIRMED', 'REJECTED']
       : ['APPROVED', 'CONFIRMED'];
-    const balanceStage = (allStatus === 'all' || allStatus === 'cancelled') ? undefined : allStatus;
-    return { statuses, balanceStage };
+    return { statuses };
   };
 
   const csvCell = (value: unknown) => {
@@ -1082,14 +1027,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setAllExporting(true);
     setAllError(null);
     try {
-      const { statuses, balanceStage } = allBookingFetchParams();
+      const { statuses } = allBookingFetchParams();
       const exportRows: Booking[] = [];
       let cursor: any = null;
       let hasMore = true;
       while (hasMore) {
         const result = await getBookingsPage({
           statuses,
-          balanceStage,
           sortField: 'userName',
           sortDir: 'asc',
           pageSize: 200,
@@ -1103,7 +1047,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
       const q = bookingSearch.trim().toLowerCase();
       const filteredRows = exportRows
-        .filter((b) => !allPayFilter || (allPayFilter === 'deposit' ? b.paymentType === 'deposit' : b.paymentType !== 'deposit'))
         .filter((b) => !allPondFilter || ((ponds.find((p) => p.id === b.pondId)?.code || '').toUpperCase() === allPondFilter.toUpperCase()))
         .filter((b) => {
           if (!q) return true;
@@ -1124,11 +1067,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         'Ref Tempahan',
         'Pertandingan',
         'Status',
-        'Peringkat Bayaran',
-        'Jenis Bayaran',
         'Jumlah',
-        'Dibayar',
-        'Baki',
         'Kolam',
         'No Pancang',
         'Jumlah Pancang Tempahan',
@@ -1144,9 +1083,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             );
             return pondA || a.seatNum - b.seatNum;
           });
-        const paid = b.paidAmount ?? b.amount ?? 0;
         const total = b.totalAmount ?? b.amount ?? 0;
-        const balance = b.balanceDue ?? Math.max(0, total - paid);
         const entries = seatEntries.length ? seatEntries : [{
           key: `${b.pondId}:`,
           pondId: b.pondId,
@@ -1166,11 +1103,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             b.bookingRef || b.id,
             b.competitionName || comp.name || '',
             b.status === 'rejected' ? 'Dibatalkan' : 'Disahkan',
-            b.status === 'rejected' ? 'Dibatalkan' : (deriveBalanceStage(b) === 'fully-paid' ? 'Selesai Bayar' : deriveBalanceStage(b) === 'review-balance' ? 'Menunggu Semak Baki' : 'Baki Belum Dibayar'),
-            b.paymentType || '',
             total,
-            paid,
-            balance,
             entry.pondName || bookingPondList(b),
             entry.seatNum ? formatSeat(pondCode, entry.seatNum) : bookingSeatList(b),
             seatEntries.length,
@@ -2881,7 +2814,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             // filters and search narrow the currently-loaded page client-side.
             const filteredEntries = kelulusanEntries
               .filter((b) => !approvalCompFilter || (b.competitionId || '') === approvalCompFilter)
-              .filter((b) => !approvalPayFilter || (approvalPayFilter === 'deposit' ? b.paymentType === 'deposit' : b.paymentType !== 'deposit'))
               .filter((b) => {
                 if (!aq) return true;
                 const hay = [b.id, b.bookingRef, b.userName, b.userEmail, b.userPhone, b.bookingPhone, b.pondName, b.competitionName].filter(Boolean).join(' ').toLowerCase();
@@ -2892,7 +2824,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="page-header">
                 <div>
                   <div className="page-title">Kelulusan Tempahan</div>
-                  <div className="page-sub">Semakan tempahan baru &amp; pembayaran pertama — belum dibuat keputusan</div>
+                  <div className="page-sub">Semakan tempahan baru &amp; bayaran penuh — belum dibuat keputusan</div>
                 </div>
               </div>
 
@@ -2905,15 +2837,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="cms-notice-bar">
                 <div>
                   <h4>Peranan halaman ini</h4>
-                  <p>Halaman ini memaparkan tempahan yang <strong>belum dibuat sebarang keputusan</strong>. Sebaik sahaja resit pertama disahkan/ditolak, tempahan berpindah ke <strong>Semua Tempahan</strong>.</p>
+                  <p>Halaman ini memaparkan tempahan yang <strong>belum dibuat sebarang keputusan</strong>. Sebaik sahaja resit bayaran disahkan/ditolak, tempahan berpindah ke <strong>Semua Tempahan</strong>.</p>
                 </div>
               </div>
 
               <div className="cms-filter-row">
                 <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, no resit..." value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} /></div>
                 <div className="field"><label>Pertandingan</label><select className="form-input" value={approvalCompFilter} onChange={e => setApprovalCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
-                <div className="field"><label>Bayaran</label><select className="form-input" value={approvalPayFilter} onChange={e => setApprovalPayFilter(e.target.value as any)}><option value="">Semua bayaran</option><option value="deposit">Deposit</option><option value="full">Full</option></select></div>
-                <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalSearch(''); setApprovalCompFilter(''); setApprovalPayFilter(''); }}>Reset</button></div>
+                <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalSearch(''); setApprovalCompFilter(''); }}>Reset</button></div>
               </div>
 
               <div className="card"><div className="card-body"><div className="table-wrap"><table>
@@ -2925,16 +2856,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <th>No. Telefon</th>
                   <th>Kolam</th>
                   <th>No. Pancang</th>
-                  {sortableTh('Dibayar / Jumlah', 'totalAmount', approvalSortField, approvalsSortOrder, handleKelulusanSort)}
-                  <th>Bayaran</th>
+                  {sortableTh('Jumlah Bayaran', 'totalAmount', approvalSortField, approvalsSortOrder, handleKelulusanSort)}
                   <th>Tindakan</th>
                 </tr></thead>
                 <tbody>
                   {kelulusanLoading && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
                   {!kelulusanLoading && filteredEntries.map((b) => {
                     const total = b.totalAmount ?? b.amount;
-                    const paid = b.paidAmount ?? 0;
-                    const balance = b.balanceDue ?? Math.max(0, total - paid);
                     return (
                     <tr key={b.id}>
                       <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
@@ -2952,11 +2880,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </td>
                       <td>{bookingPondList(b)}</td>
                       <td>{bookingSeatList(b)}{hasConflict(b) && <span title="Tempat ini juga dituntut oleh tempahan lain" style={{ marginLeft: 4, color: '#f59e0b', fontSize: '0.8rem', cursor: 'help' }}>⚠</span>}</td>
-                      <td>
-                        RM {paid} / {total}
-                        {balance > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {balance}</div>}
-                      </td>
-                      <td><span className={`badge ${b.paymentType === 'deposit' ? 'badge-deposit' : 'badge-paid'}`}>{b.paymentType === 'deposit' ? 'Deposit' : b.paymentType === 'baki' ? 'Baki' : 'Penuh'}</span></td>
+                      <td>RM {total}</td>
                       <td>
                         <div className="action-cell">
                           <button className="btn btn-sm btn-primary" onClick={() => setReviewTarget(b)}>Semak</button>
@@ -3023,12 +2947,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           )}
           {page === 'all-bookings' && (() => {
             const q = bookingSearch.trim().toLowerCase();
-            // Server query scopes status confirmed/rejected + the selected
-            // balance bucket; competition/payment/pond filters and search
-            // narrow the currently-loaded page client-side.
+            // Server query scopes decided bookings by status; competition,
+            // pond, and search filters narrow the currently-loaded page.
             const filteredEntries = allEntries
               .filter(b => !allCompFilter || (b.competitionId || '') === allCompFilter)
-              .filter(b => !allPayFilter || (allPayFilter === 'deposit' ? b.paymentType === 'deposit' : b.paymentType !== 'deposit'))
               .filter(b => !allPondFilter || ((ponds.find(p => p.id === b.pondId)?.code || '').toUpperCase() === allPondFilter.toUpperCase()))
               .filter(b => {
                 if (!q) return true;
@@ -3039,7 +2961,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 return haystack.includes(q);
               });
             const pondCodes = Array.from(new Set(ponds.map(p => p.code).filter(Boolean))) as string[];
-            const stageLabel: Record<string, string> = { 'review-balance': 'Menunggu Semak (Baki)', 'pending-balance': 'Baki Belum Dibayar', 'fully-paid': 'Selesai Bayar' };
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Semua Tempahan</div><div className="page-sub">Tempahan yang telah dibuat keputusan — disahkan atau ditolak</div></div></div>
@@ -3053,7 +2974,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="cms-notice-bar">
                 <div>
                   <h4>Peranan halaman ini</h4>
-                  <p>Halaman ini memaparkan tempahan yang <strong>sudah dibuat keputusan</strong> (disahkan/ditolak). Susulan baki bayaran, peringatan e-mel dan Batal Paksa diuruskan di sini.</p>
+                  <p>Halaman ini memaparkan tempahan yang <strong>sudah dibuat keputusan</strong> (disahkan/ditolak). Semakan rekod, resit dan Batal Paksa diuruskan di sini.</p>
                 </div>
               </div>
 
@@ -3084,13 +3005,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="cms-filter-row">
                 <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, nombor seat..." value={bookingSearch} onChange={e => setBookingSearch(e.target.value)} /></div>
                 <div className="field"><label>Pertandingan</label><select className="form-input" value={allCompFilter} onChange={e => setAllCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
-                <div className="field"><label>Bayaran</label><select className="form-input" value={allPayFilter} onChange={e => setAllPayFilter(e.target.value as any)}><option value="">Semua bayaran</option><option value="deposit">Deposit</option><option value="full">Full</option></select></div>
                 <div className="field"><label>Kolam</label><select className="form-input" value={allPondFilter} onChange={e => setAllPondFilter(e.target.value)}><option value="">Semua kolam</option>{pondCodes.map(code => <option key={code} value={code}>Kolam {code}</option>)}</select></div>
                 <div className="cms-filter-actions">
                   <button className="btn btn-primary btn-sm" disabled={!allCompFilter || allExporting} onClick={handleExportAllBookingsCsv}>
                     {allExporting ? 'Export...' : 'Export CSV'}
                   </button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(''); setAllPayFilter(''); setAllPondFilter(''); }}>Reset</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(''); setAllPondFilter(''); }}>Reset</button>
                 </div>
               </div>
 
@@ -3108,7 +3028,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <th>Pertandingan</th>
                     {sortableTh('Info Peserta', 'userName', allSortField, allSortOrder, handleAllSort)}
                     <th>No. Pancang</th>
-                    {sortableTh('Dibayar / Jumlah', 'totalAmount', allSortField, allSortOrder, handleAllSort)}
+                    {sortableTh('Jumlah Bayaran', 'totalAmount', allSortField, allSortOrder, handleAllSort)}
                     <th>Status</th>
                     <th>Tindakan</th>
                   </tr></thead>
@@ -3142,8 +3062,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {b.status === 'confirmed' && <button className="btn btn-sm btn-ghost" style={{ marginTop: 6 }} onClick={() => setQrPreviewBooking(b)}>QR</button>}
                         </td>
                         <td>
-                          RM {b.paidAmount ?? b.amount}{(b.totalAmount ?? b.amount) !== (b.paidAmount ?? b.amount) && <span style={{ color: 'var(--text-muted)' }}> / {b.totalAmount ?? b.amount}</span>}
-                          {(b.balanceDue ?? 0) > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}>Baki RM {b.balanceDue}</div>}
+                          RM {b.totalAmount ?? b.amount}
                           {(b.receipts?.some(receipt => receipt.url) || b.receiptData) && (
                             <div style={{ display: 'block', marginTop: 6 }}>
                               <button className="btn btn-sm btn-ghost" onClick={() => setReceiptHistoryBooking(b)}>Resit</button>
@@ -3153,7 +3072,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <td>
                           {b.status === 'rejected'
                             ? <span className="badge badge-rejected">Dibatalkan</span>
-                            : <span className={`badge badge-${deriveBalanceStage(b) === 'fully-paid' ? 'approved' : 'pending'}`}>{stageLabel[deriveBalanceStage(b)]}</span>}
+                            : <span className="badge badge-approved">Disahkan</span>}
                         </td>
                         <td>
                           <div className="action-cell">
@@ -3161,22 +3080,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             {b.status === 'confirmed' && (<button className="btn btn-sm btn-danger" disabled={saving} title="Batal paksa tempahan disahkan" onClick={() => askForceCancel(b)}>Batal Paksa</button>)}
                             {(b.staffRemarks?.length ?? 0) > 0 && (<span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>📝 {b.staffRemarks!.length}</span>)}
                           </div>
-                          {(() => {
-                            const info = balanceReminderInfo(b, nowTick);
-                            if (!info.awaitingBalance) return null;
-                            const overdue = info.msUntilRemind <= 0;
-                            return (
-                              <div style={{ marginTop: 6, padding: '6px 8px', background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.25)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                  ⏳ Deposit dihantar {info.daysSinceDeposit} hari lalu
-                                </span>
-                                <span style={{ fontSize: '0.7rem', color: overdue ? 'var(--red)' : 'var(--text-muted)', fontWeight: overdue ? 700 : 400 }}>
-                                  📧 Auto-peringat {overdue ? 'tertunggak' : `dalam ${reminderLabel(info)}`}
-                                </span>
-                                <button className="btn btn-sm btn-ghost" disabled={saving} title="Hantar peringatan baki sekarang" style={{ alignSelf: 'flex-start' }} onClick={() => askSendReminder(b)}>Hantar Peringatan</button>
-                              </div>
-                            );
-                          })()}
                           {Object.entries(b.emailDelivery || {}).map(([kind, delivery]) => {
                             const label = kind === 'booking_approved'
                               ? 'Pengesahan'
