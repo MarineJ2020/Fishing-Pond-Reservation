@@ -1,10 +1,21 @@
-import admin from 'firebase-admin';
+import { execFileSync } from 'node:child_process';
 
 const projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || 'kolamkelisayang';
+const accountEmail = process.env.FIREBASE_ACCOUNT || 'hello@kolamkelisayang.com.my';
 const confirmed = process.argv.includes('--confirm');
+const database = '(default)';
 
-admin.initializeApp({ projectId });
-const db = admin.firestore();
+const cliOutput = execFileSync(
+  'cmd.exe',
+  ['/c', 'scripts\\firebase-cli.cmd', 'login:list', '--json'],
+  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+);
+const login = JSON.parse(cliOutput);
+const account = (login.result || []).find((entry) => entry.user?.email === accountEmail) || (login.result || [])[0];
+const token = account?.tokens?.access_token;
+if (!token) throw new Error(`No Firebase CLI access token found. Run firebase login:add for ${accountEmail}.`);
+
+const api = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${database}/documents`;
 
 const chunk = (items, size) => {
   const out = [];
@@ -12,62 +23,126 @@ const chunk = (items, size) => {
   return out;
 };
 
-const deleteRefs = async (refs, label) => {
-  if (!refs.length) return;
-  for (const group of chunk(refs, 400)) {
-    const batch = db.batch();
-    group.forEach((ref) => batch.delete(ref));
-    if (confirmed) await batch.commit();
-  }
-  console.log(`${confirmed ? 'Deleted' : 'Would delete'} ${refs.length} ${label}.`);
+const fieldValue = (value) => {
+  if (!value) return undefined;
+  if ('stringValue' in value) return value.stringValue;
+  if ('integerValue' in value) return Number(value.integerValue);
+  if ('doubleValue' in value) return Number(value.doubleValue);
+  if ('referenceValue' in value) return value.referenceValue;
+  if ('booleanValue' in value) return value.booleanValue;
+  return undefined;
 };
 
-const depositBookings = new Map();
+const docPath = (docName) => docName.split('/documents/')[1] || docName;
+const docId = (docName) => docPath(docName).split('/').pop();
+const docUrl = (path) => `${api}/${path.split('/').map(encodeURIComponent).join('/')}`;
+
+const request = async (url, options = {}) => {
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${options.method || 'GET'} ${url} failed ${res.status}: ${text}`);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+};
+
+const runQuery = async (structuredQuery) => {
+  const rows = await request(`${api}:runQuery`, {
+    method: 'POST',
+    body: JSON.stringify({ structuredQuery }),
+  });
+  return rows.map((row) => row.document).filter(Boolean);
+};
+
+const queryByField = (collectionId, fieldPath, op, value) => runQuery({
+  from: [{ collectionId }],
+  where: {
+    fieldFilter: {
+      field: { fieldPath },
+      op,
+      value,
+    },
+  },
+});
+
+const listCollection = async (path) => {
+  const docs = [];
+  let pageToken = '';
+  do {
+    const url = new URL(docUrl(path));
+    url.searchParams.set('pageSize', '300');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const json = await request(url.toString());
+    docs.push(...(json.documents || []));
+    pageToken = json.nextPageToken || '';
+  } while (pageToken);
+  return docs;
+};
+
+const deleteNames = async (names, label) => {
+  if (!names.length) return;
+  console.log(`${confirmed ? 'Deleting' : 'Would delete'} ${names.length} ${label}.`);
+  if (!confirmed) return;
+  for (const group of chunk(names, 400)) {
+    await request(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/${database}/documents:batchWrite`, {
+      method: 'POST',
+      body: JSON.stringify({ writes: group.map((name) => ({ delete: name })) }),
+    });
+  }
+};
+
+const bookingMap = new Map();
 for (const paymentType of ['deposit', 'baki']) {
-  const snap = await db.collection('bookings').where('paymentType', '==', paymentType).get();
-  snap.docs.forEach((doc) => depositBookings.set(doc.id, doc));
+  const docs = await queryByField('bookings', 'paymentType', 'EQUAL', { stringValue: paymentType });
+  docs.forEach((doc) => bookingMap.set(doc.name, doc));
+}
+const balanceDocs = await queryByField('bookings', 'balanceDue', 'GREATER_THAN', { integerValue: 0 });
+balanceDocs.forEach((doc) => bookingMap.set(doc.name, doc));
+
+const bookingDocs = Array.from(bookingMap.values());
+const bookingIds = new Set(bookingDocs.map((doc) => docId(doc.name)));
+const bookingNames = new Set(bookingDocs.map((doc) => doc.name));
+
+const resultDocs = await listCollection('eventResults');
+const resultNames = resultDocs
+  .filter((doc) => {
+    const raw = fieldValue(doc.fields?.bookingId);
+    return bookingIds.has(raw) || bookingNames.has(raw);
+  })
+  .map((doc) => doc.name);
+
+const paymentNames = [];
+for (const booking of bookingDocs) {
+  const payments = await listCollection(`${docPath(booking.name)}/payments`);
+  payments.forEach((doc) => paymentNames.push(doc.name));
 }
 
-const bookingsWithBalance = await db.collection('bookings').where('balanceDue', '>', 0).get();
-bookingsWithBalance.docs.forEach((doc) => depositBookings.set(doc.id, doc));
-
-const bookingDocs = Array.from(depositBookings.values());
-const bookingIds = new Set(bookingDocs.map((doc) => doc.id));
-const bookingRefs = new Set(bookingDocs.map((doc) => doc.ref.path));
-
-const resultRefs = [];
-const allResults = await db.collection('eventResults').get();
-allResults.docs.forEach((doc) => {
-  const bookingId = doc.data().bookingId;
-  const value = typeof bookingId === 'string' ? bookingId : bookingId?.path || bookingId?.id || '';
-  if (bookingIds.has(value) || bookingRefs.has(value)) resultRefs.push(doc.ref);
-});
-
-const paymentRefs = [];
-for (const bookingDoc of bookingDocs) {
-  const payments = await bookingDoc.ref.collection('payments').get();
-  payments.docs.forEach((doc) => paymentRefs.push(doc.ref));
-}
-
-const claimRefs = [];
-const allClaims = await db.collection('bookingSeatClaims').get();
-allClaims.docs.forEach((doc) => {
-  if (bookingIds.has(doc.data().bookingId)) claimRefs.push(doc.ref);
-});
+const claimDocs = await listCollection('bookingSeatClaims');
+const claimNames = claimDocs
+  .filter((doc) => bookingIds.has(String(fieldValue(doc.fields?.bookingId) || '')))
+  .map((doc) => doc.name);
 
 console.log(`Project: ${projectId}`);
+console.log(`Account: ${account.user?.email || accountEmail}`);
 console.log(`Matched ${bookingDocs.length} old deposit/balance bookings.`);
-console.log(`Matched ${resultRefs.length} related weigh-in records.`);
-console.log(`Matched ${paymentRefs.length} payment subrecords and ${claimRefs.length} seat claims.`);
+console.log(`Matched ${resultNames.length} related weigh-in records.`);
+console.log(`Matched ${paymentNames.length} payment subrecords and ${claimNames.length} seat claims.`);
 
 if (!confirmed) {
   console.log('Dry run only. Re-run with --confirm to delete.');
   process.exit(0);
 }
 
-await deleteRefs(paymentRefs, 'payment subrecords');
-await deleteRefs(resultRefs, 'weigh-in records');
-await deleteRefs(claimRefs, 'seat claims');
-await deleteRefs(bookingDocs.map((doc) => doc.ref), 'bookings');
-
+await deleteNames(paymentNames, 'payment subrecords');
+await deleteNames(resultNames, 'weigh-in records');
+await deleteNames(claimNames, 'seat claims');
+await deleteNames(bookingDocs.map((doc) => doc.name), 'bookings');
 console.log('Cleanup complete.');
