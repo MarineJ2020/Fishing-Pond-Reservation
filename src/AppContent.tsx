@@ -68,7 +68,6 @@ const AppContent: React.FC = () => {
     selectedCompetitionId,
     selectedSeats,
     selectedPondSeats,
-    payType,
     receiptData,
     user,
     adminProxyName,
@@ -80,7 +79,6 @@ const AppContent: React.FC = () => {
     toggleSeat,
     removeSeat,
     setSeats,
-    setPayType,
     setReceiptData,
     setContactPhone,
     setAdminProxyName,
@@ -1242,8 +1240,7 @@ const AppContent: React.FC = () => {
         const hasSeats = selectedSeatCount > 0;
         const currentPricePerPeg = Math.max(0, selectedCompetition?.pricePerPeg ?? bookedPond?.seats?.[0]?.price ?? 0);
         const subtotal = selectedSeatCount * currentPricePerPeg;
-        const payableNow = payType === 'deposit' ? Math.ceil(subtotal * 0.5) : subtotal;
-        const balanceDue = subtotal - payableNow;
+        const payableNow = subtotal;
         const samplePrice = db.ponds[0]?.seats[0]?.price || 0;
         // The details phase is only meaningful once seats are picked; if seats get
         // reset (e.g. pond/competition change) we fall back to the seat phase.
@@ -1458,7 +1455,6 @@ const AppContent: React.FC = () => {
                           selectedSeatLabels={selectedSeatLabels}
                           pricePerPeg={currentPricePerPeg}
                           isSubmitting={bookingSubmitting}
-                          payType={payType}
                           receiptData={receiptData}
                           bankReference={bankReference}
                           settings={db.settings}
@@ -1466,7 +1462,6 @@ const AppContent: React.FC = () => {
                           adminProxyEmail={adminProxyEmail}
                           adminProxyPhone={adminProxyPhone}
                           onContactPhoneChange={setContactPhone}
-                          onSetPayType={setPayType}
                           onHandleReceiptChange={handleReceiptChange}
                           onClearReceipt={() => setReceiptData(null, null)}
                           onBankReferenceChange={setBankReference}
@@ -1495,17 +1490,11 @@ const AppContent: React.FC = () => {
                     <div className="bk-summary-line"><span>Kolam</span><strong>{selectedPancangs.length ? Array.from(new Set(selectedPancangs.map((selection) => selection.pondName))).join(', ') : (bookedPond ? pondDisplayName(bookedPond) : 'Belum dipilih')}</strong></div>
                     <div className="bk-summary-line"><span>Pancang</span><strong>{selectedSeatLabels.length ? selectedSeatLabels.join(', ') : 'Belum dipilih'}</strong></div>
                     <div className="bk-summary-line"><span>Bilangan</span><strong>{selectedSeatCount} pancang</strong></div>
-                    <div className="bk-summary-line"><span>Bayaran</span><strong>{payType === 'deposit' ? 'Deposit 50%' : 'Penuh'}</strong></div>
-                    {payType === 'deposit' && hasSeats && (
-                      <div className="bk-summary-line"><span>Baki Bayaran</span><strong>RM{balanceDue}</strong></div>
-                    )}
+                    <div className="bk-summary-line"><span>Bayaran</span><strong>Penuh</strong></div>
                     <div className="bk-summary-total">
-                      <span>{payType === 'deposit' ? 'Bayar Sekarang' : 'Jumlah'}</span>
+                      <span>Jumlah</span>
                       <strong>RM{payableNow}</strong>
                     </div>
-                    {payType === 'deposit' && hasSeats && (
-                      <div className="bk-summary-note">Baki perlu dibayar sepenuhnya sehari sebelum tarikh pertandingan untuk mengelakkan tempahan dibatalkan dan deposit tidak dipulangkan.</div>
-                    )}
                   </div>
                   <div className="bk-summary-actions">
                     {!detailsPhase ? (
@@ -1724,7 +1713,7 @@ const AppContent: React.FC = () => {
                   <div className="booking-meta">
                     <span>📍 Pancang: {bookingPancangList(b)}</span>
                     <span>💰 Jumlah: RM {b.totalAmount ?? b.amount}</span>
-                    <span>{b.paymentType === 'deposit' ? '💳 Deposit' : '💳 Bayaran Penuh'}</span>
+                    <span>💳 Bayaran Penuh</span>
                     {balanceDue > 0 && (
                       <span style={{ color: 'var(--red)', fontWeight: 700 }}>⚠ Baki RM {balanceDue}</span>
                     )}
@@ -1788,7 +1777,7 @@ const AppContent: React.FC = () => {
                 <>
                   Pertandingan: {lastBooking.competitionName || selectedCompetition?.name || db.comp.name}<br />
                   Pancang: {bookingPancangList(lastBooking)}<br />
-                  Jumlah Bayaran: RM {lastBooking.amount} ({lastBooking.paymentType === 'deposit' ? 'Deposit' : 'Bayaran Penuh'})<br />
+                  Jumlah Bayaran: RM {lastBooking.amount} (Bayaran Penuh)<br />
                   <br />
                   Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami di +6017-9735002.
                 </>

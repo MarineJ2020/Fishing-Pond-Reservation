@@ -5,7 +5,7 @@ import { claimId, receiptPath, receiptUpdate, validateBookingWindow, validateSel
 const now = Date.parse('2026-09-09T04:00:00Z');
 const competition = { eventDate: '2026-09-09T02:00:00Z', endDate: '2026-09-09T10:00:00Z', pricePerPeg: 101 };
 const ponds = [{ id: 1, docId: 'pond-a', name: 'A', open: true, seats: [{ id: 'a1', seatNumber: 1 }, { id: 'a2', seatNumber: 2 }] }];
-const payload = { paymentType: 'deposit', amount: 1, totalAmount: 1, pondSelections: [{ pondId: 1, seats: [1] }] };
+const payload = { paymentType: 'full', amount: 1, totalAmount: 1, pondSelections: [{ pondId: 1, seats: [1] }] };
 
 test('booking windows match open and close boundaries, end fallback and hidden status', () => {
     assert.doesNotThrow(() => validateBookingWindow(competition, now));
@@ -17,11 +17,11 @@ test('booking windows match open and close boundaries, end fallback and hidden s
     assert.doesNotThrow(() => validateBookingWindow({ ...competition, eventDate: new Date(now + 1000) }, now));
 });
 
-test('server price and deposit ignore forged totals', () => {
+test('server price ignores forged totals and rejects deposits', () => {
     const result = validateSelections(payload, competition, ponds);
     assert.equal(result.totalAmount, 101);
-    assert.equal(result.amount, 51);
-    assert.equal(validateSelections({ ...payload, paymentType: 'full' }, competition, ponds).amount, 101);
+    assert.equal(result.amount, 101);
+    assert.throws(() => validateSelections({ ...payload, paymentType: 'deposit' }, competition, ponds));
 });
 
 test('invalid, duplicate, disabled and out-of-cap pegs cannot be booked', () => {

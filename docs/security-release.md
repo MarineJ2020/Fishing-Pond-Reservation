@@ -5,7 +5,7 @@
 - Full booking documents and payment history are readable by their owner, staff and admins. Legacy email and user-reference ownership is supported; email ownership requires a verified email.
 - The public availability endpoint returns only competition, pond, peg and reservation status. It derives occupancy from existing bookings, so no historical backfill is necessary. Public ranking and winner data remain in `eventResults`.
 - New customer and CMS receipt uploads use `fishing-pond-receipts/{uploaderUid}/{fileName}`. Only the uploader can create a new file. Existing files cannot be overwritten or deleted by clients; staff/admins can review them. Old single-folder receipts retain authenticated read access and existing token URLs remain usable.
-- Booking creation validates competition dates, booking windows, configured ponds and peg limits on the server. Prices, deposits, identity, status and references are server controlled. Existing booking windows are preserved: an upcoming event can accept advance bookings when its booking window is already open.
+- Booking creation validates competition dates, booking windows, configured ponds and peg limits on the server. Prices, full-payment amount, identity, status and references are server controlled. Existing booking windows are preserved: an upcoming event can accept advance bookings when its booking window is already open.
 - Transactions check both legacy competition ID encodings and deterministic private peg claims. Cancelled/rejected claims are immediately reusable; a trigger cleans them up without deleting a replacement booking's claim.
 - Customer receipt submission and replacement use transactions. Accepted receipt history, payment totals and booking status cannot be edited through these endpoints or direct client writes.
 - The HTTP API permits public invocation so browsers can reach it. Every write route still verifies a Firebase Auth token and its required role or booking ownership; only seat availability is readable anonymously.
@@ -21,7 +21,7 @@ firebase emulators:exec --only auth,firestore,storage --project demo-kks-securit
 npm run build
 ```
 
-The emulator suite covers owner/staff/admin reads, blocked public and foreign reads, forged creates and financial updates, scoped immutable receipts, old receipt previews, public results, competing submissions, historical seat conflicts, claim release, deposit/balance receipts and rejected-receipt replacement. HTTP tests use actual emulator sign-ins and Storage uploads. Production data is not used.
+The emulator suite covers owner/staff/admin reads, blocked public and foreign reads, forged creates and financial updates, scoped immutable receipts, old receipt previews, public results, competing submissions, historical seat conflicts, claim release, full-payment enforcement and rejected-receipt replacement. HTTP tests use actual emulator sign-ins and Storage uploads. Production data is not used.
 
 The existing repository-wide TypeScript check is not clean (including missing Next imports, OCR module resolution and existing unused declarations). A successful Vite build does not imply those pre-existing errors are fixed.
 

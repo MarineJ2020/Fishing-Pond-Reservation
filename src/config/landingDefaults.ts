@@ -74,7 +74,7 @@ export const LANDING_DEFAULTS = {
     {
       icon: 'fa-solid fa-credit-card',
       title: 'Buat Bayaran',
-      body: 'Bayaran penuh atau deposit 50% melalui transfer bank. Muat naik resit.',
+      body: 'Bayaran penuh melalui transfer bank. Muat naik resit.',
     },
     {
       icon: 'fa-solid fa-circle-check',

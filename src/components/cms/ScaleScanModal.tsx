@@ -77,7 +77,7 @@ interface Props {
   /** Check in the selected booking/seat before allowing weigh-in capture. */
   onCheckInBeforeWeigh?: (booking: ScannedBookingFull, seatNum: number, options?: { settleBalance?: boolean }) => Promise<ScannedBookingFull | void>;
   /** Booking/seat already selected in the parent Results form. */
-  initialSelection?: { booking: ScannedBookingFull; seatNum: number } | null;
+  initialSelection?: { booking: ScannedBookingFull; seatNum?: number } | null;
 }
 
 type Step =
@@ -323,8 +323,8 @@ const ScaleScanModal: React.FC<Props> = ({
       setLiveQrBusy(false);
     } else {
       prewarmOcr();
-      if (initialSelection?.booking && initialSelection.seatNum) {
-        continueAfterSeatResolved(initialSelection.booking, initialSelection.seatNum);
+      if (initialSelection?.booking) {
+        onBookingResolved(initialSelection.booking, initialSelection.seatNum);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -417,12 +417,8 @@ const ScaleScanModal: React.FC<Props> = ({
   const handleCheckInBeforeWeigh = async (settleBalance = false) => {
     if (!pendingCheckIn) return;
     const pay = paymentMeta(pendingCheckIn.booking);
-    if (!pay.complete && !settleBalance) {
+    if (!pay.complete) {
       setError('Tidak boleh check-in peserta kerana bayaran belum selesai.');
-      return;
-    }
-    if (settleBalance && pay.balanceDue <= 0) {
-      setError('Bayaran belum disahkan. Sila semak bayaran dahulu sebelum check-in.');
       return;
     }
     if (!onCheckInBeforeWeigh) {
@@ -907,10 +903,6 @@ const ScaleScanModal: React.FC<Props> = ({
 
           {step === 'check-in-required' && pendingCheckIn && confirmedBooking && (
             <div style={{ padding: '8px 4px' }}>
-              {(() => {
-                const pay = paymentMeta(pendingCheckIn.booking);
-                return (
-                  <>
               <div style={{
                 padding: 14,
                 borderRadius: 8,
@@ -923,22 +915,6 @@ const ScaleScanModal: React.FC<Props> = ({
                 <div style={{ fontWeight: 800, marginBottom: 4 }}>Peserta belum check-in</div>
                 <div style={{ fontSize: 13 }}>
                   Check-in perlu dibuat dahulu sebelum terus imbas timbangan dan rekod berat.
-                </div>
-              </div>
-              <div style={{
-                padding: 12,
-                borderRadius: 8,
-                border: `1px solid ${pay.complete ? '#86efac' : '#fca5a5'}`,
-                background: pay.complete ? '#f0fdf4' : '#fef2f2',
-                color: pay.complete ? '#166534' : '#991b1b',
-                marginBottom: 14,
-              }}>
-                <div style={{ fontWeight: 800, marginBottom: 4 }}>Status Bayaran: {pay.label}</div>
-                <div style={{ fontSize: 13 }}>
-                  {pay.detail}
-                  {!pay.complete && (pay.balanceDue > 0
-                    ? ' — jika peserta bayar tunai sekarang, sahkan bayaran tunai untuk terus check-in.'
-                    : ' — lengkapkan / sahkan bayaran dahulu sebelum check-in.')}
                 </div>
               </div>
               <div style={{
@@ -963,33 +939,15 @@ const ScaleScanModal: React.FC<Props> = ({
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
                 <button className="btn btn-ghost btn-sm" onClick={handleResetIdentify} disabled={checkInBusy}>← Kembali</button>
-                {pay.complete ? (
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => handleCheckInBeforeWeigh(false)}
-                    disabled={checkInBusy}
-                    title="Check-in peserta dan teruskan imbas timbangan"
-                  >
-                    {checkInBusy ? 'Sedang Check-In...' : 'Check-In & Terus Imbas Timbangan'}
-                  </button>
-                ) : pay.balanceDue > 0 ? (
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => handleCheckInBeforeWeigh(true)}
-                    disabled={checkInBusy}
-                    title="Sahkan bayaran tunai baki dan teruskan imbas timbangan"
-                  >
-                    {checkInBusy ? 'Sedang Mengesahkan...' : `Sahkan Tunai RM ${pay.balanceDue} & Check-In`}
-                  </button>
-                ) : (
-                  <button className="btn btn-primary" disabled title="Bayaran belum disahkan">
-                    Check-In & Terus Imbas Timbangan
-                  </button>
-                )}
+                <button
+                  className="btn btn-primary"
+                  onClick={() => handleCheckInBeforeWeigh(false)}
+                  disabled={checkInBusy || !paymentMeta(pendingCheckIn.booking).complete}
+                  title="Check-in peserta dan teruskan imbas timbangan"
+                >
+                  {checkInBusy ? 'Sedang Check-In...' : 'Check-In & Terus Imbas Timbangan'}
+                </button>
               </div>
-                  </>
-                );
-              })()}
             </div>
           )}
 

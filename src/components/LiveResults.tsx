@@ -21,6 +21,11 @@ interface LiveResultsProps {
 
 const fmtLongDate = (iso?: string): string => formatDate(iso, { weekday: true });
 
+const rankWeightForDisplay = (weight: number, decimalPlaces: Settings['ocrDecimalPlaces']): number => {
+  if (!Number.isFinite(weight) || decimalPlaces === undefined || ![0, 1, 2, 3].includes(decimalPlaces)) return weight;
+  return Number(weight.toFixed(decimalPlaces));
+};
+
 // Format a Firestore Timestamp / ISO string into a short Malay time, e.g. "9:45 malam".
 const fmtTime = (value: any): string => {
   if (!value) return '';
@@ -153,8 +158,9 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const scoresRecord: Record<number, Score> = {};
   const timeByPeg: Record<number, string> = {};
   liveScores.forEach(e => {
-    scoresRecord[e.seatNum] = { weight: e.weight, anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName };
-    timeByPeg[e.seatNum] = fmtTime((e as any).updatedAt || (e as any).createdAt);
+    const capturedAt = (e as any).updatedAt || (e as any).createdAt || e.capturedAt;
+    scoresRecord[e.seatNum] = { weight: e.weight, rankWeight: rankWeightForDisplay(e.weight, decimalPlaces), anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName, capturedAt };
+    timeByPeg[e.seatNum] = fmtTime(capturedAt);
   });
 
   const fullLb = getLB(scoresRecord);
@@ -234,7 +240,8 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const selectedPastComp = competitions.find(c => c.id === selectedPastId) || null;
   const pastScoresRecord: Record<number, Score> = {};
   pastScores.forEach(e => {
-    pastScoresRecord[e.seatNum] = { weight: e.weight, anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName };
+    const capturedAt = (e as any).updatedAt || (e as any).createdAt || e.capturedAt;
+    pastScoresRecord[e.seatNum] = { weight: e.weight, rankWeight: rankWeightForDisplay(e.weight, decimalPlaces), anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName, capturedAt };
   });
   const pastLb = getLB(pastScoresRecord);
   const pastWinners = pastLb.slice(0, selectedPastComp?.topN || 10);

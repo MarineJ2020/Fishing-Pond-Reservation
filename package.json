@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test:security": "node --test tests/security/*.test.mjs",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "cleanup:deposit-bookings": "node scripts/delete-deposit-bookings-and-weights.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",

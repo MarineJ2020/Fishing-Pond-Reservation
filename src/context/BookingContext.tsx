@@ -21,7 +21,7 @@ interface BookingContextType {
   selectedPond: number | null;
   selectedSeats: number[];
   selectedPondSeats: Record<number, number[]>;
-  payType: 'full' | 'deposit';
+  payType: 'full';
   receiptData: string | null;
   receiptFile: File | null;
   bookingNotes: string;
@@ -36,7 +36,7 @@ interface BookingContextType {
   toggleSeat: (num: number) => void;
   removeSeat: (pondId: number, num: number) => void;
   setSeats: (seats: number[]) => void;
-  setPayType: (type: 'full' | 'deposit') => void;
+  setPayType: (type: 'full') => void;
   setReceiptData: (data: string | null, file: File | null) => void;
   setBookingNotes: (notes: string) => void;
   setBankReference: (reference: string) => void;
@@ -67,7 +67,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
   const [selectedPond, setSelectedPond] = useState<number | null>(null);
   const [selectedPondSeats, setSelectedPondSeats] = useState<Record<number, number[]>>({});
-  const [payType, setPayType] = useState<'full' | 'deposit'>('full');
+  const [payType, setPayType] = useState<'full'>('full');
   const [receiptData, setReceiptDataState] = useState<string | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [bookingNotes, setBookingNotes] = useState('');
@@ -235,8 +235,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const seatCount = Object.values(selectedPondSeats).reduce((sum, seats) => sum + seats.length, 0);
     const pond = db.ponds.find(p => p.id === selectedPond) || db.ponds[0];
     const tot = seatCount * getCompetitionPricePerPeg(pond);
-    return payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
-  }, [db.ponds, selectedPond, selectedPondSeats, payType, getCompetitionPricePerPeg]);
+    return tot;
+  }, [db.ponds, selectedPond, selectedPondSeats, getCompetitionPricePerPeg]);
 
   const clearBooking = useCallback(() => {
     setSelectedPondSeats({});
@@ -313,7 +313,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const seatIds = pondSelections.flatMap((selection) => selection.seatIds || []);
 
     const tot = totalSelectedSeats * getCompetitionPricePerPeg(pond);
-    const payAmt = payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
+    const payAmt = tot;
 
     const receiptUrl = await uploadReceipt(receiptData, receiptFile);
 
@@ -330,7 +330,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       seatIds,
       seatNumbers: primarySelection.seats,
       pondSelections,
-      paymentType: payType,
+      paymentType: 'full',
       amount: payAmt,
       totalAmount: tot,
       receiptUrl,
@@ -360,7 +360,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       seats: [...primarySelection.seats],
       seatIds,
       pondSelections,
-      paymentType: payType,
+      paymentType: 'full',
       amount: result.amount,
       totalAmount: result.totalAmount,
       receiptData: receiptUrl,
@@ -388,7 +388,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     updateDB(newDb);
     clearBooking();
     return booking;
-  }, [user, selectedPondSeats, receiptData, receiptFile, bankReference, payType, bookingNotes, contactPhone, adminProxyName, adminProxyEmail, adminProxyPhone, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
+  }, [user, selectedPondSeats, receiptData, receiptFile, bankReference, bookingNotes, contactPhone, adminProxyName, adminProxyEmail, adminProxyPhone, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
 
   return (
     <BookingContext.Provider

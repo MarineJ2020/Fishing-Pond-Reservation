@@ -98,6 +98,11 @@ const resultsCompetitionOptions = (competitions: Competition[]): Competition[] =
     })
     .map(({ competition }) => competition);
 
+const scoreRankTime = (entry: ScoreEntry): number => {
+  const ms = new Date(entry.capturedAt || '').getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
 // Blank state for the inline "Tambah Pertandingan" form. Date fields are raw
 // datetime-local input strings, converted to ISO merged into a Competition on save.
 const EMPTY_COMP_CREATE = {
@@ -312,6 +317,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [resultsCompId, setResultsCompId] = useState<string>(comp.id || '');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
   const [scanOpen, setScanOpen] = useState(false);
+  const [scanInitialSelection, setScanInitialSelection] = useState<{ booking: ScannedBookingFull; seatNum?: number } | null>(null);
+  const [scorePegFilter, setScorePegFilter] = useState('');
+  const [scoreNameFilter, setScoreNameFilter] = useState('');
+  const [scorePondFilter, setScorePondFilter] = useState('');
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
   const [prizesEditMode, setPrizesEditMode] = useState(false);
   const [pondMapUploading, setPondMapUploading] = useState(false);
@@ -2012,6 +2021,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setScanOpen(false);
     setSaving(true);
     let savedAnglerName = '';
+    let nextScanBooking: ScannedBookingFull | null = null;
     try {
       // OCR/seven-segment recognition already ran on the original frame in
       // ScaleScanModal; only the stored copy is WebP-compressed here.
@@ -2019,6 +2029,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const photoUrl = await uploadImageToFirebaseStorage(webp, 'fishing-pond-weights', webp.name);
       const sb = scan.scannedBooking;
       savedAnglerName = sb.anglerName;
+      nextScanBooking = lookupBookingFullForScan(sb.bookingId, sb.pondId);
       await saveScoreEntry({
         competitionId: sb.competitionId || resultsCompId,
         bookingId: sb.bookingId,
@@ -2044,7 +2055,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         `Berjaya simpan timbang untuk ${savedAnglerName}. Hantar satu lagi rekod untuk pemancing sama?`,
       );
       if (continueForSameAngler) {
+        setScanInitialSelection(nextScanBooking ? { booking: nextScanBooking } : null);
         setScanOpen(true);
+      } else {
+        setScanInitialSelection(null);
       }
     }
   };
@@ -3238,19 +3252,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{bookingPondList(checkinResult)}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingSeatList(checkinResult)}</span></div>
-                      <div className="checkin-detail-row"><span className="checkin-detail-key">Jumlah Bayaran</span><span className="checkin-detail-val">RM {payment.total}</span></div>
-                      <div className="checkin-detail-row"><span className="checkin-detail-key">Dibayar</span><span className="checkin-detail-val">RM {payment.paid}</span></div>
-                      <div className="checkin-detail-row">
-                        <span className="checkin-detail-key">Status Bayaran</span>
-                        <span className="checkin-detail-val" style={{ color: payment.complete ? 'var(--green-dark, #16a34a)' : 'var(--red, #c0152a)' }}>
-                          {payment.label}{payment.balanceDue > 0 ? ` · Baki RM ${payment.balanceDue}` : ''}
-                        </span>
-                      </div>
-                      {!payment.complete && (
-                        <div className="warning-banner">
-                          ⚠️ Bayaran penuh belum selesai. Jika peserta bayar tunai kepada staf sekarang, guna butang “Sahkan Tunai & Check-In”.
-                        </div>
-                      )}
                       {checkinResult.status !== 'confirmed' && <div className="warning-banner">⚠️ Tempahan ini belum disahkan.</div>}
                       {checkinResult.status === 'confirmed' && (
                         <div style={{ marginTop: 12 }}>
@@ -3277,20 +3278,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   ) : (
                                     <button
                                       className="btn btn-sm btn-green"
-                                      disabled={checkinLoading || (!payment.complete && payment.balanceDue <= 0)}
+                                      disabled={checkinLoading || !payment.complete}
                                       onClick={() => setConfirmDialog({
-                                        title: payment.complete ? 'Check-In Peserta' : 'Sahkan Bayaran Tunai',
-                                        message: payment.complete
-                                          ? `Sahkan check-in untuk ${checkinResult.userName} (${pondDisplayName({ name: entry.pondName, code: entry.pondCode } as any)}, peg ${seatLabel})?`
-                                          : `Peserta masih ada baki RM ${payment.balanceDue}. Sahkan staf telah terima bayaran tunai dan terus check-in ${checkinResult.userName} (${pondDisplayName({ name: entry.pondName, code: entry.pondCode } as any)}, peg ${seatLabel})?`,
-                                        confirmLabel: payment.complete ? 'Check-In' : 'Sahkan Tunai & Check-In',
+                                        title: 'Check-In Peserta',
+                                        message: `Sahkan check-in untuk ${checkinResult.userName} (${pondDisplayName({ name: entry.pondName, code: entry.pondCode } as any)}, peg ${seatLabel})?`,
+                                        confirmLabel: 'Check-In',
                                         tone: 'primary',
-                                        onConfirm: () => handlePerformCheckin(entry, !payment.complete),
+                                        onConfirm: () => handlePerformCheckin(entry, false),
                                       })}
                                     >
                                       {checkinLoading && checkinActiveSeat === entry.key
                                         ? '⏳ Memproses...'
-                                        : payment.complete ? 'Check-In' : `Sahkan Tunai RM ${payment.balanceDue}`}
+                                        : 'Check-In'}
                                     </button>
                                   )}
                                 </div>
@@ -3368,21 +3367,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                     : (
                                       <button
                                         className="btn btn-sm btn-green"
-                                        disabled={checkinLoading || (!payment.complete && payment.balanceDue <= 0)}
-                                        title={payment.complete ? 'Check-in peserta' : payment.balanceDue > 0 ? 'Sahkan bayaran tunai baki dan check-in' : 'Bayaran belum disahkan'}
+                                        disabled={checkinLoading || !payment.complete}
+                                        title="Check-in peserta"
                                         onClick={() => setConfirmDialog({
-                                          title: payment.complete ? 'Check-In Peserta' : 'Sahkan Bayaran Tunai',
-                                          message: payment.complete
-                                            ? `Sahkan check-in untuk ${booking.userName}, pancang ${seatLabel}?`
-                                            : `Peserta masih ada baki RM ${payment.balanceDue}. Sahkan staf telah terima bayaran tunai dan terus check-in ${booking.userName}, pancang ${seatLabel}?`,
-                                          confirmLabel: payment.complete ? 'Check-In' : 'Sahkan Tunai & Check-In',
+                                          title: 'Check-In Peserta',
+                                          message: `Sahkan check-in untuk ${booking.userName}, pancang ${seatLabel}?`,
+                                          confirmLabel: 'Check-In',
                                           tone: 'primary',
-                                          onConfirm: () => performCheckinForBooking(booking, entry, !payment.complete),
+                                          onConfirm: () => performCheckinForBooking(booking, entry, false),
                                         })}
                                       >
                                         {checkinLoading && checkinActiveSeat === entry.key
                                           ? '⏳ Memproses...'
-                                          : payment.complete ? 'Check-In' : `Sahkan Tunai RM ${payment.balanceDue}`}
+                                          : 'Check-In'}
                                       </button>
                                     )}
                                 </td>
@@ -3402,7 +3399,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             </div>
           )}
           {page === 'results' && (() => {
-            const sortedEntries = [...scoreEntries].sort((a, b) => b.weight - a.weight);
+            const scorePondOptions = Array.from(new Set(scoreEntries.map((entry) => entry.pondName).filter(Boolean))).sort();
+            const pegQ = scorePegFilter.trim().toLowerCase();
+            const nameQ = scoreNameFilter.trim().toLowerCase();
+            const filteredEntries = scoreEntries.filter((entry) => {
+              const seatLabel = String(entry.seatNum).toLowerCase();
+              return (!pegQ || seatLabel.includes(pegQ))
+                && (!nameQ || entry.anglerName.toLowerCase().includes(nameQ))
+                && (!scorePondFilter || entry.pondName === scorePondFilter);
+            });
+            const sortedEntries = [...filteredEntries].sort((a, b) => (b.weight - a.weight) || (scoreRankTime(b) - scoreRankTime(a)));
             return (
               <div className="page active">
                 <div className="page-header">
@@ -3422,7 +3428,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       className="form-input"
                       style={{ flex: '1', minWidth: '200px', maxWidth: '360px' }}
                       value={resultsCompId}
-                      onChange={(e) => { setResultsCompId(e.target.value); setScoreEntries([]); }}
+                      onChange={(e) => {
+                        setResultsCompId(e.target.value);
+                        setScoreEntries([]);
+                        setScorePegFilter('');
+                        setScoreNameFilter('');
+                        setScorePondFilter('');
+                      }}
                     >
                       {resultsCompsLiveFirst.map(c => (
                         <option key={c.id || c.name} value={c.id || ''} style={{ color: getCompetitionPhase(c) === 'ended' ? '#9aa3ad' : undefined }}>
@@ -3444,7 +3456,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           type="button"
                           className="btn btn-primary"
                           style={{ width: '100%' }}
-                          onClick={() => setScanOpen(true)}
+                          onClick={() => { setScanInitialSelection(null); setScanOpen(true); }}
                         >📷 Imbas Timbangan</button>
                       </div>
                   </div>
@@ -3452,8 +3464,25 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
                 {/* Live Leaderboard */}
                 <div className="card">
-                  <div className="card-header">
-                    <div className="card-title">Papan Markah Semasa ({scoreEntries.length} rekod)</div>
+                  <div className="card-header" style={{ alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+                    <div className="card-title">Papan Markah Semasa ({filteredEntries.length} / {scoreEntries.length} rekod)</div>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginLeft: 'auto' }}>
+                      <div className="form-group" style={{ minWidth: 140, marginBottom: 0 }}>
+                        <label className="form-label">No. Pancang</label>
+                        <input className="form-input" value={scorePegFilter} onChange={(e) => setScorePegFilter(e.target.value)} placeholder="Cari pancang..." />
+                      </div>
+                      <div className="form-group" style={{ minWidth: 180, marginBottom: 0 }}>
+                        <label className="form-label">Nama Peserta</label>
+                        <input className="form-input" value={scoreNameFilter} onChange={(e) => setScoreNameFilter(e.target.value)} placeholder="Cari nama peserta..." />
+                      </div>
+                      <div className="form-group" style={{ minWidth: 160, marginBottom: 0 }}>
+                        <label className="form-label">Kolam</label>
+                        <select className="form-input" value={scorePondFilter} onChange={(e) => setScorePondFilter(e.target.value)}>
+                          <option value="">Semua kolam</option>
+                          {scorePondOptions.map((pond) => <option key={pond} value={pond}>{pond}</option>)}
+                        </select>
+                      </div>
+                    </div>
                   </div>
                   <div className="card-body">
                     <div className="table-wrap">
@@ -3507,9 +3536,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               )}
                             </tr>
                           ))}
-                          {scoreEntries.length === 0 && (
+                          {sortedEntries.length === 0 && (
                             <tr><td colSpan={isAdmin ? 8 : 7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                              Tiada rekod untuk pertandingan ini
+                              {scoreEntries.length === 0 ? 'Tiada rekod untuk pertandingan ini' : 'Tiada rekod sepadan dengan tapisan'}
                             </td></tr>
                           )}
                         </tbody>
@@ -4671,13 +4700,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       </div>
       <ScaleScanModal
         isOpen={scanOpen}
-        onClose={() => setScanOpen(false)}
+        onClose={() => { setScanInitialSelection(null); setScanOpen(false); }}
         onApprove={handleScanApprove}
         usePreprocess={settingsEdit.ocrUsePreprocess ?? true}
         decimalPlaces={settingsEdit.ocrDecimalPlaces}
         lookupBookingFull={lookupBookingFullForScan}
         listBookings={listBookingsForScan}
         onCheckInBeforeWeigh={handleScanCheckInBeforeWeigh}
+        initialSelection={scanInitialSelection}
       />
 
       <DocPreviewModal url={scorePhotoUrl} title="Bukti Timbangan" onClose={() => setScorePhotoUrl(null)} />

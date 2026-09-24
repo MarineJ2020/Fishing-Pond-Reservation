@@ -88,7 +88,7 @@ export function bookingSelections(booking, ponds, seats) {
 }
 
 export function validateSelections(payload, competition, ponds) {
-    if (!['full', 'deposit'].includes(payload.paymentType)) fail('Jenis bayaran tidak sah.');
+    if (payload.paymentType !== 'full') fail('Tempahan hanya menerima bayaran penuh.');
     const requested = payload.pondSelections;
     if (!Array.isArray(requested) || !requested.length || requested.length > ponds.length) fail('Sila pilih No Pancang.');
     const seen = new Set();
@@ -112,6 +112,6 @@ export function validateSelections(payload, competition, ponds) {
     const price = typeof competition.pricePerPeg === 'number' ? Math.max(0, competition.pricePerPeg) : selected[0].fallbackPrice;
     if (!Number.isFinite(price) || price < 0) fail('Harga pertandingan tidak sah.');
     const totalAmount = Math.round(seen.size * price * 100) / 100;
-    const amount = payload.paymentType === 'deposit' ? Math.ceil(totalAmount * 0.5) : totalAmount;
+    const amount = totalAmount;
     return { selections: selected.map(({ fallbackPrice, ...selection }) => selection), amount, totalAmount };
 }

@@ -11,7 +11,6 @@ interface BookingFormProps {
   selectedSeatLabels: string[];
   pricePerPeg: number;
   isSubmitting?: boolean;
-  payType: 'full' | 'deposit';
   receiptData: string | null;
   bankReference: string;
   settings: Settings;
@@ -19,7 +18,6 @@ interface BookingFormProps {
   adminProxyEmail: string;
   adminProxyPhone: string;
   onContactPhoneChange: (v: string) => void;
-  onSetPayType: (type: 'full' | 'deposit') => void;
   onHandleReceiptChange: (file: File) => void;
   onClearReceipt: () => void;
   onBankReferenceChange: (value: string) => void;
@@ -40,7 +38,6 @@ const BookingForm: React.FC<BookingFormProps> = ({
   selectedSeatLabels,
   pricePerPeg,
   isSubmitting = false,
-  payType,
   receiptData,
   bankReference,
   settings,
@@ -48,7 +45,6 @@ const BookingForm: React.FC<BookingFormProps> = ({
   adminProxyEmail,
   adminProxyPhone,
   onContactPhoneChange,
-  onSetPayType,
   onHandleReceiptChange,
   onClearReceipt,
   onBankReferenceChange,
@@ -84,7 +80,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
 
   const calcAmt = () => {
     const tot = selectedSeats.length * Math.max(0, pricePerPeg || 0);
-    return payType === 'deposit' ? Math.ceil(tot * 0.5) : tot;
+    return tot;
   };
 
   const amt = calcAmt();
@@ -242,29 +238,13 @@ const BookingForm: React.FC<BookingFormProps> = ({
         )}
       </div>
       <hr className="divider" />
-      <label className="form-label">Jenis Bayaran</label>
-      <div className="payment-opts">
-        <div className={`payment-opt ${payType === 'full' ? 'active' : ''}`} onClick={() => onSetPayType('full')}>
-          Penuh<div className="opt-sub">Bayar sepenuhnya</div>
-        </div>
-        <div className={`payment-opt ${payType === 'deposit' ? 'active' : ''}`} onClick={() => onSetPayType('deposit')}>
-          Deposit<div className="opt-sub">50% dahulu</div>
-        </div>
-      </div>
-
       <div className="price-bar" style={{ marginBottom: '16px' }}>
         <div>
           <div className="price-bar-label">Jumlah Bayaran</div>
-          <div className="price-bar-detail">{selectedSeats.length} tempat × {payType === 'deposit' ? '50% deposit' : 'bayaran penuh'}</div>
+          <div className="price-bar-detail">{selectedSeats.length} tempat × bayaran penuh</div>
         </div>
         <div className="price-bar-total">RM {amt}</div>
       </div>
-      {payType === 'deposit' && (
-        <div style={{ marginBottom: '14px', padding: '10px 12px', borderRadius: '9px', border: '1px solid rgba(185,28,28,0.25)', background: 'rgba(185,28,28,0.06)', fontSize: '.78rem', lineHeight: 1.5, color: '#7a2230' }}>
-          <strong style={{ color: 'var(--red)' }}>Nota 1 :</strong> Baki perlu dibayar sepenuhnya sehari sebelum tarikh pertandingan untuk mengelakkan tempahan dibatalkan dan deposit tidak dipulangkan.<br /><br />
-          <strong style={{ color: 'var(--red)' }}>Nota 2 :</strong> Pulangan deposit HANYA dibenarkan bagi pembatalan yang dibuat 3 hari sebelum pertandingan.
-        </div>
-      )}
 
       {(settings.qrBank || settings.qrName || settings.qrAccNo || settings.qrImg) && (
         <div style={{ marginBottom: '16px', padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--border, #e5e0d8)', background: 'var(--cream, #f7f7f5)', display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>

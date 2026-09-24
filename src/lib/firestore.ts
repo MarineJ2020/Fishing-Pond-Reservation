@@ -1178,7 +1178,7 @@ export const getScoresForCompetition = async (competitionId: string): Promise<Sc
       ocrConfidence: typeof data.ocrConfidence === 'number' ? data.ocrConfidence : undefined,
       ocrRawText: data.ocrRawText || undefined,
       capturedBy: data.capturedBy || undefined,
-      capturedAt: normalizeTimestamp(data.createdAt) || normalizeTimestamp(data.updatedAt) || undefined,
+      capturedAt: normalizeTimestamp(data.updatedAt) || normalizeTimestamp(data.createdAt) || undefined,
       deletedAt: normalizeTimestamp(data.deletedAt) || undefined,
       deletedBy: data.deletedBy || undefined,
     });
@@ -1207,7 +1207,7 @@ const buildScoreEntryFromDoc = (d: QueryDocumentSnapshot<DocumentData>): ScoreEn
     ocrUserVerified: typeof data.ocrUserVerified === 'boolean' ? data.ocrUserVerified : undefined,
     scanMethod: data.scanMethod || undefined,
     capturedBy: data.capturedBy || undefined,
-    capturedAt: normalizeTimestamp(data.createdAt) || normalizeTimestamp(data.updatedAt) || undefined,
+    capturedAt: normalizeTimestamp(data.updatedAt) || normalizeTimestamp(data.createdAt) || undefined,
     deletedAt: normalizeTimestamp(data.deletedAt) || undefined,
     deletedBy: data.deletedBy || undefined,
   } as ScoreEntry;

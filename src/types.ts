@@ -130,9 +130,11 @@ export interface Booking {
 
 export interface Score {
   weight: number;
+  rankWeight?: number;
   anglerName: string;
   pondId: number;
   pondName: string;
+  capturedAt?: unknown;
 }
 
 export interface ScoreEntry {

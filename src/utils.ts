@@ -61,11 +61,30 @@ export const rbg = (r: number): string => r === 1 ? 'rgba(255,215,0,.15)' : r ==
 
 export const rbc2 = (r: number): string => r === 1 ? 'gold' : r === 2 ? 'silver' : r === 3 ? '#cd7f32' : 'var(--muted)';
 
-export const getLB = (scores: Record<number, Score>, pondFilter?: number | null): { peg: number; name: string; weight: number; pondId: number }[] => {
-  const e: { peg: number; name: string; weight: number; pondId: number }[] = [];
-  for (const [peg, d] of Object.entries(scores)) {
-    if (d.weight == null || d.weight === '' || isNaN(parseFloat(d.weight.toString()))) continue;
-    e.push({ peg: parseInt(peg), name: d.anglerName || 'Angler #' + peg, weight: parseFloat(d.weight.toString()), pondId: d.pondId });
+const scoreTime = (value?: unknown): number => {
+  if (!value) return 0;
+  if (typeof (value as any)?.toMillis === 'function') {
+    const ms = (value as any).toMillis();
+    return Number.isFinite(ms) ? ms : 0;
   }
-  return e.sort((a, b) => b.weight - a.weight);
+  if (typeof (value as any)?.toDate === 'function') {
+    const ms = (value as any).toDate().getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  if (typeof (value as any)?.seconds === 'number') {
+    return (value as any).seconds * 1000 + Math.floor(((value as any).nanoseconds || 0) / 1000000);
+  }
+  const ms = new Date(value as string | number | Date).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+export const getLB = (scores: Record<number, Score>, pondFilter?: number | null): { peg: number; name: string; weight: number; rankWeight: number; pondId: number; capturedAt?: unknown }[] => {
+  const e: { peg: number; name: string; weight: number; rankWeight: number; pondId: number; capturedAt?: unknown }[] = [];
+  for (const [peg, d] of Object.entries(scores)) {
+    if (d.weight == null || isNaN(parseFloat(d.weight.toString()))) continue;
+    const weight = parseFloat(d.weight.toString());
+    const rankWeight = Number.isFinite(d.rankWeight) ? Number(d.rankWeight) : weight;
+    e.push({ peg: parseInt(peg), name: d.anglerName || 'Angler #' + peg, weight, rankWeight, pondId: d.pondId, capturedAt: d.capturedAt });
+  }
+  return e.sort((a, b) => (b.rankWeight - a.rankWeight) || (scoreTime(b.capturedAt) - scoreTime(a.capturedAt)));
 };

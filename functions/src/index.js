@@ -525,10 +525,12 @@ app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
             .where('competitionId', '==', competitionRef)
             .get();
 
+        const toMillis = (value) => value?.toMillis?.() ?? (value ? new Date(value).getTime() : 0);
         const sorted = allResults.docs
             .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
             .filter((entry) => !entry.deletedAt)
-            .sort((a, b) => (b.totalWeight || 0) - (a.totalWeight || 0));
+            .sort((a, b) => ((b.totalWeight || 0) - (a.totalWeight || 0))
+                || (toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt)));
 
         await Promise.all(sorted.map(async (entry, index) => {
             const ref = adminDb.collection('eventResults').doc(entry.id);
