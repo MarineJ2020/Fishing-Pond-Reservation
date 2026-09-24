@@ -103,6 +103,11 @@ const scoreRankTime = (entry: ScoreEntry): number => {
   return Number.isFinite(ms) ? ms : 0;
 };
 
+const scoreRankWeight = (entry: ScoreEntry, decimalPlaces: Settings['ocrDecimalPlaces']): number => {
+  if (!Number.isFinite(entry.weight) || decimalPlaces === undefined || ![0, 1, 2, 3].includes(decimalPlaces)) return entry.weight;
+  return Number(entry.weight.toFixed(decimalPlaces));
+};
+
 // Blank state for the inline "Tambah Pertandingan" form. Date fields are raw
 // datetime-local input strings, converted to ISO merged into a Competition on save.
 const EMPTY_COMP_CREATE = {
@@ -3403,13 +3408,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const scorePondOptions = Array.from(new Set(scoreEntries.map((entry) => entry.pondName).filter(Boolean))).sort();
             const pegQ = scorePegFilter.trim().toLowerCase();
             const nameQ = scoreNameFilter.trim().toLowerCase();
-            const filteredEntries = scoreEntries.filter((entry) => {
+            const rankedEntries = [...scoreEntries]
+              .sort((a, b) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a)))
+              .map((entry, index) => ({ ...entry, rank: index + 1 }));
+            const sortedEntries = rankedEntries.filter((entry) => {
               const seatLabel = String(entry.seatNum).toLowerCase();
               return (!pegQ || seatLabel.includes(pegQ))
                 && (!nameQ || entry.anglerName.toLowerCase().includes(nameQ))
                 && (!scorePondFilter || entry.pondName === scorePondFilter);
             });
-            const sortedEntries = [...filteredEntries].sort((a, b) => (b.weight - a.weight) || (scoreRankTime(b) - scoreRankTime(a)));
             return (
               <div className="page active">
                 <div className="page-header">
@@ -3466,7 +3473,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 {/* Live Leaderboard */}
                 <div className="card">
                   <div className="card-header" style={{ alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-                    <div className="card-title">Papan Markah Semasa ({filteredEntries.length} / {scoreEntries.length} rekod)</div>
+                    <div className="card-title">Papan Markah Semasa ({sortedEntries.length} / {scoreEntries.length} rekod)</div>
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginLeft: 'auto' }}>
                       <div className="form-group" style={{ minWidth: 140, marginBottom: 0 }}>
                         <label className="form-label">No. Pancang</label>
@@ -3501,11 +3508,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           </tr>
                         </thead>
                         <tbody>
-                          {sortedEntries.map((e, i) => (
+                          {sortedEntries.map((e) => (
                             <tr key={e.id}>
                               <td>
-                                <span className={`result-rank ${i < 3 ? 'rank-' + (i + 1) : ''}`}>
-                                  {i < 3 ? ['🥇', '🥈', '🥉'][i] : '#' + (i + 1)}
+                                <span className={`result-rank ${e.rank <= 3 ? 'rank-' + e.rank : ''}`}>
+                                  {e.rank <= 3 ? ['🥇', '🥈', '🥉'][e.rank - 1] : '#' + e.rank}
                                 </span>
                               </td>
                               <td style={{ whiteSpace: 'nowrap' }}>{formatDate(e.capturedAt, { time: true }) || '-'}</td>

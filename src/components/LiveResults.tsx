@@ -188,17 +188,18 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
       });
     return map;
   }, [displayBookings]);
-  const userPegs = user ? displayBookings.filter(b => (b.userId === user.uid || b.userId === user.email || b.userEmail === user.email) && b.status === 'confirmed').flatMap(b => b.pondSelections?.length ? b.pondSelections.flatMap(s => s.seats) : b.seats) : [];
+  const userSeatEntries = user
+    ? displayBookings
+        .filter(b => (b.userId === user.uid || b.userId === user.email || b.userEmail === user.email) && b.status === 'confirmed')
+        .flatMap(b => (b.pondSelections?.length
+          ? b.pondSelections.flatMap(selection => selection.seats.map(seatNum => ({ pondId: selection.pondId, seatNum })))
+          : (b.seats || []).map(seatNum => ({ pondId: b.pondId, seatNum }))))
+    : [];
+  const isUserEntry = (entry: { peg: number; pondId: number }) =>
+    userSeatEntries.some((seat) => seat.seatNum === entry.peg && seat.pondId === entry.pondId);
+  const userPegs = userSeatEntries.map((entry) => entry.seatNum);
 
-  // User's rank across the FULL leaderboard (not just Top-N), so participants who
-  // placed outside the Top-N can still be pinned at the bottom.
-  let myEntry: { peg: number; name: string; weight: number; pondId: number } | null = null;
-  let myRank = -1; // 1-based
-  userPegs.forEach(peg => {
-    const idx = fullLb.findIndex(e => e.peg === peg);
-    if (idx !== -1 && (myRank === -1 || idx + 1 < myRank)) { myRank = idx + 1; myEntry = fullLb[idx]; }
-  });
-  const isMeInTopN = myRank > 0 && myRank <= topN;
+  const myRankedEntries = rankedLb.filter(isUserEntry);
 
   // ── Past results (ended competitions) ───────────────────────────────────
   const endedComps = useMemo(
@@ -352,7 +353,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               <div className="kl-rank-list">
                 {lb.length ? lb.map((e) => {
                   const rank = e.rank;
-                  const isMe = userPegs.includes(e.peg);
+                  const isMe = isUserEntry(e);
                   const pond = ponds.find(p => p.id === e.pondId);
                   const pondName = pond ? pond.name.split('—')[0].trim() : '';
                   const time = timeByPeg[e.peg];
@@ -385,22 +386,43 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             {/* Pinned my-result bar — always shown for logged-in users. Shows a
                 placeholder until their weight has been recorded. */}
             {user && (
-              <div className={`kl-myresult ${myEntry ? '' : 'empty'}`}>
+              <div className={`kl-myresult ${myRankedEntries.length ? '' : 'empty'}`} style={{ alignItems: myRankedEntries.length > 1 ? 'stretch' : undefined }}>
                 <div className="kl-myresult-user">
                   <small>Keputusan Saya</small>
                   <strong>{user.name}</strong>
                 </div>
-                {myEntry ? (
-                  <>
-                    <div className="kl-mini">
-                      <small>Berat</small>
-                      <strong>{formatWeight((myEntry as { weight: number }).weight, decimalPlaces)}kg</strong>
-                    </div>
-                    <div className="kl-mini rank">
-                      <small>Rank</small>
-                      <strong>#{myRank}</strong>
-                    </div>
-                  </>
+                {myRankedEntries.length ? (
+                  <div style={{ display: 'grid', gap: 8, flex: 1 }}>
+                    {myRankedEntries.map((entry) => {
+                      const pond = ponds.find(p => p.id === entry.pondId);
+                      return (
+                        <div
+                          key={`${entry.pondId}:${entry.peg}`}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto auto',
+                            gap: 10,
+                            alignItems: 'center',
+                            padding: '8px 0',
+                            borderTop: myRankedEntries.length > 1 ? '1px solid rgba(255,255,255,0.12)' : undefined,
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <small>{pond?.code ? formatSeat(pond.code, entry.peg) : `Peg #${entry.peg}`}</small>
+                            <strong style={{ display: 'block' }}>{formatWeight(entry.weight, decimalPlaces)}kg</strong>
+                          </div>
+                          <div className="kl-mini">
+                            <small>Berat</small>
+                            <strong>{formatWeight(entry.weight, decimalPlaces)}kg</strong>
+                          </div>
+                          <div className="kl-mini rank">
+                            <small>Rank</small>
+                            <strong>#{entry.rank}</strong>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <div className="kl-myresult-empty">
                     Berat &amp; kedudukan anda akan dipaparkan di sini sebaik sahaja timbangan direkodkan.

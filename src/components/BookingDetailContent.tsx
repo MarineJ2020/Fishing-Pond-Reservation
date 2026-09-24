@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Booking } from '../types';
+import { Booking, ScoreEntry, Settings } from '../types';
 import { bookingSeatEntries, isBookingSeatCheckedIn, outstandingBalance, receiptBankReference } from '../utils/booking';
 import { formatDate } from '../utils';
 import { buildSeatQrValue } from '../utils/qr';
 import { formatSeat } from '../utils/seatLabel';
+import { formatWeight } from '../utils/weight';
+import { getScoresForCompetition } from '../lib/firestore';
 import BalanceReceiptUpload from './BalanceReceiptUpload';
 import ReceiptReupload from './ReceiptReupload';
 import DocPreviewModal from './DocPreviewModal';
@@ -13,6 +15,7 @@ interface Props {
   booking: Booking;
   competitionEnded?: boolean;
   competitionDateLabel?: string;
+  decimalPlaces?: Settings['ocrDecimalPlaces'];
   /** When true, hides the close button (rendered as a page, not a modal). */
   inPage?: boolean;
   onClose?: () => void;
@@ -36,8 +39,21 @@ const bookingStatusLabel = (status: Booking['status']): string => {
   return 'Menunggu Semakan';
 };
 
-const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, competitionDateLabel, inPage, onClose, onReceiptSubmitted }) => {
+const scoreTime = (entry: ScoreEntry): number => {
+  const ms = new Date(entry.capturedAt || '').getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+const rankWeight = (entry: ScoreEntry, decimalPlaces: Settings['ocrDecimalPlaces']): number => {
+  if (!Number.isFinite(entry.weight) || decimalPlaces === undefined || ![0, 1, 2, 3].includes(decimalPlaces)) return entry.weight;
+  return Number(entry.weight.toFixed(decimalPlaces));
+};
+
+const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, competitionDateLabel, decimalPlaces, inPage, onClose, onReceiptSubmitted }) => {
   const [docPreview, setDocPreview] = useState<string | null>(null);
+  const [docPreviewTitle, setDocPreviewTitle] = useState('Resit Bayaran');
+  const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
+  const [scoresLoading, setScoresLoading] = useState(false);
   const receipts = booking.receipts && booking.receipts.length
     ? booking.receipts
     : (booking.receiptData ? [{
@@ -71,6 +87,33 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
   // and fully-rejected bookings are frozen.
   const reuploadEnabled = !!onReceiptSubmitted && booking.status !== 'rejected';
   const canReuploadReceipt = (status: string) => reuploadEnabled && status !== 'accepted';
+  useEffect(() => {
+    if (!booking.competitionId) {
+      setScoreEntries([]);
+      return;
+    }
+    let cancelled = false;
+    setScoresLoading(true);
+    getScoresForCompetition(booking.competitionId)
+      .then((entries) => {
+        if (!cancelled) setScoreEntries(entries);
+      })
+      .catch(() => {
+        if (!cancelled) setScoreEntries([]);
+      })
+      .finally(() => {
+        if (!cancelled) setScoresLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [booking.competitionId]);
+
+  const rankedScores = [...scoreEntries]
+    .sort((a, b) => (rankWeight(b, decimalPlaces) - rankWeight(a, decimalPlaces)) || (scoreTime(b) - scoreTime(a)))
+    .map((entry, index) => ({ ...entry, rank: index + 1 }));
+  const bookingScores = rankedScores
+    .filter((entry) => entry.bookingId === booking.id)
+    .sort((a, b) => a.seatNum - b.seatNum);
+
   return (
     <div
       style={{
@@ -163,6 +206,57 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
               })}
             </div>
           </>
+        )}
+      </div>
+
+      {/* Weigh-in records */}
+      <div style={{ background: 'var(--cream)', padding: '18px', borderRadius: '14px', border: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700 }}>Lihat Semua Rekod Saya</div>
+            <div style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'var(--font-heading)', color: 'var(--navy)' }}>Rekod Timbangan</div>
+          </div>
+          <span style={{ fontSize: '.76rem', color: 'var(--text-muted)', fontWeight: 700 }}>{bookingScores.length} rekod</span>
+        </div>
+        {scoresLoading ? (
+          <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', padding: '12px 0' }}>Memuatkan rekod timbangan...</div>
+        ) : bookingScores.length ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '620px' }}>
+              <thead>
+                <tr>
+                  {['No Pancang', 'Berat', 'Masa Timbang', 'Kedudukan Terkini', 'Bukti'].map((heading) => (
+                    <th key={heading} style={{ textAlign: heading === 'Berat' ? 'right' : 'left', fontSize: '.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.8px', padding: '10px 8px', borderBottom: '1px solid var(--line)' }}>{heading}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bookingScores.map((entry) => {
+                  const seatEntry = seatEntries.find((seat) => seat.seatNum === entry.seatNum && seat.pondId === entry.pondId);
+                  return (
+                    <tr key={entry.id || `${entry.pondId}-${entry.seatNum}`}>
+                      <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>{formatSeat(seatEntry?.pondCode, entry.seatNum)}</td>
+                      <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right', fontWeight: 800 }}>{formatWeight(entry.weight, decimalPlaces)} kg</td>
+                      <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', color: 'var(--text-muted)' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}</td>
+                      <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>#{entry.rank}</td>
+                      <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)' }}>
+                        {entry.photoUrl ? (
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => { setDocPreviewTitle('Bukti Timbangan'); setDocPreview(entry.photoUrl!); }}
+                          >
+                            Lihat Bukti
+                          </button>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', padding: '12px 0' }}>Belum ada rekod timbangan untuk tempahan ini.</div>
         )}
       </div>
 
@@ -266,7 +360,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                         )}
                         <button
                           className="btn btn-ghost btn-sm"
-                          onClick={() => setDocPreview(r.url)}
+                          onClick={() => { setDocPreviewTitle('Resit Bayaran'); setDocPreview(r.url); }}
                           style={{ marginTop: '10px', width: '100%', justifyContent: 'center' }}
                         >
                           {isPdf ? 'Buka PDF Penuh (semua halaman)' : 'Lihat Resit Penuh'}
@@ -312,7 +406,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
         </button>
       )}
 
-      <DocPreviewModal url={docPreview} title="Resit Bayaran" onClose={() => setDocPreview(null)} />
+      <DocPreviewModal url={docPreview} title={docPreviewTitle} onClose={() => setDocPreview(null)} />
     </div>
   );
 };

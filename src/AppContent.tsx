@@ -1858,6 +1858,7 @@ const AppContent: React.FC = () => {
                 booking={booking}
                 competitionEnded={isCompetitionEnded(bookingCompetitionFor(booking))}
                 competitionDateLabel={bookingCompetitionDateLabel(booking)}
+                decimalPlaces={db.settings.ocrDecimalPlaces}
                 inPage
                 onReceiptSubmitted={reloadDB}
               />
