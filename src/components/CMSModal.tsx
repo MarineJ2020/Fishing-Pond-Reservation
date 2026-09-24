@@ -452,7 +452,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const available = competitions.length ? competitions : (comp.id ? [comp] : []);
     const options = resultsCompetitionOptions(available);
     const current = options.find((competition) => competition.id === resultsCompId);
-    const fallback = current || options[0];
+    const live = options.find((competition) => getCompetitionPhase(competition) === 'live');
+    const fallback = current && (!live || getCompetitionPhase(current) === 'live') ? current : (live || options[0]);
     setResultsCompId(fallback?.id || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, competitions, comp]);
