@@ -4,6 +4,14 @@ import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../u
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
 import { parseQrPayload, decodeQr, openQrCameraStream } from '../../utils/qr';
 
+export interface ScannedSeatEntry {
+  key: string;
+  pondId: number;
+  pondName: string;
+  pondCode?: string;
+  seatNum: number;
+}
+
 /**
  * A booking as the CMS sees it during the weigh-in scan flow. Carries the
  * full seat list so the modal can prompt the staff to pick the correct peg
@@ -19,6 +27,7 @@ export interface ScannedBookingFull {
   pondCode?: string;
   competitionId?: string;
   competitionName?: string;
+  seatEntries?: ScannedSeatEntry[];
   seats: number[];
   amount?: number;
   paidAmount?: number;
@@ -192,25 +201,58 @@ async function decodeQrFromFile(file: Blob): Promise<string | null> {
   return null;
 }
 
-function toLite(full: ScannedBookingFull, seatNum: number): ScannedBookingLite {
-  return {
-    bookingId: full.bookingId,
-    bookingRef: full.bookingRef,
-    userId: full.userId,
-    anglerName: full.anglerName,
+function seatChoices(full: ScannedBookingFull): ScannedSeatEntry[] {
+  if (full.seatEntries?.length) return full.seatEntries;
+  return (full.seats || []).map((seatNum) => ({
+    key: `${full.pondId}:${seatNum}`,
     pondId: full.pondId,
     pondName: full.pondName,
     pondCode: full.pondCode,
     seatNum,
-    competitionId: full.competitionId,
-    competitionName: full.competitionName,
+  }));
+}
+
+function findSeatChoice(full: ScannedBookingFull, seatNum: number, pondId?: number): ScannedSeatEntry | null {
+  const seat = Number(seatNum);
+  if (!Number.isFinite(seat)) return null;
+  const choices = seatChoices(full);
+  return choices.find((entry) => entry.seatNum === seat && (pondId == null || entry.pondId === pondId))
+    || choices.find((entry) => entry.seatNum === seat)
+    || null;
+}
+
+function selectSeat(full: ScannedBookingFull, seatNum: number, pondId?: number): ScannedBookingFull {
+  const choice = findSeatChoice(full, seatNum, pondId);
+  if (!choice) return full;
+  return {
+    ...full,
+    pondId: choice.pondId,
+    pondName: choice.pondName,
+    pondCode: choice.pondCode,
   };
 }
 
-function isScannedSeatCheckedIn(full: ScannedBookingFull, seatNum: number): boolean {
+function toLite(full: ScannedBookingFull, seatNum: number, pondId?: number): ScannedBookingLite {
+  const selected = selectSeat(full, seatNum, pondId);
+  return {
+    bookingId: selected.bookingId,
+    bookingRef: selected.bookingRef,
+    userId: selected.userId,
+    anglerName: selected.anglerName,
+    pondId: selected.pondId,
+    pondName: selected.pondName,
+    pondCode: selected.pondCode,
+    seatNum,
+    competitionId: selected.competitionId,
+    competitionName: selected.competitionName,
+  };
+}
+
+function isScannedSeatCheckedIn(full: ScannedBookingFull, seatNum: number, pondId?: number): boolean {
   const seat = Number(seatNum);
   if (!Number.isFinite(seat)) return false;
-  const seatKey = `${full.pondId}:${seat}`;
+  const selected = selectSeat(full, seat, pondId);
+  const seatKey = `${selected.pondId}:${seat}`;
   if (full.checkedInSeatKeys?.length) return full.checkedInSeatKeys.includes(seatKey);
   return !!full.checkedInSeats?.includes(seat);
 }
@@ -370,9 +412,10 @@ const ScaleScanModal: React.FC<Props> = ({
       || b.bookingId.toLowerCase().includes(q)
       || (b.bookingRef && b.bookingRef.toLowerCase().includes(q))
       || b.pondName.toLowerCase().includes(q)
-      || b.seats.some((seat) =>
-        String(seat).includes(q)
-        || formatSeat(b.pondCode, seat).toLowerCase().includes(q)),
+      || seatChoices(b).some((entry) =>
+        entry.pondName.toLowerCase().includes(q)
+        || String(entry.seatNum).includes(q)
+        || formatSeat(entry.pondCode, entry.seatNum).toLowerCase().includes(q)),
     );
   }, [bookingsForPicker, manualSearch]);
 
@@ -382,35 +425,37 @@ const ScaleScanModal: React.FC<Props> = ({
    *   • no seat known and the booking has 2+ pegs → ask staff to pick one.
    *   • single-peg booking → that's the only choice, no need to ask.
    */
-  const continueAfterSeatResolved = (full: ScannedBookingFull, seatNum: number) => {
-    const lite = toLite(full, seatNum);
+  const continueAfterSeatResolved = (full: ScannedBookingFull, seatNum: number, pondId?: number) => {
+    const selectedBooking = selectSeat(full, seatNum, pondId);
+    const lite = toLite(selectedBooking, seatNum, selectedBooking.pondId);
     setConfirmedBooking(lite);
-    if (isScannedSeatCheckedIn(full, seatNum)) {
+    if (isScannedSeatCheckedIn(selectedBooking, seatNum, selectedBooking.pondId)) {
       setPendingCheckIn(null);
       setStep('capture');
       return;
     }
-    setPendingCheckIn({ booking: full, seatNum });
+    setPendingCheckIn({ booking: selectedBooking, seatNum });
     setStep('check-in-required');
   };
 
-  const onBookingResolved = (full: ScannedBookingFull, seatNum?: number) => {
+  const onBookingResolved = (full: ScannedBookingFull, seatNum?: number, pondId?: number) => {
     setError(null);
     if (seatNum != null) {
-      continueAfterSeatResolved(full, seatNum);
+      continueAfterSeatResolved(full, seatNum, pondId);
       return;
     }
-    if (full.seats.length > 1) {
+    if (seatChoices(full).length > 1) {
       setPendingFullBooking(full);
       setStep('pick-seat');
       return;
     }
-    continueAfterSeatResolved(full, full.seats[0] ?? 0);
+    const onlySeat = seatChoices(full)[0];
+    continueAfterSeatResolved(full, onlySeat?.seatNum ?? 0, onlySeat?.pondId);
   };
 
-  const handleSeatPicked = (seatNum: number) => {
+  const handleSeatPicked = (entry: ScannedSeatEntry) => {
     if (!pendingFullBooking) return;
-    continueAfterSeatResolved(pendingFullBooking, seatNum);
+    continueAfterSeatResolved(pendingFullBooking, entry.seatNum, entry.pondId);
     setPendingFullBooking(null);
   };
 
@@ -430,7 +475,7 @@ const ScaleScanModal: React.FC<Props> = ({
     try {
       const { booking, seatNum } = pendingCheckIn;
       const updated = await onCheckInBeforeWeigh(booking, seatNum, { settleBalance });
-      continueAfterSeatResolved(updated || booking, seatNum);
+      continueAfterSeatResolved(updated || booking, seatNum, booking.pondId);
     } catch (err: any) {
       console.error('Check-in before weigh failed:', err);
       setError(err?.message || 'Check-in gagal. Sila cuba lagi.');
@@ -494,7 +539,7 @@ const ScaleScanModal: React.FC<Props> = ({
         // Valid booking QR → auto-close the camera and proceed.
         lastInvalidQrRef.current = null;
         stopLiveQrScan();
-        onBookingResolved(booking, parsed?.seatNum);
+        onBookingResolved(booking, parsed?.seatNum, parsed?.pondId);
         return;
       }
       // A QR was decoded but it isn't a booking for this competition. Surface a
@@ -553,7 +598,7 @@ const ScaleScanModal: React.FC<Props> = ({
         setStep('identify');
         return;
       }
-      onBookingResolved(booking, parsed.seatNum);
+      onBookingResolved(booking, parsed.seatNum, parsed.pondId);
     } catch (err: any) {
       console.error(err);
       setError(err?.message || 'Imbasan QR gagal. Sila cuba lagi.');
@@ -845,9 +890,15 @@ const ScaleScanModal: React.FC<Props> = ({
                       : 'Tiada padanan untuk carian.'}
                   </div>
                 ) : (
-                  filteredBookings.map((b) => (
+                  filteredBookings.map((b) => {
+                    const groupedSeats = Array.from(seatChoices(b).reduce((map, entry) => {
+                      const key = `${entry.pondId}:${entry.pondName}:${entry.pondCode || ''}`;
+                      map.set(key, [...(map.get(key) || []), entry]);
+                      return map;
+                    }, new Map<string, ScannedSeatEntry[]>()).values());
+                    return (
                     <div
-                      key={`${b.bookingId}:${b.pondId}`}
+                      key={b.bookingId}
                       onClick={() => handleManualPick(b)}
                       style={{
                         padding: '12px 14px',
@@ -862,14 +913,18 @@ const ScaleScanModal: React.FC<Props> = ({
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>{b.anglerName}</div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                          {b.pondName} · {b.pondCode ? formatSeatList(b.pondCode, b.seats) : `Peg ${b.seats.map((s) => `#${s}`).join(', ')}`}
+                          {groupedSeats.map((entries) => {
+                            const first = entries[0];
+                            return `${first.pondName} · ${first.pondCode ? formatSeatList(first.pondCode, entries.map((entry) => entry.seatNum)) : `Peg ${entries.map((entry) => `#${entry.seatNum}`).join(', ')}`}`;
+                          }).join('  |  ')}
                         </div>
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
                         {b.bookingRef || b.bookingId.slice(0, 8)}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -883,15 +938,16 @@ const ScaleScanModal: React.FC<Props> = ({
                 <strong>{pendingFullBooking.anglerName}</strong> · {pendingFullBooking.pondName} — pilih peg yang sedang ditimbang.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 10 }}>
-                {pendingFullBooking.seats.map((seat) => (
+                {seatChoices(pendingFullBooking).map((entry) => (
                   <button
-                    key={seat}
+                    key={entry.key}
                     type="button"
                     className="btn"
-                    onClick={() => handleSeatPicked(seat)}
-                    style={{ padding: '14px 8px', fontWeight: 700 }}
+                    onClick={() => handleSeatPicked(entry)}
+                    style={{ padding: '12px 8px', fontWeight: 700, flexDirection: 'column', gap: 3 }}
                   >
-                    {pendingFullBooking.pondCode ? formatSeat(pendingFullBooking.pondCode, seat) : `#${seat}`}
+                    <span>{entry.pondCode ? formatSeat(entry.pondCode, entry.seatNum) : `#${entry.seatNum}`}</span>
+                    <small style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{entry.pondName}</small>
                   </button>
                 ))}
               </div>

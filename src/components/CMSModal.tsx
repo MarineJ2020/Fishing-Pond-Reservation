@@ -50,7 +50,7 @@ import { formatWeight } from '../utils/weight';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { prizeRange, formatDate } from '../utils';
-import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull } from './cms/ScaleScanModal';
+import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull, ScannedSeatEntry } from './cms/ScaleScanModal';
 import DocPreviewModal from './DocPreviewModal';
 import ReceiptReviewModal from './cms/ReceiptReviewModal';
 import AdminInstructions from './cms/AdminInstructions';
@@ -511,19 +511,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   useEffect(() => {
     if (page !== 'prizes') return;
     const target = compList.find(c => c.id === prizesCompId) || compList[0];
-    if (target) {
+    if (target && !prizesEditMode) {
       setCompEdit({ ...target });
-      setPrizesEditMode(false);
     }
-  }, [prizesCompId, page]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [prizesCompId, page, compList, prizesEditMode]);
 
-  // Hadiah & Ranking hides ended competitions — if the selected one just ended
-  // (or isn't set), fall back to the first non-ended competition instead.
+  // Keep the prize selector on a real competition. Ended competitions remain
+  // selectable so admins can audit/fix prize presets without the selector
+  // jumping to a different event after save/reload.
   useEffect(() => {
     if (page !== 'prizes') return;
     const current = compList.find(c => c.id === prizesCompId);
-    if (current && getCompetitionPhase(current) !== 'ended') return;
-    const fallback = compList.find(c => getCompetitionPhase(c) !== 'ended');
+    if (current) return;
+    const fallback = compList[0];
     if (fallback?.id) setPrizesCompId(fallback.id);
   }, [page, prizesCompId, compList]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -730,7 +730,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         const [from, to] = prizeRange(p);
         return { ...p, rank: from, rankFrom: from, rankTo: to };
       });
-      await updateCompetitionFirestore(compEdit.id, { ...compEdit, prizes: normalizedPrizes } as any);
+      const updatedComp = { ...compEdit, prizes: normalizedPrizes };
+      await updateCompetitionFirestore(compEdit.id, updatedComp as any);
+      setCompEdit(updatedComp);
+      setCompList((list) => list.map((competition) => competition.id === updatedComp.id ? { ...competition, ...updatedComp } : competition));
+      setPrizesEditMode(false);
       await reloadDB();
       await logAuditEvent({
         action: 'prize.save', actionLabel: 'Kemaskini Hadiah', entityType: 'prize',
@@ -1885,27 +1889,33 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
    * competition so staff can't accidentally score a booking for a different
    * event.
    */
-  const toScannedBookingFull = (bookingId: string, pondId?: number): ScannedBookingFull | null => {
-    const booking = bookings.find((b) => b.id === bookingId || b.bookingRef === bookingId);
-    if (!booking) return null;
-    const compId = booking.competitionId || '';
-    if (resultsCompId && compId && compId !== resultsCompId) return null;
-    if (!booking.seats.length) return null;
-    const seatEntries = bookingSeatEntries(booking);
-    const scopedEntries = pondId != null ? seatEntries.filter((entry) => entry.pondId === pondId) : [];
-    const entries = scopedEntries.length ? scopedEntries : seatEntries.filter((entry) => entry.pondId === booking.pondId);
-    const firstEntry = entries[0];
-    if (!firstEntry) return null;
-    const pond = ponds.find((p) => p.id === firstEntry.pondId);
+  const toScanSeatEntries = (booking: Booking): ScannedSeatEntry[] => bookingSeatEntries(booking).map((entry) => {
+    const pond = ponds.find((p) => p.id === entry.pondId);
+    return {
+      key: entry.key,
+      pondId: entry.pondId,
+      pondName: pond?.name || entry.pondName,
+      pondCode: pond?.code || entry.pondCode,
+      seatNum: entry.seatNum,
+    };
+  });
+
+  const bookingToScannedFull = (booking: Booking, preferredPondId?: number): ScannedBookingFull | null => {
+    const entries = toScanSeatEntries(booking);
+    const preferred = preferredPondId != null
+      ? entries.find((entry) => entry.pondId === preferredPondId) || entries[0]
+      : entries.find((entry) => entry.pondId === booking.pondId) || entries[0];
+    if (!preferred) return null;
     return {
       bookingId: booking.id,
       bookingRef: booking.bookingRef,
       userId: booking.userId,
       anglerName: booking.userName,
-      pondId: firstEntry.pondId,
-      pondName: pond?.name || firstEntry.pondName,
-      pondCode: pond?.code || firstEntry.pondCode,
-      seats: entries.map((entry) => entry.seatNum).sort((a, b) => a - b),
+      pondId: preferred.pondId,
+      pondName: preferred.pondName,
+      pondCode: preferred.pondCode,
+      seatEntries: entries,
+      seats: entries.map((entry) => entry.seatNum),
       amount: booking.amount,
       paidAmount: booking.paidAmount,
       totalAmount: booking.totalAmount,
@@ -1919,6 +1929,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     };
   };
 
+  const toScannedBookingFull = (bookingId: string, pondId?: number): ScannedBookingFull | null => {
+    const booking = bookings.find((b) => b.id === bookingId || b.bookingRef === bookingId);
+    if (!booking) return null;
+    const compId = booking.competitionId || '';
+    if (resultsCompId && compId && compId !== resultsCompId) return null;
+    if (!bookingSeatEntries(booking).length) return null;
+    return bookingToScannedFull(booking, pondId);
+  };
+
   const lookupBookingFullForScan = (bookingId: string, pondId?: number) => toScannedBookingFull(bookingId, pondId);
 
   /**
@@ -1928,45 +1947,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const listBookingsForScan = (): ScannedBookingFull[] => {
     return bookings
       .filter((b) => {
-        if (!b.seats.length) return false;
+        if (!bookingSeatEntries(b).length) return false;
         // Exclude rejected bookings — they can't legitimately compete.
         if (b.status === 'rejected') return false;
         const compId = b.competitionId || '';
         if (resultsCompId && compId && compId !== resultsCompId) return false;
         return true;
       })
-      .flatMap((b): ScannedBookingFull[] => {
-        const grouped = new Map<number, BookingSeatEntry[]>();
-        bookingSeatEntries(b).forEach((entry) => {
-          const existing = grouped.get(entry.pondId) || [];
-          existing.push(entry);
-          grouped.set(entry.pondId, existing);
-        });
-        return Array.from(grouped.values()).map((entries) => {
-          const firstEntry = entries[0];
-          const pond = ponds.find((p) => p.id === firstEntry.pondId);
-          return {
-            bookingId: b.id,
-            bookingRef: b.bookingRef,
-            userId: b.userId,
-            anglerName: b.userName,
-            pondId: firstEntry.pondId,
-            pondName: pond?.name || firstEntry.pondName,
-            pondCode: pond?.code || firstEntry.pondCode,
-            seats: entries.map((entry) => entry.seatNum).sort((x, y) => x - y),
-            amount: b.amount,
-            paidAmount: b.paidAmount,
-            totalAmount: b.totalAmount,
-            balanceDue: b.balanceDue,
-            paymentStatus: (b as any).paymentStatus,
-            balanceStage: deriveBalanceStage(b),
-            checkedInSeats: b.checkedInSeats,
-            checkedInSeatKeys: b.checkedInSeatKeys,
-            competitionId: b.competitionId,
-            competitionName: b.competitionName,
-          };
-        });
-      })
+      .map((booking) => bookingToScannedFull(booking))
+      .filter((booking): booking is ScannedBookingFull => Boolean(booking))
       .sort((a, b) => a.anglerName.localeCompare(b.anglerName));
   };
 
@@ -1988,22 +1977,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       pondId: booking.pondId,
       settleBalance,
     });
-    await reloadDB();
+    reloadDB().catch((err) => console.error('Failed to refresh DB after check-in:', err));
     if (settleBalance) {
-      await logAuditEvent({
+      logAuditEvent({
         action: 'booking.manual_payment_validation', actionLabel: 'Validasi Bayaran Tunai', entityType: 'booking',
         entityId: booking.bookingId,
         entityLabel: `${booking.bookingRef || booking.bookingId} · peg ${formatSeat(booking.pondCode, seatNum)}`,
         details: `Staf sahkan bayaran tunai RM ${balanceDue} semasa imbas timbangan.`,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
-      });
+      }).catch((err) => console.error('Failed to log manual payment validation:', err));
     }
-    await logAuditEvent({
+    logAuditEvent({
       action: 'booking.checkin', actionLabel: 'Check-In Peserta', entityType: 'booking',
       entityId: booking.bookingId,
       entityLabel: `${booking.bookingRef || booking.bookingId} · peg ${formatSeat(booking.pondCode, seatNum)}`,
       actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
-    });
+    }).catch((err) => console.error('Failed to log check-in:', err));
     return {
       ...booking,
       checkedInSeats: result.checkedInSeats || booking.checkedInSeats,
@@ -2173,9 +2162,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }[getCompetitionPhase(c)];
     return `${c.name} (${phaseLabel})`;
   };
-  // Hadiah & Ranking only deals with competitions that haven't ended yet.
-  const compsNotEnded = competitionsForCms.filter(c => getCompetitionPhase(c) !== 'ended');
-
   // Rekod Timbangan: default to the live competition, or (since an
   // upcoming one has no weigh-ins yet) the most recently *ended* one instead.
   useEffect(() => {
@@ -2438,7 +2424,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   }) : '';
   const settingsDirty = JSON.stringify(settingsEdit) !== JSON.stringify(settings);
   const prizeSource = competitionsForCms.find(c => c.id === prizesCompId);
-  const prizesDirty = page === 'prizes' && !!prizeSource
+  const prizesDirty = page === 'prizes' && prizesEditMode && !!prizeSource
     && JSON.stringify(prizeSource.prizes || []) !== JSON.stringify(compEdit.prizes || []);
   const pageDirty =
     ((page === 'contact-settings' || page === 'landing-content' || page === 'seo') && settingsDirty)
@@ -2881,11 +2867,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               const from = maxTo + 1;
               setPrizes([...prizes, { rank: from, rankFrom: from, rankTo: from, label: 'Hadiah ' + from, prize: '' }]);
             };
-            // Sources to duplicate a full prize table FROM: any other non-ended
+            // Sources to duplicate a full prize table FROM: any other
             // competition that already has prizes set up.
-            const duplicateSources = compsNotEnded.filter(c => (c.id || '') !== prizesCompId && (c.prizes || []).length > 0);
+            const duplicateSources = competitionsForCms.filter(c => (c.id || '') !== prizesCompId && (c.prizes || []).length > 0);
             const duplicateFromCompetition = (srcId: string) => {
-              const src = compsNotEnded.find(c => (c.id || '') === srcId);
+              const src = competitionsForCms.find(c => (c.id || '') === srcId);
               if (!src) return;
               setPrizes((src.prizes || []).map(p => ({ ...p })));
             };
@@ -2909,9 +2895,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       value={prizesCompId}
                       onChange={e => setPrizesCompId(e.target.value)}
                     >
-                      {compsNotEnded.map(c => (
+                      {competitionsForCms.map(c => (
                         <option key={c.id || c.name} value={c.id || ''}>
-                          {c.name}
+                          {compOptionLabel(c)}
                         </option>
                       ))}
                     </select>
@@ -3005,7 +2991,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                   {prizesEditMode && (
                     <div className="form-actions" style={{ marginTop: '1rem' }}>
-                      <button className="btn btn-primary" disabled={saving} onClick={async () => { await handlePrizeSave(); setPrizesEditMode(false); }}>
+                      <button className="btn btn-primary" disabled={saving} onClick={handlePrizeSave}>
                         {saving ? 'Menyimpan...' : 'Simpan'}
                       </button>
                     </div>
