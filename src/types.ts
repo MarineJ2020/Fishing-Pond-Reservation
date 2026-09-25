@@ -162,6 +162,18 @@ export interface ScoreEntry {
   deletedBy?: string;
 }
 
+export interface PrizeClaim {
+  id?: string;
+  competitionId: string;
+  rank: number;
+  scoreEntryId?: string;
+  bookingId?: string;
+  status: 'claimed' | 'pending';
+  claimedAt?: string;
+  claimedBy?: string;
+  updatedAt?: string;
+}
+
 export interface AuditEntry {
   id?: string;
   /** Machine key, e.g. 'booking.reject', 'competition.delete'. */

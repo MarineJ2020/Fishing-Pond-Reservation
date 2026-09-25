@@ -3,7 +3,7 @@ import { receiptUploadFolder } from '../utils/receiptStorage';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { useSearchParams } from 'react-router-dom';
-import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry, LandingSectionKey } from '../types';
+import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry, LandingSectionKey, PrizeClaim } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
 import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
@@ -18,7 +18,9 @@ import {
   updateCompetition as updateCompetitionFirestore,
   updateSettings as updateSettingsFirestore,
   getScoresForCompetition,
+  getPrizeClaimsForCompetition,
   saveScoreEntry,
+  savePrizeClaimStatus,
   deleteScoreEntry,
   approveDepositWithProofDirect,
   getUsersPage,
@@ -74,10 +76,10 @@ function pondCodeError(code: string | undefined, ponds: Pond[], excludeDocId?: s
   return null;
 }
 
-type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'email-log' | 'audit-log';
+type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'prize-records' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'email-log' | 'audit-log';
 
-const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'contact-settings', 'landing-content', 'seo', 'users', 'email-log', 'audit-log'];
-const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins'];
+const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'prize-records', 'contact-settings', 'landing-content', 'seo', 'users', 'email-log', 'audit-log'];
+const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins', 'prize-records'];
 const ALL_BOOKING_STATUS_OPTIONS = [
   ['all', 'Semua'],
   ['confirmed', 'Disahkan'],
@@ -321,6 +323,25 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [scorePegFilter, setScorePegFilter] = useState('');
   const [scoreNameFilter, setScoreNameFilter] = useState('');
   const [scorePondFilter, setScorePondFilter] = useState('');
+  const [prizeRecordCompId, setPrizeRecordCompId] = useState<string>(comp.id || '');
+  const [prizeRecordScores, setPrizeRecordScores] = useState<ScoreEntry[]>([]);
+  const [prizeClaims, setPrizeClaims] = useState<PrizeClaim[]>([]);
+  const [prizeClaimSaving, setPrizeClaimSaving] = useState<string | null>(null);
+  const [prizeRecordSearch, setPrizeRecordSearch] = useState('');
+  const [prizeRecordPondFilter, setPrizeRecordPondFilter] = useState('');
+  const [prizeRecordStatus, setPrizeRecordStatus] = useState<'all' | 'claimed' | 'pending'>('all');
+  const [prizeScanBooking, setPrizeScanBooking] = useState<Booking | null>(null);
+  const [prizeScanRaw, setPrizeScanRaw] = useState<string | null>(null);
+  const [prizeScanSeat, setPrizeScanSeat] = useState<number | null>(null);
+  const [prizeScanPondId, setPrizeScanPondId] = useState<number | null>(null);
+  const [prizeScanLiveOn, setPrizeScanLiveOn] = useState(false);
+  const [prizeScanLiveBusy, setPrizeScanLiveBusy] = useState(false);
+  const prizeScanActiveRef = useRef(false);
+  const prizeScanVideoRef = useRef<HTMLVideoElement | null>(null);
+  const prizeScanCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const prizeScanStreamRef = useRef<MediaStream | null>(null);
+  const prizeScanRafRef = useRef<number | null>(null);
+  const prizeScanStartedAtRef = useRef(0);
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
   const [prizesEditMode, setPrizesEditMode] = useState(false);
   const [pondMapUploading, setPondMapUploading] = useState(false);
@@ -448,6 +469,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   }, [isOpen, page]);
 
   useEffect(() => {
+    if (isOpen && page === 'prize-records') return;
+    if (prizeScanRafRef.current) {
+      window.cancelAnimationFrame(prizeScanRafRef.current);
+      prizeScanRafRef.current = null;
+    }
+    if (prizeScanStreamRef.current) {
+      prizeScanStreamRef.current.getTracks().forEach((t) => t.stop());
+      prizeScanStreamRef.current = null;
+    }
+    const video = prizeScanVideoRef.current;
+    if (video) video.srcObject = null;
+    prizeScanActiveRef.current = false;
+    setPrizeScanLiveOn(false);
+  }, [isOpen, page]);
+
+  useEffect(() => {
     if (page !== 'results') return;
     const available = competitions.length ? competitions : (comp.id ? [comp] : []);
     const options = resultsCompetitionOptions(available);
@@ -494,6 +531,29 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     if (page !== 'results' || !resultsCompId) return;
     getScoresForCompetition(resultsCompId).then(setScoreEntries);
   }, [page, resultsCompId]);
+
+  useEffect(() => {
+    if (page !== 'prize-records') return;
+    const available = competitions.length ? competitions : (comp.id ? [comp] : []);
+    const ended = available
+      .filter((competition) => competition.id && getCompetitionPhase(competition) === 'ended')
+      .sort((a, b) => new Date(b.endDate || b.startDate).getTime() - new Date(a.endDate || a.startDate).getTime());
+    const current = ended.find((competition) => competition.id === prizeRecordCompId);
+    const fallback = current || ended[0] || available.find((competition) => competition.id === prizeRecordCompId) || available[0];
+    if (fallback?.id && fallback.id !== prizeRecordCompId) setPrizeRecordCompId(fallback.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, competitions, comp]);
+
+  useEffect(() => {
+    if (page !== 'prize-records' || !prizeRecordCompId) return;
+    Promise.all([
+      getScoresForCompetition(prizeRecordCompId),
+      getPrizeClaimsForCompetition(prizeRecordCompId),
+    ]).then(([scores, claims]) => {
+      setPrizeRecordScores(scores);
+      setPrizeClaims(claims);
+    }).catch((err) => console.error('Failed to load Rekod Hadiah:', err));
+  }, [page, prizeRecordCompId]);
 
   useEffect(() => {
     if (page !== 'audit-log') return;
@@ -2167,6 +2227,182 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, allWeighCompId, allWeighPond]);
 
+  type PrizeRecordRow = ScoreEntry & {
+    rank: number;
+    prize: string;
+    prizeLabel: string;
+    claim: PrizeClaim | undefined;
+    booking: Booking | undefined;
+  };
+
+  const prizeClaimKey = (competitionId: string, rank: number) => `${competitionId}_${rank}`;
+  const prizeRecordCompetition = competitionsForCms.find((competition) => competition.id === prizeRecordCompId) || null;
+  const getPrizeRecordRows = (): PrizeRecordRow[] => {
+    if (!prizeRecordCompetition) return [];
+    const claimByRank = new Map(prizeClaims.map((claim) => [claim.rank, claim]));
+    return [...prizeRecordScores]
+      .sort((a, b) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a)))
+      .map((entry, index) => {
+        const rank = index + 1;
+        const booking = entry.bookingId ? bookings.find((b) => b.id === entry.bookingId) : undefined;
+        return {
+          ...entry,
+          rank,
+          prize: prizeRecordCompetition ? prizeRecordCompetition.prizes.find((p) => {
+            const [from, to] = prizeRange(p);
+            return rank >= from && rank <= to;
+          })?.prize || '' : '',
+          prizeLabel: prizeRecordCompetition ? prizeRecordCompetition.prizes.find((p) => {
+            const [from, to] = prizeRange(p);
+            return rank >= from && rank <= to;
+          })?.label || '' : '',
+          claim: claimByRank.get(rank),
+          booking,
+        };
+      })
+      .filter((entry) => !!entry.prize);
+  };
+
+  const refreshPrizeRecords = async (competitionId = prizeRecordCompId) => {
+    if (!competitionId) return;
+    const [scores, claims] = await Promise.all([
+      getScoresForCompetition(competitionId),
+      getPrizeClaimsForCompetition(competitionId),
+    ]);
+    setPrizeRecordScores(scores);
+    setPrizeClaims(claims);
+  };
+
+  const resolvePrizeQr = (raw: string) => {
+    const parsed = parseQrPayload(raw);
+    setPrizeScanRaw(raw);
+    setPrizeScanBooking(null);
+    setPrizeScanSeat(null);
+    setPrizeScanPondId(null);
+    if (!parsed) return;
+    const booking = bookings.find((b) => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId);
+    if (!booking) return;
+    setPrizeScanBooking(booking);
+    setPrizeScanSeat(parsed.seatNum ?? null);
+    setPrizeScanPondId(parsed.pondId ?? null);
+    if ((booking.competitionId || comp.id || '') && (booking.competitionId || comp.id || '') !== prizeRecordCompId) {
+      setPrizeRecordCompId(booking.competitionId || comp.id || '');
+    }
+  };
+
+  const decodePrizeQrFile = async (file: File) => {
+    const url = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      image.decoding = 'async';
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error('Gambar QR tidak dapat dibaca.'));
+        image.src = url;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth || image.width;
+      canvas.height = image.naturalHeight || image.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas tidak tersedia.');
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const decoded = decodeQr(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+      if (decoded) resolvePrizeQr(decoded);
+      else setPrizeScanRaw('QR tidak dapat dikesan dalam gambar.');
+    } catch (err) {
+      setPrizeScanRaw(err instanceof Error ? err.message : 'Imbasan QR gagal.');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const stopPrizeLiveScan = () => {
+    prizeScanActiveRef.current = false;
+    if (prizeScanRafRef.current) {
+      window.cancelAnimationFrame(prizeScanRafRef.current);
+      prizeScanRafRef.current = null;
+    }
+    if (prizeScanStreamRef.current) {
+      prizeScanStreamRef.current.getTracks().forEach((track) => track.stop());
+      prizeScanStreamRef.current = null;
+    }
+    if (prizeScanVideoRef.current) prizeScanVideoRef.current.srcObject = null;
+    setPrizeScanLiveOn(false);
+  };
+
+  const startPrizeLiveScan = async () => {
+    if (prizeScanLiveBusy || prizeScanLiveOn) return;
+    setPrizeScanLiveBusy(true);
+    setPrizeScanRaw(null);
+    try {
+      const stream = await openQrCameraStream();
+      prizeScanStreamRef.current = stream;
+      const video = prizeScanVideoRef.current;
+      if (!video) throw new Error('Video kamera tidak tersedia.');
+      video.srcObject = stream;
+      await video.play();
+      prizeScanStartedAtRef.current = Date.now();
+      prizeScanActiveRef.current = true;
+      setPrizeScanLiveOn(true);
+      const scanFrame = () => {
+        if (!prizeScanActiveRef.current) return;
+        const canvas = prizeScanCanvasRef.current;
+        const currentVideo = prizeScanVideoRef.current;
+        if (canvas && currentVideo && currentVideo.videoWidth > 0 && Date.now() - prizeScanStartedAtRef.current > 550) {
+          canvas.width = currentVideo.videoWidth;
+          canvas.height = currentVideo.videoHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(currentVideo, 0, 0, canvas.width, canvas.height);
+            const decoded = decodeQr(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+            if (decoded) {
+              resolvePrizeQr(decoded);
+              stopPrizeLiveScan();
+              return;
+            }
+          }
+        }
+        prizeScanRafRef.current = window.requestAnimationFrame(scanFrame);
+      };
+      prizeScanRafRef.current = window.requestAnimationFrame(scanFrame);
+    } catch (err) {
+      console.error('Prize QR start failed:', err);
+      setPrizeScanRaw(err instanceof Error ? err.message : 'Kamera tidak dapat dibuka.');
+      stopPrizeLiveScan();
+    } finally {
+      setPrizeScanLiveBusy(false);
+    }
+  };
+
+  const handlePrizeClaimStatus = async (row: PrizeRecordRow, status: 'claimed' | 'pending') => {
+    if (!prizeRecordCompId) return;
+    const key = prizeClaimKey(prizeRecordCompId, row.rank);
+    setPrizeClaimSaving(key);
+    try {
+      await savePrizeClaimStatus({
+        competitionId: prizeRecordCompId,
+        rank: row.rank,
+        scoreEntryId: row.id,
+        bookingId: row.bookingId,
+        status,
+      });
+      await refreshPrizeRecords(prizeRecordCompId);
+      await logAuditEvent({
+        action: status === 'claimed' ? 'prize.claim' : 'prize.unclaim',
+        actionLabel: status === 'claimed' ? 'Tuntut Hadiah' : 'Batal Tuntutan Hadiah',
+        entityType: 'prize',
+        entityId: key,
+        entityLabel: `${prizeRecordCompetition?.name || prizeRecordCompId} · #${row.rank} · ${row.anglerName}`,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    } catch (err) {
+      console.error('Failed to update prize claim:', err);
+      window.alert('Status tuntutan hadiah gagal dikemaskini.');
+    } finally {
+      setPrizeClaimSaving(null);
+    }
+  };
+
   // Staff/admin gate. MUST stay below every hook above — an early return placed
   // among the hooks changes the hook count between renders (e.g. when the user's
   // role resolves from an optimistic 'CLIENT' to 'ADMIN' after the profile loads),
@@ -2256,6 +2492,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       { id: 'checkin' as CMSPage, icon: '📲', text: 'Check-In' },
       { id: 'results' as CMSPage, icon: '⚖️', text: 'Keputusan & Live' },
       { id: 'all-weigh-ins' as CMSPage, icon: '📜', text: 'Rekod Timbangan' },
+      { id: 'prize-records' as CMSPage, icon: '🎁', text: 'Rekod Hadiah' },
     ]},
     { label: 'Admin', items: [
       { id: 'landing-content' as CMSPage, icon: '🏡', text: 'Laman Utama' },
@@ -2267,7 +2504,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     ] },
   ];
   const navSections = isAdmin ? adminNavSections : [
-    { label: 'Hari Pertandingan', items: adminNavSections.flatMap((section) => section.items).filter((item) => ['checkin', 'results', 'all-weigh-ins'].includes(item.id)) },
+    { label: 'Hari Pertandingan', items: adminNavSections.flatMap((section) => section.items).filter((item) => ['checkin', 'results', 'all-weigh-ins', 'prize-records'].includes(item.id)) },
   ];
 
   const pageTitle = navSections.flatMap(s => s.items).find(i => i.id === page)?.text || 'Dashboard';
@@ -3569,6 +3806,216 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
               </div>
             </div>
+            );
+          })()}
+          {page === 'prize-records' && (() => {
+            const allRows = getPrizeRecordRows();
+            const pondOptions = Array.from(new Set(allRows.map((row) => row.pondName).filter(Boolean))).sort();
+            const q = prizeRecordSearch.trim().toLowerCase();
+            const scannedRows = prizeScanBooking
+              ? allRows.filter((row) =>
+                  row.bookingId === prizeScanBooking.id
+                  && (prizeScanSeat == null || row.seatNum === prizeScanSeat)
+                  && (prizeScanPondId == null || row.pondId === prizeScanPondId))
+              : [];
+            const filteredRows = allRows.filter((row) => {
+              const claimStatus = row.claim?.status === 'claimed' ? 'claimed' : 'pending';
+              const bookingRef = row.booking?.bookingRef || '';
+              const searchable = [
+                row.anglerName,
+                row.pondName,
+                String(row.seatNum),
+                bookingRef,
+                row.booking?.userPhone || '',
+                row.booking?.bookingPhone || '',
+              ].join(' ').toLowerCase();
+              return (!q || searchable.includes(q))
+                && (!prizeRecordPondFilter || row.pondName === prizeRecordPondFilter)
+                && (prizeRecordStatus === 'all' || claimStatus === prizeRecordStatus);
+            });
+            const statusTabs = [
+              { id: 'all' as const, label: 'Semua' },
+              { id: 'claimed' as const, label: 'Telah Dituntut' },
+              { id: 'pending' as const, label: 'Menunggu Tuntutan' },
+            ];
+            const endedCompetitions = competitionsForCms
+              .filter((competition) => competition.id && getCompetitionPhase(competition) === 'ended')
+              .sort((a, b) => new Date(b.endDate || b.startDate).getTime() - new Date(a.endDate || a.startDate).getTime());
+            const prizeCompetitionOptions = endedCompetitions.length ? endedCompetitions : competitionsForCms;
+            return (
+              <div className="page active">
+                <div className="page-header">
+                  <div>
+                    <div className="page-title">Rekod Hadiah</div>
+                    <div className="page-sub">Senarai pemenang daripada papan kedudukan tamat pertandingan dan status tuntutan hadiah</div>
+                  </div>
+                </div>
+
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1.2fr) minmax(260px, 1fr)', gap: 16 }}>
+                    <div>
+                      <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+                        <div className="form-group">
+                          <label className="form-label">Pertandingan</label>
+                          <select
+                            className="form-input"
+                            value={prizeRecordCompId}
+                            onChange={(event) => {
+                              setPrizeRecordCompId(event.target.value);
+                              setPrizeRecordSearch('');
+                              setPrizeRecordPondFilter('');
+                              setPrizeScanBooking(null);
+                              setPrizeScanRaw(null);
+                            }}
+                          >
+                            {prizeCompetitionOptions.map((competition) => (
+                              <option key={competition.id || competition.name} value={competition.id || ''}>{compOptionLabel(competition)}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Kolam</label>
+                          <select className="form-input" value={prizeRecordPondFilter} onChange={(event) => setPrizeRecordPondFilter(event.target.value)}>
+                            <option value="">Semua kolam</option>
+                            {pondOptions.map((pond) => <option key={pond} value={pond}>{pond}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group form-span">
+                          <label className="form-label">Nama / No. Pancang / Booking Ref</label>
+                          <input className="form-input" value={prizeRecordSearch} onChange={(event) => setPrizeRecordSearch(event.target.value)} placeholder="Cari peserta, pancang atau rujukan..." />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                        {statusTabs.map((tab) => (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            className={`btn btn-sm ${prizeRecordStatus === tab.id ? 'btn-primary' : 'btn-ghost'}`}
+                            onClick={() => setPrizeRecordStatus(tab.id)}
+                          >
+                            {tab.label}
+                          </button>
+                        ))}
+                        <button className="btn btn-sm btn-ghost" onClick={() => refreshPrizeRecords()}>🔄 Muat Semula</button>
+                      </div>
+                    </div>
+
+                    <div style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontWeight: 800, marginBottom: 8 }}>Imbas QR Tuntutan</div>
+                      <div style={{ marginBottom: 10, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)', background: '#0f172a', display: prizeScanLiveOn ? 'block' : 'none' }}>
+                        <video ref={prizeScanVideoRef} playsInline muted style={{ width: '100%', maxHeight: 220, objectFit: 'cover', display: 'block' }} />
+                        <canvas ref={prizeScanCanvasRef} style={{ display: 'none' }} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', color: '#fff', fontSize: 12 }}>
+                          <span>Arahkan kamera ke QR tempahan</span>
+                          <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }} onClick={stopPrizeLiveScan}>Tutup Kamera</button>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button className="btn btn-sm btn-primary" disabled={prizeScanLiveBusy || prizeScanLiveOn} onClick={startPrizeLiveScan}>
+                          {prizeScanLiveBusy ? 'Membuka Kamera...' : (prizeScanLiveOn ? 'Kamera Aktif' : '🎥 Imbas QR')}
+                        </button>
+                        <label className="btn btn-sm btn-ghost" style={{ display: 'inline-flex', cursor: 'pointer' }}>
+                          📷 Muat Naik QR
+                          <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(event) => { const file = event.target.files?.[0]; if (file) decodePrizeQrFile(file); event.target.value = ''; }} />
+                        </label>
+                      </div>
+                      {prizeScanBooking && (
+                        <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: scannedRows.length ? 'rgba(22,163,74,0.09)' : 'rgba(245,158,11,0.12)', border: `1px solid ${scannedRows.length ? 'rgba(22,163,74,0.28)' : 'rgba(245,158,11,0.32)'}` }}>
+                          <div style={{ fontWeight: 800 }}>{prizeScanBooking.userName}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                            {prizeScanBooking.bookingRef || prizeScanBooking.id} · {bookingPondList(prizeScanBooking)} · {bookingSeatList(prizeScanBooking)}
+                          </div>
+                          <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, color: scannedRows.length ? 'var(--green-dark, #15803d)' : '#b45309' }}>
+                            {scannedRows.length
+                              ? `Layak tuntut hadiah: ${scannedRows.map((row) => `#${row.rank} ${row.prize}`).join(', ')}`
+                              : 'Tiada ranking hadiah sah untuk QR ini dalam pertandingan yang dipilih.'}
+                          </div>
+                        </div>
+                      )}
+                      {prizeScanRaw && !prizeScanBooking && (
+                        <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.28)', fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-word' }}>
+                          QR diimbas tetapi tiada peserta hadiah ditemui: {prizeScanRaw}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="card-header"><div className="card-title">{filteredRows.length} rekod hadiah</div></div>
+                  <div className="card-body"><div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Kedudukan</th>
+                          <th>Info Peserta</th>
+                          <th>No Pancang</th>
+                          <th style={{ textAlign: 'right' }}>Berat ikan</th>
+                          <th>Masa</th>
+                          <th>Bukti</th>
+                          <th>Hadiah</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRows.map((row) => {
+                          const claimStatus = row.claim?.status === 'claimed' ? 'claimed' : 'pending';
+                          const scanned = scannedRows.some((scanRow) => scanRow.id === row.id);
+                          const savingKey = prizeClaimKey(prizeRecordCompId, row.rank);
+                          const seatLabel = formatSeat(row.booking?.pondCode || ponds.find((pond) => pond.id === row.pondId)?.code, row.seatNum);
+                          return (
+                            <tr key={row.id || `${row.rank}-${row.seatNum}`} style={scanned ? { background: 'rgba(250,204,21,0.16)' } : undefined}>
+                              <td><span className={`result-rank ${row.rank <= 3 ? 'rank-' + row.rank : ''}`}>#{row.rank}</span></td>
+                              <td className="td-name">
+                                {row.anglerName}
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{row.booking?.bookingRef || row.bookingId || '-'}</div>
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{row.booking?.bookingPhone || row.booking?.userPhone || '-'}</div>
+                              </td>
+                              <td>{row.pondName} · {seatLabel}</td>
+                              <td style={{ textAlign: 'right' }}><span className="w-cell">{formatWeight(row.weight, settings.ocrDecimalPlaces)}</span> kg</td>
+                              <td style={{ whiteSpace: 'nowrap' }}>{formatDate(row.capturedAt, { time: true }) || '-'}</td>
+                              <td>{row.photoUrl ? <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(row.photoUrl!)}>👁 Bukti</button> : '—'}</td>
+                              <td>
+                                <strong>{row.prize}</strong>
+                                {row.prizeLabel && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{row.prizeLabel}</div>}
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                  <span className={`badge badge-${claimStatus === 'claimed' ? 'approved' : 'pending'}`}>
+                                    {claimStatus === 'claimed' ? 'Telah Dituntut' : 'Menunggu Tuntutan'}
+                                  </span>
+                                  {claimStatus === 'claimed' ? (
+                                    <button
+                                      className="btn btn-sm btn-ghost"
+                                      disabled={prizeClaimSaving === savingKey}
+                                      onClick={() => handlePrizeClaimStatus(row, 'pending')}
+                                    >
+                                      Batal
+                                    </button>
+                                  ) : (
+                                    <button
+                                      className="btn btn-sm btn-green"
+                                      disabled={prizeClaimSaving === savingKey}
+                                      onClick={() => handlePrizeClaimStatus(row, 'claimed')}
+                                    >
+                                      Tuntut
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {filteredRows.length === 0 && (
+                          <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            {allRows.length === 0 ? 'Tiada ranking yang mempunyai hadiah untuk pertandingan ini.' : 'Tiada rekod sepadan dengan tapisan.'}
+                          </td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div></div>
+                </div>
+              </div>
             );
           })()}
           {page === 'contact-settings' && (

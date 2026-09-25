@@ -156,6 +156,31 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /prizeClaims/{claimId} {
+      allow read: if isStaff();
+      allow create: if isStaff()
+        && request.resource.data.keys().hasOnly([
+          'competitionId', 'rank', 'scoreEntryId', 'bookingId', 'status',
+          'claimedAt', 'claimedBy', 'updatedAt'
+        ])
+        && request.resource.data.competitionId is string
+        && request.resource.data.rank is number
+        && request.resource.data.status in ['claimed', 'pending']
+        && (request.resource.data.status == 'pending'
+          || request.resource.data.claimedBy == request.auth.uid);
+      allow update: if isStaff()
+        && request.resource.data.competitionId is string
+        && request.resource.data.rank is number
+        && request.resource.data.status in ['claimed', 'pending']
+        && (request.resource.data.status == 'pending'
+          || request.resource.data.claimedBy == request.auth.uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'competitionId', 'rank', 'scoreEntryId', 'bookingId', 'status',
+          'claimedAt', 'claimedBy', 'updatedAt'
+        ]);
+      allow delete: if isAdmin();
+    }
+
     // Admin activity log — append-only. Nothing may edit or delete an entry
     // once written, so the trail stays tamper-evident.
     match /auditLog/{entryId} {

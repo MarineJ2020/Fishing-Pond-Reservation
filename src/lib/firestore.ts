@@ -23,7 +23,7 @@ import {
 } from 'firebase/firestore';
 import { auth } from '../../lib/firebase';
 import { db } from '../../lib/firebase';
-import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry, User, AuditEntry, SeoSettings } from '../types';
+import { DB, Pond, Seat, Booking, Score, Competition, Settings, ScoreEntry, User, AuditEntry, SeoSettings, PrizeClaim } from '../types';
 import { emptyDB } from '../data';
 import { LANDING_DEFAULTS, SEO_DEFAULTS } from '../config/landingDefaults';
 import { normalizeLandingSections } from '../config/landingSections';
@@ -1213,6 +1213,21 @@ const buildScoreEntryFromDoc = (d: QueryDocumentSnapshot<DocumentData>): ScoreEn
   } as ScoreEntry;
 };
 
+const buildPrizeClaimFromDoc = (d: QueryDocumentSnapshot<DocumentData>): PrizeClaim => {
+  const data = d.data() as any;
+  return {
+    id: d.id,
+    competitionId: data.competitionId || '',
+    rank: Number(data.rank) || 0,
+    scoreEntryId: data.scoreEntryId || undefined,
+    bookingId: data.bookingId || undefined,
+    status: data.status === 'claimed' ? 'claimed' : 'pending',
+    claimedAt: normalizeTimestamp(data.claimedAt) || undefined,
+    claimedBy: data.claimedBy || undefined,
+    updatedAt: normalizeTimestamp(data.updatedAt) || undefined,
+  };
+};
+
 export interface ScoreEntriesPageOptions {
   competitionId?: string;
   pondName?: string;
@@ -1315,6 +1330,38 @@ export const deleteScoreEntry = async (id: string): Promise<void> => {
     deletedBy: auth.currentUser?.uid || null,
     updatedAt: serverTimestamp(),
   });
+};
+
+export const getPrizeClaimsForCompetition = async (competitionId: string): Promise<PrizeClaim[]> => {
+  if (!competitionId) return [];
+  const snap = await getDocs(query(collection(db, 'prizeClaims'), where('competitionId', '==', competitionId)));
+  return snap.docs.map(buildPrizeClaimFromDoc);
+};
+
+export const savePrizeClaimStatus = async (claim: {
+  competitionId: string;
+  rank: number;
+  scoreEntryId?: string;
+  bookingId?: string;
+  status: 'claimed' | 'pending';
+}): Promise<void> => {
+  const claimId = `${claim.competitionId}_${claim.rank}`;
+  const payload: Record<string, unknown> = {
+    competitionId: claim.competitionId,
+    rank: claim.rank,
+    scoreEntryId: claim.scoreEntryId || null,
+    bookingId: claim.bookingId || null,
+    status: claim.status,
+    updatedAt: serverTimestamp(),
+  };
+  if (claim.status === 'claimed') {
+    payload.claimedAt = serverTimestamp();
+    payload.claimedBy = auth.currentUser?.uid || null;
+  } else {
+    payload.claimedAt = null;
+    payload.claimedBy = null;
+  }
+  await setDoc(doc(db, 'prizeClaims', claimId), payload, { merge: true });
 };
 
 // Append-only admin activity log. Logging failures are swallowed — recording
