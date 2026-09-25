@@ -1078,6 +1078,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     .replace(/^-+|-+$/g, '')
     || 'pertandingan';
 
+  const downloadCsv = (filename: string, headers: string[], rows: unknown[][]) => {
+    const csv = '\uFEFF' + [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const handleExportAllBookingsCsv = async () => {
     if (!allCompFilter) {
       setAllError('Pilih pertandingan dahulu sebelum export CSV.');
@@ -1173,18 +1186,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
       rows.forEach((row, index) => { row[0] = index + 1; });
 
-      const csv = '\uFEFF' + [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
       const competitionName = competitions.find((c) => c.id === allCompFilter)?.name || 'pertandingan';
       const filename = `tempahan-${csvFileSlug(competitionName)}-${new Date().toISOString().slice(0, 10)}.csv`;
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      downloadCsv(filename, headers, rows);
     } catch (err) {
       console.error('Failed to export Semua Tempahan CSV:', err);
       setAllError(err instanceof Error ? err.message : 'Gagal export CSV.');
@@ -3557,6 +3561,25 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 && (!nameQ || entry.anglerName.toLowerCase().includes(nameQ))
                 && (!scorePondFilter || entry.pondName === scorePondFilter);
             });
+            const selectedResultsComp = competitionsForCms.find((competition) => competition.id === resultsCompId) || comp;
+            const exportResultsRows = () => {
+              const headers = ['Kedudukan', 'Masa', 'Nama Peserta', 'Kolam', 'No Pancang', 'Berat ikan (kg)', 'Hadiah', 'Bukti'];
+              const rows = sortedEntries.map((entry) => [
+                entry.rank,
+                csvDateTime(entry.capturedAt),
+                entry.anglerName,
+                entry.pondName,
+                formatSeat(ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum),
+                formatWeight(entry.weight, settings.ocrDecimalPlaces),
+                selectedResultsComp?.prizes?.find((prize) => {
+                  const [from, to] = prizeRange(prize);
+                  return entry.rank >= from && entry.rank <= to;
+                })?.prize || '',
+                entry.photoUrl || '',
+              ]);
+              const filename = `kedudukan-${csvFileSlug(selectedResultsComp?.name || 'pertandingan')}-${new Date().toISOString().slice(0, 10)}.csv`;
+              downloadCsv(filename, headers, rows);
+            };
             return (
               <div className="page active">
                 <div className="page-header">
@@ -3615,6 +3638,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="card-header" style={{ alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
                     <div className="card-title">Papan Markah Semasa ({sortedEntries.length} / {scoreEntries.length} rekod)</div>
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginLeft: 'auto' }}>
+                      <button className="btn btn-sm btn-primary" disabled={sortedEntries.length === 0} onClick={exportResultsRows}>Export CSV</button>
                       <div className="form-group" style={{ minWidth: 140, marginBottom: 0 }}>
                         <label className="form-label">No. Pancang</label>
                         <input className="form-input" value={scorePegFilter} onChange={(e) => setScorePegFilter(e.target.value)} placeholder="Cari pancang..." />
@@ -3842,6 +3866,41 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               .filter((competition) => competition.id && getCompetitionPhase(competition) === 'ended')
               .sort((a, b) => new Date(b.endDate || b.startDate).getTime() - new Date(a.endDate || a.startDate).getTime());
             const prizeCompetitionOptions = endedCompetitions.length ? endedCompetitions : competitionsForCms;
+            const exportPrizeRows = () => {
+              const headers = [
+                'Kedudukan',
+                'Nama Peserta',
+                'Telefon',
+                'Booking Ref',
+                'Kolam',
+                'No Pancang',
+                'Berat ikan (kg)',
+                'Masa',
+                'Bukti',
+                'Hadiah',
+                'Label Hadiah',
+                'Status Hadiah',
+              ];
+              const rows = filteredRows.map((row) => {
+                const claimStatus = row.claim?.status === 'claimed' ? 'Telah Dituntut' : 'Menunggu Tuntutan';
+                return [
+                  row.rank,
+                  row.anglerName,
+                  row.booking?.bookingPhone || row.booking?.userPhone || '',
+                  row.booking?.bookingRef || row.bookingId || '',
+                  row.pondName,
+                  formatSeat(row.booking?.pondCode || ponds.find((pond) => pond.id === row.pondId)?.code, row.seatNum),
+                  formatWeight(row.weight, settings.ocrDecimalPlaces),
+                  csvDateTime(row.capturedAt),
+                  row.photoUrl || '',
+                  row.prize,
+                  row.prizeLabel,
+                  claimStatus,
+                ];
+              });
+              const filename = `rekod-hadiah-${csvFileSlug(prizeRecordCompetition?.name || 'pertandingan')}-${new Date().toISOString().slice(0, 10)}.csv`;
+              downloadCsv(filename, headers, rows);
+            };
             return (
               <div className="page active">
                 <div className="page-header">
@@ -3942,7 +4001,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
 
                 <div className="card">
-                  <div className="card-header"><div className="card-title">{filteredRows.length} rekod hadiah</div></div>
+                  <div className="card-header" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <div className="card-title">{filteredRows.length} rekod hadiah</div>
+                    <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }} disabled={filteredRows.length === 0} onClick={exportPrizeRows}>Export CSV</button>
+                  </div>
                   <div className="card-body"><div className="table-wrap">
                     <table>
                       <thead>
