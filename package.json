@@ -7,8 +7,8 @@
     "build": "vite build && node scripts/copy-seo-template.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test:security": "node --test tests/security/*.test.mjs",
-    "lint": "eslint . --ext .ts,.tsx",
+    "test:security": "npx --yes firebase-tools@latest emulators:exec --only firestore,storage,auth \"node --test tests/security/*.test.mjs\"",
+    "lint": "eslint .",
     "cleanup:deposit-bookings": "node scripts/delete-deposit-bookings-and-weights.mjs"
   },
   "dependencies": {
@@ -45,6 +45,8 @@
     "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-react": "^4.3.1",
     "eslint": "^8.56.0",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.20",
     "vite": "^5.4.1"
   }
 }

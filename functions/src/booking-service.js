@@ -4,6 +4,7 @@ import { bookingSelections, claimId, confirmed, fail, newBookingRef, occupiesSea
 
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 150 && !value.includes('/');
 const text = (value, max = 200) => typeof value === 'string' ? value.trim().slice(0, max) : '';
+const OCCUPYING_STATUSES = ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE', 'pending', 'confirmed'];
 const handle = (handler) => async (req, res) => {
     try { return res.json(await handler(req)); }
     catch (error) {
@@ -45,8 +46,8 @@ export async function createSecureBooking(db, payload, user) {
         const { selections, amount, totalAmount } = validateSelections(payload, competition, ponds);
 
         // Query both historical encodings inside the transaction. No backfill is required.
-        const legacyStrings = await tx.get(db.collection('bookings').where('competitionId', '==', payload.competitionId));
-        const legacyRefs = await tx.get(db.collection('bookings').where('competitionId', '==', compRef));
+        const legacyStrings = await tx.get(db.collection('bookings').where('competitionId', '==', payload.competitionId).where('status', 'in', OCCUPYING_STATUSES));
+        const legacyRefs = await tx.get(db.collection('bookings').where('competitionId', '==', compRef).where('status', 'in', OCCUPYING_STATUSES));
         const occupied = new Set();
         [...legacyStrings.docs, ...legacyRefs.docs].forEach((snap) => {
             if (!occupiesSeats(snap.data())) return;
@@ -78,7 +79,7 @@ export async function createSecureBooking(db, payload, user) {
             createdByUid: staffMode ? user.uid : null, createdByStaff: staffMode,
             competitionId: payload.competitionId, competitionName: competition.name || '',
             pondId: primary.pondId, pondCode: primary.pondCode,
-            pondSelections: selections.map(({ pondDocId, ...selection }) => selection),
+            pondSelections: selections.map(({ pondDocId: _pondDocId, ...selection }) => selection),
             seatIds: selections.flatMap((s) => s.seatIds), seatNumbers: primary.seats,
             paymentType: payload.paymentType, amount, totalAmount, paidAmount, balanceDue,
             paymentStatus: staffMode ? (balanceDue > 0 ? 'PARTIAL' : 'APPROVED') : 'PENDING_APPROVAL',
@@ -125,7 +126,9 @@ export async function releaseClaims(db, bookingId) {
 export function registerBookingRoutes(app) {
     app.get('/bookingAvailability', handle(async () => {
         const [bookings, ponds, seats] = await Promise.all([
-            adminDb.collection('bookings').get(), adminDb.collection('ponds').get(), adminDb.collection('seats').get(),
+            adminDb.collection('bookings').where('status', 'in', OCCUPYING_STATUSES).get(),
+            adminDb.collection('ponds').get(),
+            adminDb.collection('seats').get(),
         ]);
         const catalog = pondCatalog(ponds.docs, seats.docs);
         return { availability: bookings.docs.filter((snap) => occupiesSeats(snap.data())).map((snap) => {

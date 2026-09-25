@@ -891,8 +891,9 @@ const AppContent: React.FC = () => {
     const introCopy = settings.introCopy
       || 'Kolam Keli Sayang dibuka untuk pertandingan sahaja — bukan aktiviti memancing harian. Terletak di Kubang Rotan, Alor Setar, dikelilingi hamparan sawah padi yang menghijau, kami menawarkan pengalaman bertanding yang adil, teratur, dan penuh semangat.';
     const rules = settings.rules?.length ? settings.rules : [];
-    const wazeHref = settings.wazeUrl || (settings.location ? `https://waze.com/ul?q=${encodeURIComponent(settings.location)}` : '#');
-    const gmapsHref = settings.googleMapsUrl || (settings.location ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(settings.location)}` : '#');
+    const hasLocation = !!settings.location?.trim();
+    const wazeHref = settings.wazeUrl || (hasLocation ? `https://waze.com/ul?q=${encodeURIComponent(settings.location)}` : '');
+    const gmapsHref = settings.googleMapsUrl || (hasLocation ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(settings.location)}` : '');
     const mapEmbedSrc = settings.mapEmbedUrl
       || (settings.location ? `https://www.google.com/maps?q=${encodeURIComponent(settings.location)}&output=embed` : '');
 
@@ -918,16 +919,16 @@ const AppContent: React.FC = () => {
     };
     const padCD = (n: number) => n.toString().padStart(2, '0');
 
-    const featuredName = featuredCompetition?.name || 'Ikuti perkembangan untuk acara akan datang';
-    const featuredDate = featuredCompetition ? formatEventDate(featuredCompetition.startDate) : '—';
-    const featuredTime = featuredCompetition ? formatEventTime(featuredCompetition.startDate, featuredCompetition.endDate) : '—';
-    const featuredPondsCount = featuredCompetition ? (featuredCompetition.activePondIds?.length || totalPonds || 0) : '—';
+    const featuredName = featuredCompetition?.name || 'Acara akan diumumkan';
+    const featuredDate = featuredCompetition ? formatEventDate(featuredCompetition.startDate) : 'Akan diumumkan';
+    const featuredTime = featuredCompetition ? formatEventTime(featuredCompetition.startDate, featuredCompetition.endDate) : 'Akan diumumkan';
+    const featuredPondsCount = featuredCompetition ? (featuredCompetition.activePondIds?.length || totalPonds || 0) : 'Akan diumumkan';
     const samplePrice = featuredCompetition?.pricePerPeg ?? db.ponds[0]?.seats[0]?.price;
-    const featuredFee = featuredCompetition ? (samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami') : '—';
+    const featuredFee = featuredCompetition ? (samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami') : 'Akan diumumkan';
     const featuredPrize = (featuredCompetition?.prizes?.[0] as any);
     const featuredPrizeText = featuredCompetition
       ? (featuredPrize?.prize || (featuredPrize?.amount ? `RM${featuredPrize.amount}` : 'Cabutan bertuah & hadiah lumayan'))
-      : '—';
+      : 'Akan diumumkan';
     const isCountdownReady = !!featuredCompetition && featuredCountdown.status !== 'idle';
     const showLive = featuredCountdown.status === 'live';
     const showEnded = featuredCountdown.status === 'ended';
@@ -1043,6 +1044,9 @@ const AppContent: React.FC = () => {
                       <div><small>Yuran</small><strong>{featuredFee}</strong></div>
                       <div><small>Hadiah</small><strong>{featuredPrizeText}</strong></div>
                     </div>
+                    {!featuredCompetition && (
+                      <p className="kks-booking-notice">Jadual pertandingan baharu belum diterbitkan. Sila semak semula kemudian atau hubungi pihak kolam.</p>
+                    )}
                     <div className="kks-event-actions">
                       <button
                         className="btn btn-navy"
@@ -1182,8 +1186,8 @@ const AppContent: React.FC = () => {
             <div className="kks-eyebrow">{settings.lokasiEyebrow}</div>
             <h2 className="kks-headline kks-preserve-lines">{renderHeadline(settings.lokasiTitle || '')}</h2>
             <div className="kks-quick-links">
-              <a className="btn btn-red" href={wazeHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-waze"></i> Waze</a>
-              <a className="btn btn-navy" href={gmapsHref} target="_blank" rel="noopener noreferrer"><i className="fa-solid fa-location-dot"></i> Google Map</a>
+              {wazeHref && <a className="btn btn-red" href={wazeHref} target="_blank" rel="noopener noreferrer"><i className="fa-brands fa-waze"></i> Waze</a>}
+              {gmapsHref && <a className="btn btn-navy" href={gmapsHref} target="_blank" rel="noopener noreferrer"><i className="fa-solid fa-location-dot"></i> Google Map</a>}
             </div>
             <div className="kks-contact-box">
               <strong className="kks-contact-name">{settings.contactName}</strong>
@@ -1621,7 +1625,7 @@ const AppContent: React.FC = () => {
       case 'live':
         return <LiveResults decimalPlaces={db.settings.ocrDecimalPlaces} comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} availability={db.availability} user={user} />;
       case 'mybookings':
-        if (!authReady || bookingsLoading) {
+        if (!authReady) {
           return (
             <div className="bookings-page">
               <div className="empty-state">
@@ -1638,6 +1642,16 @@ const AppContent: React.FC = () => {
                 <span className="empty-icon">🔐</span>
                 <div className="empty-text">Sila log masuk untuk melihat tempahan anda.</div>
                 <button className="btn btn-primary" style={{ marginTop: '12px' }} onClick={() => setAuthModalOpen(true)}>Log Masuk</button>
+              </div>
+            </div>
+          );
+        }
+        if (bookingsLoading) {
+          return (
+            <div className="bookings-page">
+              <div className="empty-state">
+                <span className="empty-icon">⏳</span>
+                <div className="empty-text">Memuatkan tempahan...</div>
               </div>
             </div>
           );

@@ -29,6 +29,20 @@ import { LANDING_DEFAULTS, SEO_DEFAULTS } from '../config/landingDefaults';
 import { normalizeLandingSections } from '../config/landingSections';
 import { bookingRequest } from './bookingApi';
 
+const AVAILABILITY_TIMEOUT_MS = 5500;
+
+const withTimeout = async <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
 const getVisibleBookingDocs = async () => {
   const user = auth.currentUser;
   if (!user) return [];
@@ -612,13 +626,19 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
 
 export const loadAppDB = async (onCoreLoaded?: (core: DB) => void): Promise<DB> => {
   try {
-    const availabilityPromise = bookingRequest('/bookingAvailability').then((result) => {
-      if (!Array.isArray(result.availability)) throw new Error('Invalid availability response.');
-      return result;
-    }).catch((error) => {
-      console.error('Failed to load availability:', error);
-      return { availability: [], availabilityError: true };
-    });
+    const availabilityPromise = withTimeout(
+      bookingRequest('/bookingAvailability'),
+      AVAILABILITY_TIMEOUT_MS,
+      'Availability request timed out.',
+    )
+      .then((result) => {
+        if (!Array.isArray(result.availability)) throw new Error('Invalid availability response.');
+        return result;
+      })
+      .catch((error) => {
+        console.error('Failed to load availability:', error);
+        return { availability: [], availabilityError: true };
+      });
     const [pondSnapshot, seatSnapshot, competitionSnapshot, bookingDocs, settings] = await Promise.all([
       getDocs(collection(db, 'ponds')),
       getDocs(collection(db, 'seats')),
@@ -639,9 +659,27 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void): Promise<DB> 
       seatDocs: seatSnapshot.docs,
       bookingDocs,
     });
+    const bookingAvailabilityFallback = bookings
+      .filter((booking) => booking.status === 'pending' || booking.status === 'confirmed')
+      .map((booking) => ({
+        competitionId: booking.competitionId || '',
+        status: booking.status,
+        pondId: booking.pondSelections?.[0]?.pondId || booking.pondId,
+        seats: booking.pondSelections?.[0]?.seats || booking.seats,
+        pondSelections: booking.pondSelections?.length
+          ? booking.pondSelections
+          : [{
+              pondId: booking.pondId,
+              pondName: booking.pondName,
+              pondCode: booking.pondCode,
+              pondDate: booking.pondDate,
+              seats: booking.seats,
+              seatIds: booking.seatIds,
+            }],
+      }));
 
     const core: DB = {
-      availability: [],
+      availability: bookingAvailabilityFallback,
       availabilityError: false,
       ponds,
       bookings,
@@ -659,7 +697,7 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void): Promise<DB> 
     ]);
     return {
       ...core,
-      availability: availabilityResult.availability,
+      availability: availabilityResult.availabilityError ? bookingAvailabilityFallback : availabilityResult.availability,
       availabilityError: availabilityResult.availabilityError || false,
       scores,
     };

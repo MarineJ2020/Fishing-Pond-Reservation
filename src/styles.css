@@ -1582,8 +1582,8 @@ tr:hover td { background: var(--cream); }
 @media (max-width: 900px) {
   .booking-layout { grid-template-columns: 1fr; gap: 16px; padding: 78px 16px 30px; }
   .summary-card { position: sticky; top: 72px; max-height: none; }
-  .progress-bar { flex-direction: column; }
-  .progress-step { border-radius: 8px !important; border: 1px solid var(--border) !important; }
+  .progress-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .progress-step { min-width: 0; border-radius: 8px !important; border: 1px solid var(--border) !important; }
   .seat-map-wrap { gap: 10px; }
   .pond-visual { width: 60px; min-width: 60px; min-height: 160px; }
 }

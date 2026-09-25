@@ -211,9 +211,29 @@
   .bk-hero { padding: 28px 0 26px; }
   .bk-hero-inner { width: min(100% - 24px, 1180px); }
   .bk-shell { width: min(100% - 24px, 1180px); padding: 16px 0 92px; }
-  .bk-progress { position: static; display: flex; overflow-x: auto; scrollbar-width: none; }
+  .bk-progress {
+    position: static;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    padding: 8px;
+    gap: 6px;
+    border-radius: 14px;
+  }
   .bk-progress::-webkit-scrollbar { display: none; }
-  .bk-progress .progress-step { flex: 0 0 200px; }
+  .bk-progress .progress-step {
+    min-width: 0;
+    min-height: 46px;
+    padding: 8px 9px;
+    gap: 7px;
+    white-space: normal;
+    line-height: 1.2;
+  }
+  .bk-progress .progress-step span {
+    width: 26px;
+    height: 26px;
+    font-size: 15px;
+  }
   .bk-panel-head, .bk-panel-body { padding: 18px; }
   .bk-panel-head-row { display: block; }
   .bk-panel-head-row .btn { width: 100%; margin-top: 12px; }

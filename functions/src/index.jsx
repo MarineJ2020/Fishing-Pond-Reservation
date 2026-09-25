@@ -87,7 +87,7 @@ app.post('/acquireSeatLock', verifyToken, async (req, res) => {
     }
 });
 app.post('/createBooking', verifyToken, async (req, res) => {
-    const { competitionId, pondId, seatIds, seatNumbers, paymentType, amount, totalAmount, receiptUrl, notes, createdByStaff } = req.body;
+    const { competitionId, pondId, seatIds, seatNumbers, paymentType, amount, receiptUrl, notes, createdByStaff } = req.body;
     const user = req.user;
     if (!competitionId || !pondId || !seatIds?.length || !paymentType || amount == null) {
         return res.status(400).json({ error: 'Missing booking payload.' });

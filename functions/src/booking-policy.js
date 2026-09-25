@@ -113,5 +113,5 @@ export function validateSelections(payload, competition, ponds) {
     if (!Number.isFinite(price) || price < 0) fail('Harga pertandingan tidak sah.');
     const totalAmount = Math.round(seen.size * price * 100) / 100;
     const amount = totalAmount;
-    return { selections: selected.map(({ fallbackPrice, ...selection }) => selection), amount, totalAmount };
+    return { selections: selected.map(({ fallbackPrice: _fallbackPrice, ...selection }) => selection), amount, totalAmount };
 }
