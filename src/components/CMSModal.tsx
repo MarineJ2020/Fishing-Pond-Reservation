@@ -3910,10 +3910,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                 </div>
 
-                <div className="card" style={{ marginBottom: 16 }}>
-                  <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1.2fr) minmax(260px, 1fr)', gap: 16 }}>
+                <div className="card cms-prize-record-tools-card">
+                  <div className="card-body cms-prize-record-tools">
                     <div>
-                      <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+                      <div className="form-grid cms-prize-filter-grid">
                         <div className="form-group">
                           <label className="form-label">Pertandingan</label>
                           <select
@@ -3944,7 +3944,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           <input className="form-input" value={prizeRecordSearch} onChange={(event) => setPrizeRecordSearch(event.target.value)} placeholder="Cari peserta, pancang atau rujukan..." />
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                      <div className="cms-prize-status-row">
                         {statusTabs.map((tab) => (
                           <button
                             key={tab.id}
@@ -3959,17 +3959,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </div>
                     </div>
 
-                    <div style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
-                      <div style={{ fontWeight: 800, marginBottom: 8 }}>Imbas QR Tuntutan</div>
-                      <div style={{ marginBottom: 10, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)', background: '#0f172a', display: prizeScanLiveOn ? 'block' : 'none' }}>
+                    <div className="cms-prize-scan-panel">
+                      <div className="cms-prize-scan-title">Imbas QR Tuntutan</div>
+                      <div className="cms-prize-camera" style={{ display: prizeScanLiveOn ? 'block' : 'none' }}>
                         <video ref={prizeScanVideoRef} playsInline muted style={{ width: '100%', maxHeight: 220, objectFit: 'cover', display: 'block' }} />
                         <canvas ref={prizeScanCanvasRef} style={{ display: 'none' }} />
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', color: '#fff', fontSize: 12 }}>
+                        <div className="cms-prize-camera-bar">
                           <span>Arahkan kamera ke QR tempahan</span>
                           <button type="button" className="btn btn-sm btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }} onClick={stopPrizeLiveScan}>Tutup Kamera</button>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <div className="cms-prize-scan-actions">
                         <button className="btn btn-sm btn-primary" disabled={prizeScanLiveBusy || prizeScanLiveOn} onClick={startPrizeLiveScan}>
                           {prizeScanLiveBusy ? 'Membuka Kamera...' : (prizeScanLiveOn ? 'Kamera Aktif' : '🎥 Imbas QR')}
                         </button>
@@ -3979,7 +3979,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </label>
                       </div>
                       {prizeScanBooking && (
-                        <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: scannedRows.length ? 'rgba(22,163,74,0.09)' : 'rgba(245,158,11,0.12)', border: `1px solid ${scannedRows.length ? 'rgba(22,163,74,0.28)' : 'rgba(245,158,11,0.32)'}` }}>
+                        <div className={`cms-prize-scan-result ${scannedRows.length ? 'valid' : 'warning'}`}>
                           <div style={{ fontWeight: 800 }}>{prizeScanBooking.userName}</div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                             {prizeScanBooking.bookingRef || prizeScanBooking.id} · {bookingPondList(prizeScanBooking)} · {bookingSeatList(prizeScanBooking)}
@@ -3992,7 +3992,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </div>
                       )}
                       {prizeScanRaw && !prizeScanBooking && (
-                        <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.28)', fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-word' }}>
+                        <div className="cms-prize-scan-result invalid">
                           QR diimbas tetapi tiada peserta hadiah ditemui: {prizeScanRaw}
                         </div>
                       )}
@@ -4001,12 +4001,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
 
                 <div className="card">
-                  <div className="card-header" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div className="card-header cms-prize-record-header">
                     <div className="card-title">{filteredRows.length} rekod hadiah</div>
-                    <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }} disabled={filteredRows.length === 0} onClick={exportPrizeRows}>Export CSV</button>
+                    <button className="btn btn-sm btn-primary" disabled={filteredRows.length === 0} onClick={exportPrizeRows}>Export CSV</button>
                   </div>
-                  <div className="card-body"><div className="table-wrap">
-                    <table>
+                  <div className="card-body"><div className="table-wrap cms-prize-table-wrap">
+                    <table className="cms-prize-record-table">
                       <thead>
                         <tr>
                           <th>Kedudukan</th>
@@ -4026,22 +4026,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           const savingKey = prizeClaimKey(prizeRecordCompId, row.rank);
                           const seatLabel = formatSeat(row.booking?.pondCode || ponds.find((pond) => pond.id === row.pondId)?.code, row.seatNum);
                           return (
-                            <tr key={row.id || `${row.rank}-${row.seatNum}`} style={scanned ? { background: 'rgba(250,204,21,0.16)' } : undefined}>
-                              <td><span className={`result-rank ${row.rank <= 3 ? 'rank-' + row.rank : ''}`}>#{row.rank}</span></td>
-                              <td className="td-name">
+                            <tr key={row.id || `${row.rank}-${row.seatNum}`} className={scanned ? 'cms-prize-scanned-row' : undefined}>
+                              <td data-label="Kedudukan"><span className={`result-rank ${row.rank <= 3 ? 'rank-' + row.rank : ''}`}>#{row.rank}</span></td>
+                              <td data-label="Info Peserta" className="td-name">
                                 {row.anglerName}
                                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{row.booking?.bookingRef || row.bookingId || '-'}</div>
                                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{row.booking?.bookingPhone || row.booking?.userPhone || '-'}</div>
                               </td>
-                              <td>{row.pondName} · {seatLabel}</td>
-                              <td style={{ textAlign: 'right' }}><span className="w-cell">{formatWeight(row.weight, settings.ocrDecimalPlaces)}</span> kg</td>
-                              <td style={{ whiteSpace: 'nowrap' }}>{formatDate(row.capturedAt, { time: true }) || '-'}</td>
-                              <td>{row.photoUrl ? <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(row.photoUrl!)}>👁 Bukti</button> : '—'}</td>
-                              <td>
+                              <td data-label="No Pancang">{row.pondName} · {seatLabel}</td>
+                              <td data-label="Berat ikan" className="cms-prize-weight-cell"><span className="w-cell">{formatWeight(row.weight, settings.ocrDecimalPlaces)}</span> kg</td>
+                              <td data-label="Masa" style={{ whiteSpace: 'nowrap' }}>{formatDate(row.capturedAt, { time: true }) || '-'}</td>
+                              <td data-label="Bukti">{row.photoUrl ? <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(row.photoUrl!)}>👁 Bukti</button> : '—'}</td>
+                              <td data-label="Hadiah">
                                 <strong>{row.prize}</strong>
                                 {row.prizeLabel && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{row.prizeLabel}</div>}
                               </td>
-                              <td>
+                              <td data-label="Status">
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                   <span className={`badge badge-${claimStatus === 'claimed' ? 'approved' : 'pending'}`}>
                                     {claimStatus === 'claimed' ? 'Telah Dituntut' : 'Menunggu Tuntutan'}
@@ -4069,7 +4069,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           );
                         })}
                         {filteredRows.length === 0 && (
-                          <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          <tr className="cms-prize-empty-row"><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                             {allRows.length === 0 ? 'Tiada ranking yang mempunyai hadiah untuk pertandingan ini.' : 'Tiada rekod sepadan dengan tapisan.'}
                           </td></tr>
                         )}

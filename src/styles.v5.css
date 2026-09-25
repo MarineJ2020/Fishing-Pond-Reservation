@@ -429,6 +429,95 @@
 .cms-v5 .cms-filter-row .field label { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--cv-soft); }
 .cms-v5 .cms-filter-actions { display: flex; align-items: flex-end; }
 
+/* Rekod Hadiah — claim workflow tuned for small screens */
+.cms-v5 .cms-prize-record-tools-card { margin-bottom: 16px; }
+.cms-v5 .cms-prize-record-tools {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.15fr) minmax(260px, .85fr);
+  gap: 16px;
+  align-items: start;
+}
+.cms-v5 .cms-prize-filter-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.cms-v5 .cms-prize-status-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.cms-v5 .cms-prize-scan-panel {
+  border: 1px solid var(--cv-line);
+  border-radius: 12px;
+  padding: 12px;
+  background: linear-gradient(180deg, #fff, #fbfdff);
+}
+.cms-v5 .cms-prize-scan-title {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--cv-text);
+  margin-bottom: 8px;
+}
+.cms-v5 .cms-prize-camera {
+  margin-bottom: 10px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--cv-line);
+  background: #0f172a;
+}
+.cms-v5 .cms-prize-camera-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: #fff;
+  font-size: 12px;
+}
+.cms-v5 .cms-prize-scan-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cms-v5 .cms-prize-scan-result {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--cv-soft);
+  word-break: break-word;
+}
+.cms-v5 .cms-prize-scan-result.valid {
+  background: rgba(22, 163, 74, .09);
+  border: 1px solid rgba(22, 163, 74, .28);
+}
+.cms-v5 .cms-prize-scan-result.warning {
+  background: rgba(245, 158, 11, .12);
+  border: 1px solid rgba(245, 158, 11, .32);
+}
+.cms-v5 .cms-prize-scan-result.invalid {
+  background: rgba(220, 38, 38, .08);
+  border: 1px solid rgba(220, 38, 38, .28);
+}
+.cms-v5 .cms-prize-record-header {
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cms-v5 .cms-prize-record-header .btn { margin-left: auto; }
+.cms-v5 .cms-prize-record-table th:nth-child(1),
+.cms-v5 .cms-prize-record-table td:nth-child(1) { min-width: 90px; }
+.cms-v5 .cms-prize-record-table th:nth-child(2),
+.cms-v5 .cms-prize-record-table td:nth-child(2) { min-width: 190px; }
+.cms-v5 .cms-prize-record-table th:nth-child(3),
+.cms-v5 .cms-prize-record-table td:nth-child(3) { min-width: 150px; }
+.cms-v5 .cms-prize-record-table th:nth-child(7),
+.cms-v5 .cms-prize-record-table td:nth-child(7) { min-width: 150px; }
+.cms-v5 .cms-prize-record-table th:nth-child(8),
+.cms-v5 .cms-prize-record-table td:nth-child(8) { min-width: 210px; }
+.cms-v5 .cms-prize-scanned-row { background: rgba(250, 204, 21, .16); }
+.cms-v5 .cms-prize-weight-cell { text-align: right; }
+
 /* Booking refinements */
 .bk-summary-head small {
   margin: 0;
@@ -607,6 +696,130 @@
 }
 
 @media (max-width: 768px) {
+  .cms-v5 .cms-prize-record-tools {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .cms-v5 .cms-prize-filter-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .cms-v5 .cms-prize-status-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .cms-v5 .cms-prize-status-row .btn,
+  .cms-v5 .cms-prize-scan-actions .btn {
+    width: 100%;
+    min-height: 42px;
+    justify-content: center;
+  }
+  .cms-v5 .cms-prize-scan-panel {
+    padding: 11px;
+  }
+  .cms-v5 .cms-prize-camera-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .cms-v5 .cms-prize-camera-bar .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .cms-v5 .cms-prize-record-header {
+    align-items: stretch;
+  }
+  .cms-v5 .cms-prize-record-header .card-title,
+  .cms-v5 .cms-prize-record-header .btn {
+    width: 100%;
+    margin-left: 0;
+  }
+  .cms-v5 .cms-prize-record-header .btn {
+    justify-content: center;
+    min-height: 42px;
+  }
+  .cms-v5 .cms-prize-table-wrap {
+    border: 0;
+    background: transparent;
+    overflow: visible;
+  }
+  .cms-v5 .cms-prize-record-table,
+  .cms-v5 .cms-prize-record-table tbody,
+  .cms-v5 .cms-prize-record-table tr,
+  .cms-v5 .cms-prize-record-table td {
+    display: block;
+    width: 100%;
+  }
+  .cms-v5 .cms-prize-record-table thead {
+    display: none;
+  }
+  .cms-v5 .cms-prize-record-table tr {
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid var(--cv-line);
+    border-radius: 14px;
+    background: var(--cv-surface);
+    box-shadow: 0 12px 28px rgba(16, 43, 70, .06);
+  }
+  .cms-v5 .cms-prize-record-table tr:last-child {
+    margin-bottom: 0;
+  }
+  .cms-v5 .cms-prize-record-table td {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--cv-line);
+    font-size: 13px;
+  }
+  .cms-v5 .cms-prize-record-table td:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .cms-v5 .cms-prize-record-table td::before {
+    content: attr(data-label);
+    color: var(--cv-soft);
+    font-size: 10.5px;
+    font-weight: 900;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+  .cms-v5 .cms-prize-record-table td[data-label="Info Peserta"],
+  .cms-v5 .cms-prize-record-table td[data-label="Hadiah"],
+  .cms-v5 .cms-prize-record-table td[data-label="Status"] {
+    display: block;
+  }
+  .cms-v5 .cms-prize-record-table td[data-label="Info Peserta"]::before,
+  .cms-v5 .cms-prize-record-table td[data-label="Hadiah"]::before,
+  .cms-v5 .cms-prize-record-table td[data-label="Status"]::before {
+    display: block;
+    margin-bottom: 4px;
+  }
+  .cms-v5 .cms-prize-record-table td[data-label="Status"] .btn {
+    min-height: 38px;
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+  .cms-v5 .cms-prize-record-table td[data-label="Bukti"] .btn {
+    min-height: 36px;
+    justify-content: center;
+  }
+  .cms-v5 .cms-prize-weight-cell {
+    text-align: left;
+  }
+  .cms-v5 .cms-prize-empty-row {
+    box-shadow: none;
+  }
+  .cms-v5 .cms-prize-empty-row td {
+    display: block;
+    border: 0;
+    text-align: center;
+  }
+  .cms-v5 .cms-prize-empty-row td::before {
+    content: none;
+  }
   .cms-v5 .cms-queue-toolbar {
     align-items: stretch;
     gap: 10px;
