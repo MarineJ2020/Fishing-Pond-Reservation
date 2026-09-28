@@ -323,6 +323,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [scorePegFilter, setScorePegFilter] = useState('');
   const [scoreNameFilter, setScoreNameFilter] = useState('');
   const [scorePondFilter, setScorePondFilter] = useState('');
+  const [topRecordSelectionKey, setTopRecordSelectionKey] = useState<string | null>(null);
   const [prizeRecordCompId, setPrizeRecordCompId] = useState<string>(comp.id || '');
   const [prizeRecordScores, setPrizeRecordScores] = useState<ScoreEntry[]>([]);
   const [prizeClaims, setPrizeClaims] = useState<PrizeClaim[]>([]);
@@ -3547,6 +3548,35 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 && (!nameQ || entry.anglerName.toLowerCase().includes(nameQ))
                 && (!scorePondFilter || entry.pondName === scorePondFilter);
             });
+            const topRecordRows = Array.from(scoreEntries.reduce((map, entry) => {
+              const key = `${entry.bookingId || entry.anglerName.trim().toLowerCase()}:${entry.pondId}:${entry.seatNum}`;
+              const current = map.get(key);
+              const records = current ? [...current.records, entry] : [entry];
+              const latestAt = records.reduce((latest, record) => Math.max(latest, scoreRankTime(record)), 0);
+              map.set(key, {
+                key,
+                anglerName: entry.anglerName || 'Tanpa nama',
+                pondId: entry.pondId,
+                pondName: entry.pondName,
+                seatNum: entry.seatNum,
+                records,
+                latestAt,
+              });
+              return map;
+            }, new Map<string, {
+              key: string;
+              anglerName: string;
+              pondId: number;
+              pondName: string;
+              seatNum: number;
+              records: ScoreEntry[];
+              latestAt: number;
+            }>()).values()).sort((a, b) => (b.records.length - a.records.length) || (b.latestAt - a.latestAt) || a.seatNum - b.seatNum);
+            const topRecordWinner = topRecordRows[0] || null;
+            const selectedTopRecord = topRecordRows.find((row) => row.key === topRecordSelectionKey) || null;
+            const topRecordDetailRows = selectedTopRecord
+              ? [...selectedTopRecord.records].sort((a, b) => scoreRankTime(b) - scoreRankTime(a))
+              : [];
             const selectedResultsComp = competitionsForCms.find((competition) => competition.id === resultsCompId) || comp;
             const exportResultsRows = () => {
               const headers = ['Kedudukan', 'Masa', 'Nama Peserta', 'Kolam', 'No Pancang', 'Berat ikan (kg)', 'Hadiah', 'Bukti'];
@@ -3591,6 +3621,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         setScorePegFilter('');
                         setScoreNameFilter('');
                         setScorePondFilter('');
+                        setTopRecordSelectionKey(null);
                       }}
                     >
                       {resultsCompsLiveFirst.map(c => (
@@ -3616,6 +3647,90 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           onClick={() => { setScanInitialSelection(null); setScanOpen(true); }}
                         >📷 Imbas Timbangan</button>
                       </div>
+                  </div>
+                </div>
+
+                <div className="card cms-top-record-card">
+                  <div className="card-header">
+                    <div>
+                      <div className="card-title">Ringkasan Rekod Terbanyak</div>
+                      <div className="cms-top-record-sub">Peserta yang paling banyak kali direkodkan berat ikan.</div>
+                    </div>
+                  </div>
+                  <div className="card-body">
+                    {topRecordWinner ? (
+                      <>
+                        <button
+                          type="button"
+                          className={`cms-top-record-winner${topRecordSelectionKey === topRecordWinner.key ? ' is-selected' : ''}`}
+                          onClick={() => setTopRecordSelectionKey((current) => current === topRecordWinner.key ? null : topRecordWinner.key)}
+                          aria-pressed={topRecordSelectionKey === topRecordWinner.key}
+                        >
+                          <span className="cms-top-record-medal">#1</span>
+                          <span className="cms-top-record-person">
+                            <strong>{topRecordWinner.anglerName}</strong>
+                            <small>{topRecordWinner.pondName} · No. Pancang {formatSeat(ponds.find((pond) => pond.id === topRecordWinner.pondId)?.code, topRecordWinner.seatNum)}</small>
+                          </span>
+                          <span className="cms-top-record-count">
+                            <strong>{topRecordWinner.records.length}</strong>
+                            <small>jumlah rekod</small>
+                          </span>
+                        </button>
+
+                        {topRecordRows.length > 1 && (
+                          <div className="cms-top-record-runners" aria-label="Peserta rekod terbanyak lain">
+                            {topRecordRows.slice(1, 4).map((row, index) => (
+                              <button
+                                type="button"
+                                key={row.key}
+                                className={`cms-top-record-runner${topRecordSelectionKey === row.key ? ' is-selected' : ''}`}
+                                onClick={() => setTopRecordSelectionKey((current) => current === row.key ? null : row.key)}
+                                aria-pressed={topRecordSelectionKey === row.key}
+                              >
+                                <span>#{index + 2}</span>
+                                <strong>{row.anglerName}</strong>
+                                <small>{formatSeat(ponds.find((pond) => pond.id === row.pondId)?.code, row.seatNum)} · {row.records.length} rekod</small>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {selectedTopRecord && (
+                          <div className="cms-top-record-details">
+                            <div className="cms-top-record-details-head">
+                              <strong>{selectedTopRecord.anglerName}</strong>
+                              <span>{selectedTopRecord.records.length} rekod timbang</span>
+                            </div>
+                            <div className="table-wrap">
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>Waktu</th>
+                                    <th>Kolam</th>
+                                    <th>No. Pancang</th>
+                                    <th style={{ textAlign: 'right' }}>Berat (kg)</th>
+                                    <th>Bukti</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {topRecordDetailRows.map((entry) => (
+                                    <tr key={entry.id || `${entry.capturedAt}-${entry.weight}`}>
+                                      <td style={{ whiteSpace: 'nowrap' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}</td>
+                                      <td>{entry.pondName}</td>
+                                      <td>{formatSeat(ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum)}</td>
+                                      <td style={{ textAlign: 'right' }}><span className="w-cell">{formatWeight(entry.weight, settings.ocrDecimalPlaces)}</span> kg</td>
+                                      <td>{entry.photoUrl ? <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(entry.photoUrl!)}>👁 Bukti</button> : '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="cms-top-record-empty">Tiada rekod untuk diringkaskan lagi.</div>
+                    )}
                   </div>
                 </div>
 
