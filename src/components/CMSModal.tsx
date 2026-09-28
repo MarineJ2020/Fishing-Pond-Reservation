@@ -3548,11 +3548,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 && (!nameQ || entry.anglerName.toLowerCase().includes(nameQ))
                 && (!scorePondFilter || entry.pondName === scorePondFilter);
             });
+            const scoreSortTime = (entry: ScoreEntry): number => {
+              const time = scoreRankTime(entry);
+              return time > 0 ? time : Number.MAX_SAFE_INTEGER;
+            };
+            const fastestRecord = [...scoreEntries].sort((a, b) => scoreSortTime(a) - scoreSortTime(b))[0] || null;
             const topRecordRows = Array.from(scoreEntries.reduce((map, entry) => {
               const key = `${entry.bookingId || entry.anglerName.trim().toLowerCase()}:${entry.pondId}:${entry.seatNum}`;
               const current = map.get(key);
-              const records = current ? [...current.records, entry] : [entry];
-              const latestAt = records.reduce((latest, record) => Math.max(latest, scoreRankTime(record)), 0);
+              const records = [...(current?.records || []), entry].sort((a, b) => scoreSortTime(a) - scoreSortTime(b));
+              const reachedAt = records[records.length - 1] ? scoreSortTime(records[records.length - 1]) : Number.MAX_SAFE_INTEGER;
+              const firstAt = records[0] ? scoreSortTime(records[0]) : Number.MAX_SAFE_INTEGER;
               map.set(key, {
                 key,
                 anglerName: entry.anglerName || 'Tanpa nama',
@@ -3560,7 +3566,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 pondName: entry.pondName,
                 seatNum: entry.seatNum,
                 records,
-                latestAt,
+                reachedAt,
+                firstAt,
               });
               return map;
             }, new Map<string, {
@@ -3570,9 +3577,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               pondName: string;
               seatNum: number;
               records: ScoreEntry[];
-              latestAt: number;
-            }>()).values()).sort((a, b) => (b.records.length - a.records.length) || (b.latestAt - a.latestAt) || a.seatNum - b.seatNum);
-            const topRecordWinner = topRecordRows[0] || null;
+              reachedAt: number;
+              firstAt: number;
+            }>()).values()).sort((a, b) => (b.records.length - a.records.length) || (a.reachedAt - b.reachedAt) || (a.firstAt - b.firstAt) || a.seatNum - b.seatNum);
+            const topRecordLeader = topRecordRows[0] || null;
+            const topRecordWinners = topRecordLeader
+              ? topRecordRows.filter((row) => row.records.length === topRecordLeader.records.length && row.reachedAt === topRecordLeader.reachedAt)
+              : [];
+            const topRecordRunnerRows = topRecordRows.filter((row) => !topRecordWinners.some((winner) => winner.key === row.key));
             const selectedTopRecord = topRecordRows.find((row) => row.key === topRecordSelectionKey) || null;
             const topRecordDetailRows = selectedTopRecord
               ? [...selectedTopRecord.records].sort((a, b) => scoreRankTime(b) - scoreRankTime(a))
@@ -3650,86 +3662,124 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                 </div>
 
-                <div className="card cms-top-record-card">
+                <div className="card cms-record-summary-card">
                   <div className="card-header">
                     <div>
-                      <div className="card-title">Ringkasan Rekod Terbanyak</div>
-                      <div className="cms-top-record-sub">Peserta yang paling banyak kali direkodkan berat ikan.</div>
+                      <div className="card-title">Ringkasan Rekod</div>
+                      <div className="cms-top-record-sub">Rekod terpantas dan peserta yang paling cepat capai jumlah rekod terbanyak.</div>
                     </div>
                   </div>
                   <div className="card-body">
-                    {topRecordWinner ? (
-                      <>
-                        <button
-                          type="button"
-                          className={`cms-top-record-winner${topRecordSelectionKey === topRecordWinner.key ? ' is-selected' : ''}`}
-                          onClick={() => setTopRecordSelectionKey((current) => current === topRecordWinner.key ? null : topRecordWinner.key)}
-                          aria-pressed={topRecordSelectionKey === topRecordWinner.key}
-                        >
-                          <span className="cms-top-record-medal">#1</span>
-                          <span className="cms-top-record-person">
-                            <strong>{topRecordWinner.anglerName}</strong>
-                            <small>{topRecordWinner.pondName} · No. Pancang {formatSeat(ponds.find((pond) => pond.id === topRecordWinner.pondId)?.code, topRecordWinner.seatNum)}</small>
-                          </span>
-                          <span className="cms-top-record-count">
-                            <strong>{topRecordWinner.records.length}</strong>
-                            <small>jumlah rekod</small>
-                          </span>
-                        </button>
-
-                        {topRecordRows.length > 1 && (
-                          <div className="cms-top-record-runners" aria-label="Peserta rekod terbanyak lain">
-                            {topRecordRows.slice(1, 4).map((row, index) => (
-                              <button
-                                type="button"
-                                key={row.key}
-                                className={`cms-top-record-runner${topRecordSelectionKey === row.key ? ' is-selected' : ''}`}
-                                onClick={() => setTopRecordSelectionKey((current) => current === row.key ? null : row.key)}
-                                aria-pressed={topRecordSelectionKey === row.key}
-                              >
-                                <span>#{index + 2}</span>
-                                <strong>{row.anglerName}</strong>
-                                <small>{formatSeat(ponds.find((pond) => pond.id === row.pondId)?.code, row.seatNum)} · {row.records.length} rekod</small>
-                              </button>
-                            ))}
+                    <div className="cms-record-summary-grid">
+                      <div className="cms-fastest-record-panel">
+                        <div className="cms-record-panel-label">Rekod Terpantas</div>
+                        {fastestRecord ? (
+                          <div className="cms-fastest-record-body">
+                            <span className="cms-top-record-medal">1st</span>
+                            <span className="cms-top-record-person">
+                              <strong>{fastestRecord.anglerName || 'Tanpa nama'}</strong>
+                              <small>{formatDate(fastestRecord.capturedAt, { time: true }) || '-'} · {fastestRecord.pondName} · No. Pancang {formatSeat(ponds.find((pond) => pond.id === fastestRecord.pondId)?.code, fastestRecord.seatNum)}</small>
+                            </span>
+                            <span className="cms-top-record-count">
+                              <strong>{formatWeight(fastestRecord.weight, settings.ocrDecimalPlaces)}</strong>
+                              <small>kg</small>
+                            </span>
                           </div>
+                        ) : (
+                          <div className="cms-top-record-empty">Tiada rekod lagi.</div>
                         )}
+                      </div>
 
-                        {selectedTopRecord && (
-                          <div className="cms-top-record-details">
-                            <div className="cms-top-record-details-head">
-                              <strong>{selectedTopRecord.anglerName}</strong>
-                              <span>{selectedTopRecord.records.length} rekod timbang</span>
+                      <div className="cms-most-record-panel">
+                        <div className="cms-record-panel-label">Rekod Terbanyak</div>
+                        {topRecordWinners.length ? (
+                          <>
+                            <div className="cms-top-record-winners">
+                              {topRecordWinners.map((winner) => (
+                                <button
+                                  type="button"
+                                  key={winner.key}
+                                  className={`cms-top-record-winner${topRecordSelectionKey === winner.key ? ' is-selected' : ''}`}
+                                  onClick={() => setTopRecordSelectionKey((current) => current === winner.key ? null : winner.key)}
+                                  aria-pressed={topRecordSelectionKey === winner.key}
+                                >
+                                  <span className="cms-top-record-medal">#1</span>
+                                  <span className="cms-top-record-person">
+                                    <strong>{winner.anglerName}</strong>
+                                    <small>
+                                      {winner.pondName} · No. Pancang {formatSeat(ponds.find((pond) => pond.id === winner.pondId)?.code, winner.seatNum)}
+                                      {' '}· capai {winner.records.length} rekod pada {formatDate(winner.records[winner.records.length - 1]?.capturedAt, { time: true }) || '-'}
+                                    </small>
+                                  </span>
+                                  <span className="cms-top-record-count">
+                                    <strong>{winner.records.length}</strong>
+                                    <small>{topRecordWinners.length > 1 ? 'kongsi menang' : 'jumlah rekod'}</small>
+                                  </span>
+                                </button>
+                              ))}
                             </div>
-                            <div className="table-wrap">
-                              <table>
-                                <thead>
-                                  <tr>
-                                    <th>Waktu</th>
-                                    <th>Kolam</th>
-                                    <th>No. Pancang</th>
-                                    <th style={{ textAlign: 'right' }}>Berat (kg)</th>
-                                    <th>Bukti</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {topRecordDetailRows.map((entry) => (
-                                    <tr key={entry.id || `${entry.capturedAt}-${entry.weight}`}>
-                                      <td style={{ whiteSpace: 'nowrap' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}</td>
-                                      <td>{entry.pondName}</td>
-                                      <td>{formatSeat(ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum)}</td>
-                                      <td style={{ textAlign: 'right' }}><span className="w-cell">{formatWeight(entry.weight, settings.ocrDecimalPlaces)}</span> kg</td>
-                                      <td>{entry.photoUrl ? <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(entry.photoUrl!)}>👁 Bukti</button> : '—'}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
+
+                            {topRecordWinners.length > 1 && (
+                              <div className="cms-shared-winner-note">
+                                Masa rekod terakhir sama. Hadiah rekod terbanyak perlu dibahagi kepada {topRecordWinners.length} pemenang.
+                              </div>
+                            )}
+
+                            {topRecordRunnerRows.length > 0 && (
+                              <div className="cms-top-record-runners" aria-label="Peserta rekod terbanyak lain">
+                                {topRecordRunnerRows.slice(0, 4).map((row, index) => (
+                                  <button
+                                    type="button"
+                                    key={row.key}
+                                    className={`cms-top-record-runner${topRecordSelectionKey === row.key ? ' is-selected' : ''}`}
+                                    onClick={() => setTopRecordSelectionKey((current) => current === row.key ? null : row.key)}
+                                    aria-pressed={topRecordSelectionKey === row.key}
+                                  >
+                                    <span>#{topRecordWinners.length + index + 1}</span>
+                                    <strong>{row.anglerName}</strong>
+                                    <small>{formatSeat(ponds.find((pond) => pond.id === row.pondId)?.code, row.seatNum)} · {row.records.length} rekod · capai pada {formatDate(row.records[row.records.length - 1]?.capturedAt, { time: true }) || '-'}</small>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="cms-top-record-empty">Tiada rekod untuk diringkaskan lagi.</div>
                         )}
-                      </>
-                    ) : (
-                      <div className="cms-top-record-empty">Tiada rekod untuk diringkaskan lagi.</div>
+                      </div>
+                    </div>
+
+                    {selectedTopRecord && (
+                      <div className="cms-top-record-details">
+                        <div className="cms-top-record-details-head">
+                          <strong>{selectedTopRecord.anglerName}</strong>
+                          <span>{selectedTopRecord.records.length} rekod timbang</span>
+                        </div>
+                        <div className="table-wrap">
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Waktu</th>
+                                <th>Kolam</th>
+                                <th>No. Pancang</th>
+                                <th style={{ textAlign: 'right' }}>Berat (kg)</th>
+                                <th>Bukti</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {topRecordDetailRows.map((entry) => (
+                                <tr key={entry.id || `${entry.capturedAt}-${entry.weight}`}>
+                                  <td style={{ whiteSpace: 'nowrap' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}</td>
+                                  <td>{entry.pondName}</td>
+                                  <td>{formatSeat(ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum)}</td>
+                                  <td style={{ textAlign: 'right' }}><span className="w-cell">{formatWeight(entry.weight, settings.ocrDecimalPlaces)}</span> kg</td>
+                                  <td>{entry.photoUrl ? <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(entry.photoUrl!)}>👁 Bukti</button> : '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
