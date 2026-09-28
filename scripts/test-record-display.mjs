@@ -162,20 +162,22 @@ function firestoreDouble() {
   return { sdk, records, advance: () => { now = '2026-09-02T00:00:00.000Z'; } };
 }
 
-test('real save/read paths preserve weight precision and creation time on updates', async () => {
+test('real save/read paths append repeat weigh-ins with preserved precision and creation time', async () => {
   const fake = firestoreDouble();
   const api = await loadModule('src/lib/firestore.ts', { 'firebase/firestore': fake.sdk, 'test:firebase-app': { db: {}, auth: {} } });
   const entry = { competitionId: 'event', bookingId: 'booking', anglerName: 'Test', pondId: 1, pondName: 'Pond', seatNum: 1, weight: 12.115 };
   const id = await api.saveScoreEntry(entry);
   assert.equal((await api.getScoresForCompetition('event'))[0].weight, 12.115);
   fake.advance();
-  assert.equal(await api.saveScoreEntry({ ...entry, weight: 12.116 }), id);
+  const nextId = await api.saveScoreEntry({ ...entry, weight: 12.116 });
+  assert.notEqual(nextId, id);
   const live = await api.getScoresForCompetition('event');
   const history = await api.getScoreEntriesPage();
-  for (const record of [live[0], history.items[0]]) {
-    assert.equal(record.weight, 12.116);
-    assert.equal(record.capturedAt, '2026-09-01T00:00:00.000Z');
-  }
+  assert.equal(live.length, 2);
+  assert.deepEqual(live.map((record) => record.weight), [12.115, 12.116]);
+  assert.deepEqual(history.items.map((record) => record.weight), [12.115, 12.116]);
+  assert.equal(live[0].capturedAt, '2026-09-01T00:00:00.000Z');
+  assert.equal(live[1].capturedAt, '2026-09-02T00:00:00.000Z');
   const stored = fake.records.get(`eventResults/${id}`);
   delete stored.createdAt;
   assert.equal((await api.getScoresForCompetition('event'))[0].capturedAt, '2026-09-02T00:00:00.000Z');

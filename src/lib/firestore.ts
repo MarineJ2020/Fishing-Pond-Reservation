@@ -1319,34 +1319,6 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
   if (entry.scanMethod)                     evidenceFields.scanMethod = entry.scanMethod;
   if (entry.capturedBy)                     evidenceFields.capturedBy = entry.capturedBy;
 
-  if (entry.bookingId) {
-    const q = query(
-      resultsRef,
-      where('competitionId', '==', entry.competitionId),
-      where('bookingId', '==', entry.bookingId),
-      where('seatNum', '==', entry.seatNum),
-    );
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const activeDoc = snap.docs.find((d) => !d.data().deletedAt);
-      if (!activeDoc) {
-        // All matching historical records were removed from the leaderboard.
-        // Keep them in Rekod Timbangan and create a fresh live result instead.
-      } else {
-        const existingId = activeDoc.id;
-        await setDoc(doc(db, 'eventResults', existingId), {
-          anglerName: entry.anglerName,
-          pondId: entry.pondId,
-          pondName: entry.pondName,
-          seatNum: entry.seatNum,
-          weight: entry.weight,
-          ...evidenceFields,
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
-        return existingId;
-      }
-    }
-  }
   const docRef = await addDoc(resultsRef, {
     competitionId: entry.competitionId,
     bookingId: entry.bookingId || null,
