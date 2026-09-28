@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
@@ -224,6 +224,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [checkinResult, setCheckinResult] = useState<any>(null);
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [checkinCompetitionId, setCheckinCompetitionId] = useState('');
+  const [checkinOverrides, setCheckinOverrides] = useState<Record<string, Partial<Booking>>>({});
   // Seat number decoded from a scanned per-seat QR (highlights that row); null
   // for legacy QR/manual search where the seat isn't known ahead of time.
   const [checkinScannedSeat, setCheckinScannedSeat] = useState<number | null>(null);
@@ -453,6 +454,42 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     return () => window.clearInterval(id);
   }, []);
 
+  const effectiveBookings = useMemo(() => {
+    if (!Object.keys(checkinOverrides).length) return bookings;
+    return bookings.map((booking) => (
+      checkinOverrides[booking.id] ? { ...booking, ...checkinOverrides[booking.id] } : booking
+    ));
+  }, [bookings, checkinOverrides]);
+
+  const bookingByScanId = useMemo(() => {
+    const map = new Map<string, Booking>();
+    effectiveBookings.forEach((booking) => {
+      map.set(booking.id, booking);
+      if (booking.bookingRef) map.set(booking.bookingRef, booking);
+    });
+    return map;
+  }, [effectiveBookings]);
+
+  const bookingById = useMemo(() => {
+    const map = new Map<string, Booking>();
+    effectiveBookings.forEach((booking) => map.set(booking.id, booking));
+    return map;
+  }, [effectiveBookings]);
+
+  const pondCodeById = useMemo(() => {
+    const map = new Map<number, string | undefined>();
+    ponds.forEach((pond) => map.set(pond.id, pond.code));
+    return map;
+  }, [ponds]);
+
+  const checkinRows = useMemo(() => {
+    return effectiveBookings
+      .filter((booking) =>
+        booking.status === 'confirmed'
+        && (!checkinCompetitionId || (booking.competitionId || comp.id || '') === checkinCompetitionId))
+      .flatMap((booking) => bookingSeatEntries(booking).map((entry) => ({ booking, entry })));
+  }, [effectiveBookings, checkinCompetitionId, comp.id]);
+
   useEffect(() => {
     if (isOpen && page === 'checkin') return;
     if (checkinLiveRafRef.current) {
@@ -575,7 +612,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // different competition is never flagged as a conflict.
   const seatConflictMap = React.useMemo(() => {
     const map = new Map<string, string[]>();
-    bookings.forEach((b) => {
+    effectiveBookings.forEach((b) => {
       if (b.status === 'rejected') return;
       const compId = b.competitionId || '';
       const selections = b.pondSelections?.length ? b.pondSelections : [{ pondId: b.pondId, seats: b.seats ?? [] }];
@@ -587,7 +624,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
     });
     return map;
-  }, [bookings]);
+  }, [effectiveBookings]);
 
   const toLocalDatetime = (iso: string) => {
     if (!iso) return '';
@@ -859,7 +896,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Accept a single payment receipt. The server-side booking status trigger owns
   // approval-email creation, so delivery does not depend on this browser staying open.
   const handleAcceptReceipt = async (bookingId: string, receiptIndex: number) => {
-    const target = bookings.find(b => b.id === bookingId);
+    const target = bookingById.get(bookingId);
     setSaving(true);
     try {
       await acceptBookingReceipt({ bookingId, receiptIndex });
@@ -884,7 +921,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       await refetchCurrentBookingList();
       await logAuditEvent({
         action: 'booking.receipt_reject', actionLabel: 'Tolak Resit', entityType: 'booking',
-        entityId: bookingId, entityLabel: bookings.find(b => b.id === bookingId)?.bookingRef || bookingId,
+        entityId: bookingId, entityLabel: bookingById.get(bookingId)?.bookingRef || bookingId,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
       setReviewTarget(null);
@@ -1309,7 +1346,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       // matching booking, or the raw scanned text when nothing matches.
       stopCheckinLiveScan();
       const parsed = parseQrPayload(decoded);
-      const found = parsed ? bookings.find(b => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId) : null;
+      const found = parsed ? bookingByScanId.get(parsed.bookingId) || null : null;
       if (found) {
         setCheckinResult(found);
         setCheckinScannedSeat(parsed?.seatNum ?? null);
@@ -1360,7 +1397,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const decoded = decodeQr(imageData.data, imageData.width, imageData.height);
       const parsed = decoded ? parseQrPayload(decoded) : null;
-      const found = parsed ? bookings.find(b => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId) : null;
+      const found = parsed ? bookingByScanId.get(parsed.bookingId) || null : null;
       if (!found) {
         // Show what was scanned (if anything) rather than a disappearing alert.
         setCheckinResult(null);
@@ -1423,8 +1460,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         pondId: entry?.pondId,
         settleBalance,
       });
-      setCheckinResult((prev: Booking | null) => prev && prev.id === booking.id ? { ...prev, ...result } : prev);
-      await reloadDB();
+      const override = {
+        checkedInSeatKeys: result.checkedInSeatKeys,
+        checkedInSeats: result.checkedInSeats,
+        checkedIn: result.checkedIn,
+        checkedInAt: result.checkedInAt,
+        checkedInSeatTimes: result.checkedInSeatTimes,
+        paidAmount: result.paidAmount ?? booking.paidAmount,
+        balanceDue: result.balanceDue ?? booking.balanceDue,
+        paymentStatus: result.paymentStatus ?? (booking as any).paymentStatus,
+        balanceStage: result.balanceStage ?? booking.balanceStage,
+      } as Partial<Booking>;
+      setCheckinOverrides((previous) => ({ ...previous, [booking.id]: { ...(previous[booking.id] || {}), ...override } }));
+      setCheckinResult((prev: Booking | null) => prev && prev.id === booking.id ? { ...prev, ...override } : prev);
       const bookingRef = booking.bookingRef || booking.id;
       if (settleBalance) {
         await logAuditEvent({
@@ -1459,11 +1507,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setCheckinLoading(true);
     try {
       const result = await cancelBookingCheckIn({ bookingId: booking.id, seatNum: entry.seatNum, pondId: entry.pondId });
-      await reloadDB();
+      const override = {
+        checkedInSeatKeys: result.checkedInSeatKeys,
+        checkedInSeats: result.checkedInSeats,
+        checkedIn: result.checkedIn,
+        checkedInSeatTimes: result.checkedInSeatTimes,
+      } as Partial<Booking>;
+      setCheckinOverrides((previous) => ({ ...previous, [booking.id]: { ...(previous[booking.id] || {}), ...override } }));
       if (checkinResult?.id === booking.id) {
         setCheckinResult((prev: Booking | null) => prev ? {
           ...prev,
-          ...result,
+          ...override,
         } : prev);
       }
       await logAuditEvent({
@@ -1931,7 +1985,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const toScannedBookingFull = (bookingId: string, pondId?: number): ScannedBookingFull | null => {
-    const booking = bookings.find((b) => b.id === bookingId || b.bookingRef === bookingId);
+    const booking = bookingByScanId.get(bookingId);
     if (!booking) return null;
     const compId = booking.competitionId || '';
     if (resultsCompId && compId && compId !== resultsCompId) return null;
@@ -1946,7 +2000,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
    * to weigh for. Scoped to the currently-selected Results competition.
    */
   const listBookingsForScan = (): ScannedBookingFull[] => {
-    return bookings
+    return effectiveBookings
       .filter((b) => {
         if (!bookingSeatEntries(b).length) return false;
         // Exclude rejected bookings — they can't legitimately compete.
@@ -1978,7 +2032,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       pondId: booking.pondId,
       settleBalance,
     });
-    reloadDB().catch((err) => console.error('Failed to refresh DB after check-in:', err));
+    setCheckinOverrides((previous) => ({
+      ...previous,
+      [booking.bookingId]: {
+        ...(previous[booking.bookingId] || {}),
+        checkedInSeats: result.checkedInSeats || booking.checkedInSeats,
+        checkedInSeatKeys: result.checkedInSeatKeys || booking.checkedInSeatKeys,
+        paidAmount: result.paidAmount ?? booking.paidAmount,
+        balanceDue: result.balanceDue ?? booking.balanceDue,
+        paymentStatus: result.paymentStatus ?? booking.paymentStatus,
+        balanceStage: result.balanceStage ?? booking.balanceStage,
+      } as Partial<Booking>,
+    }));
     if (settleBalance) {
       logAuditEvent({
         action: 'booking.manual_payment_validation', actionLabel: 'Validasi Bayaran Tunai', entityType: 'booking',
@@ -2130,8 +2195,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
   };
 
-  const pendingCount = bookings.filter(b => b.status === 'pending').length;
-  const confirmedCount = bookings.filter(b => b.status === 'confirmed').length;
+  const pendingCount = effectiveBookings.filter(b => b.status === 'pending').length;
+  const confirmedCount = effectiveBookings.filter(b => b.status === 'confirmed').length;
 
   const hasConflict = (b: Booking) => {
     const selections = b.pondSelections?.length ? b.pondSelections : [{ pondId: b.pondId, seats: b.seats ?? [] }];
@@ -2139,7 +2204,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       (seatNum) => (seatConflictMap.get(`${b.competitionId || ''}-${selection.pondId}-${seatNum}`) ?? []).length > 1,
     ));
   };
-  const totalRevenue = bookings.filter(b => b.status === 'confirmed').reduce((s, b) => s + b.amount, 0);
+  const totalRevenue = effectiveBookings.filter(b => b.status === 'confirmed').reduce((s, b) => s + b.amount, 0);
   const competitionsForCms = compList.length ? compList : (comp.name ? [comp] : []);
   const dashboardCompetitions = competitionsForCms
     .filter((competition) => {
@@ -2235,7 +2300,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       .sort((a, b) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a)))
       .map((entry, index) => {
         const rank = index + 1;
-        const booking = entry.bookingId ? bookings.find((b) => b.id === entry.bookingId) : undefined;
+        const booking = entry.bookingId ? bookingById.get(entry.bookingId) : undefined;
         return {
           ...entry,
           rank,
@@ -2271,7 +2336,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setPrizeScanSeat(null);
     setPrizeScanPondId(null);
     if (!parsed) return;
-    const booking = bookings.find((b) => b.id === parsed.bookingId || b.bookingRef === parsed.bookingId);
+    const booking = bookingByScanId.get(parsed.bookingId);
     if (!booking) return;
     setPrizeScanBooking(booking);
     setPrizeScanSeat(parsed.seatNum ?? null);
@@ -3464,12 +3529,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <table>
                       <thead><tr><th>Info Peserta</th><th>No. Pancang</th><th>Masa Check in</th><th>Status</th><th>Tindakan</th></tr></thead>
                       <tbody>
-                        {bookings
-                          .filter((booking) =>
-                            booking.status === 'confirmed'
-                            && (!checkinCompetitionId || (booking.competitionId || comp.id || '') === checkinCompetitionId))
-                          .flatMap((booking) => bookingSeatEntries(booking).map((entry) => ({ booking, entry })))
-                          .map(({ booking, entry }) => {
+                        {checkinRows.map(({ booking, entry }) => {
                             const checked = isBookingSeatCheckedIn(booking, entry);
                             const checkedAt = bookingSeatCheckInTime(booking, entry);
                             const payment = checkinPaymentMeta(booking);
@@ -3523,9 +3583,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               </tr>
                             );
                           })}
-                        {bookings.filter((booking) =>
-                          booking.status === 'confirmed'
-                          && (!checkinCompetitionId || (booking.competitionId || comp.id || '') === checkinCompetitionId)).length === 0 && (
+                        {checkinRows.length === 0 && (
                           <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 22 }}>Tiada peserta untuk pertandingan ini.</td></tr>
                         )}
                       </tbody>
@@ -3737,7 +3795,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   >
                                     <span>#{topRecordWinners.length + index + 1}</span>
                                     <strong>{row.anglerName}</strong>
-                                    <small>{formatSeat(ponds.find((pond) => pond.id === row.pondId)?.code, row.seatNum)} · {row.records.length} rekod · capai pada {formatDate(row.records[row.records.length - 1]?.capturedAt, { time: true }) || '-'}</small>
+                                    <small>{formatSeat(pondCodeById.get(row.pondId), row.seatNum)} · {row.records.length} rekod · capai pada {formatDate(row.records[row.records.length - 1]?.capturedAt, { time: true }) || '-'}</small>
                                   </button>
                                 ))}
                               </div>
@@ -4040,7 +4098,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   row.booking?.bookingPhone || row.booking?.userPhone || '',
                   row.booking?.bookingRef || row.bookingId || '',
                   row.pondName,
-                  formatSeat(row.booking?.pondCode || ponds.find((pond) => pond.id === row.pondId)?.code, row.seatNum),
+                  formatSeat(row.booking?.pondCode || pondCodeById.get(row.pondId), row.seatNum),
                   formatWeight(row.weight, settings.ocrDecimalPlaces),
                   csvDateTime(row.capturedAt),
                   row.photoUrl || '',
@@ -4175,7 +4233,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           const claimStatus = row.claim?.status === 'claimed' ? 'claimed' : 'pending';
                           const scanned = scannedRows.some((scanRow) => scanRow.id === row.id);
                           const savingKey = prizeClaimKey(prizeRecordCompId, row.rank);
-                          const seatLabel = formatSeat(row.booking?.pondCode || ponds.find((pond) => pond.id === row.pondId)?.code, row.seatNum);
+                          const seatLabel = formatSeat(row.booking?.pondCode || pondCodeById.get(row.pondId), row.seatNum);
                           return (
                             <tr key={row.id || `${row.rank}-${row.seatNum}`} className={scanned ? 'cms-prize-scanned-row' : undefined}>
                               <td data-label="Kedudukan"><span className={`result-rank ${row.rank <= 3 ? 'rank-' + row.rank : ''}`}>#{row.rank}</span></td>
