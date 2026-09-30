@@ -179,7 +179,7 @@ const AppContent: React.FC = () => {
         .slice(0, cap)
         .map((seat) => ({
           ...seat,
-          status: db.availabilityError || occupied.has(`${pond.id}-${seat.num}`) ? ('booked' as const) : ('available' as const)
+          status: occupied.has(`${pond.id}-${seat.num}`) ? ('booked' as const) : ('available' as const)
         }));
 
       return {
@@ -1275,7 +1275,11 @@ const AppContent: React.FC = () => {
 
         return (
           <div className="bk-page">
-            {db.availabilityError && <p role="alert">Ketersediaan No Pancang tidak dapat dimuatkan. Sila muat semula halaman.</p>}
+            {db.availabilityError && (
+              <p role="alert">
+                Semakan langsung No Pancang sedang perlahan. Pilihan masih boleh dibuat dan akan disahkan semula semasa tempahan dihantar.
+              </p>
+            )}
             <section className="bk-shell">
               <div className="bk-progress" aria-label="Kemajuan tempahan">
                 <div className={stepClass(step1 as any)}><span>1</span>Pilih Pertandingan</div>

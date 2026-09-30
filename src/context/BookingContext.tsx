@@ -178,7 +178,6 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [db.availability, db.bookings, db.comp.id, selectedCompetitionId]);
 
   const toggleSeat = useCallback((num: number) => {
-    if (db.availabilityError) return;
     const pond = db.ponds.find(p => p.id === selectedPond);
     const seat = pond?.seats.find(s => s.num === num);
     if (!seat) return;
@@ -196,7 +195,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       }
       return { ...prev, [selectedPond]: next };
     });
-  }, [db.availabilityError, db.ponds, selectedPond, seatTakenMap]);
+  }, [db.ponds, selectedPond, seatTakenMap]);
 
   const setSeats = useCallback((seats: number[]) => {
     if (!seats.length) {
@@ -252,7 +251,6 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   const submitBooking = useCallback(async (pond: Pond): Promise<Booking | null> => {
-    if (db.availabilityError) throw new Error('Ketersediaan No Pancang tidak dapat dimuatkan. Sila muat semula halaman.');
     const totalSelectedSeats = Object.values(selectedPondSeats).reduce((sum, seats) => sum + seats.length, 0);
     if (!user || !totalSelectedSeats || !receiptData || !receiptFile || !bankReference.trim()) return null;
 
