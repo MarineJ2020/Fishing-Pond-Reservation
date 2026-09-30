@@ -111,6 +111,7 @@ const scoreRankWeight = (entry: ScoreEntry, decimalPlaces: Settings['ocrDecimalP
 // datetime-local input strings, converted to ISO merged into a Competition on save.
 const EMPTY_COMP_CREATE = {
   name: '',
+  prizeHighlight: '',
   startDateTime: '',
   endDateTime: '',
   bookingOpenAt: '',
@@ -810,6 +811,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       const newId = await createCompetitionFirestore({
         name: compCreate.name.trim(),
+        prizeHighlight: compCreate.prizeHighlight.trim(),
         startDate: startIso,
         endDate: endIso,
         topN: compCreate.topN,
@@ -2483,7 +2485,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   // ── Unsaved-changes guard ────────────────────────────────────────────────
   const compSig = (c?: Partial<Competition>) => c ? JSON.stringify({
-    name: c.name || '', startDate: c.startDate || '', endDate: c.endDate || '',
+    name: c.name || '', prizeHighlight: c.prizeHighlight || '', startDate: c.startDate || '', endDate: c.endDate || '',
     bookingOpenAt: c.bookingOpenAt || '', bookingCloseAt: c.bookingCloseAt || '', topN: c.topN || 0,
     pricePerPeg: c.pricePerPeg ?? null,
     prizes: c.prizes || [], activePondIds: [...(c.activePondIds || [])].sort(), pondSeats: c.pondSeats || {},
@@ -2771,6 +2773,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tutup Tempahan</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={compCreate.bookingCloseAt} onChange={e => setCompCreate({ ...compCreate, bookingCloseAt: e.target.value })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
                     <div className="form-group"><label className="form-label">Harga Pancang (RM)</label><input className="form-input" type="number" min="1" value={compCreate.pricePerPeg} onChange={e => setCompCreate({ ...compCreate, pricePerPeg: Number(e.target.value) })} /></div>
                     <div className="form-group"><label className="form-label">Jumlah Kedudukan Dipaparkan</label><input className="form-input" type="number" min="1" value={compCreate.topN} onChange={e => setCompCreate({ ...compCreate, topN: Number(e.target.value) })} /></div>
+                    <div className="form-group"><label className="form-label">Teks Hadiah di Laman Utama</label><input className="form-input" maxLength={120} value={compCreate.prizeHighlight} onChange={e => setCompCreate({ ...compCreate, prizeHighlight: e.target.value })} placeholder="Contoh: Cabutan bertuah & hadiah lumayan" /></div>
                   </div>
                   <div className="form-group" style={{ marginTop: 14 }}>
                     <label className="form-label">Kolam Terbuka</label>
@@ -5110,6 +5113,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <label className="form-label">Jumlah Kedudukan Dipaparkan</label>
                     <input className="form-input" type="number" min="1" value={compEdit.topN || 20} onChange={(e) => setCompEdit({ ...compEdit, topN: parseInt(e.target.value) || 0 })} />
                     <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Bilangan peserta teratas yang dipaparkan di papan markah.</div>
+                  </div>
+                  <div className="form-group form-span">
+                    <label className="form-label">Teks Hadiah di Laman Utama</label>
+                    <input className="form-input" maxLength={120} value={compEdit.prizeHighlight || ''} onChange={(e) => setCompEdit({ ...compEdit, prizeHighlight: e.target.value })} placeholder="Contoh: Cabutan bertuah & hadiah lumayan" />
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Dipaparkan pada kad pertandingan di laman utama. Jika kosong, hadiah tempat pertama akan digunakan.</div>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Status</label>

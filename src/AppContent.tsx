@@ -927,7 +927,9 @@ const AppContent: React.FC = () => {
     const featuredFee = featuredCompetition ? (samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami') : 'Akan diumumkan';
     const featuredPrize = (featuredCompetition?.prizes?.[0] as any);
     const featuredPrizeText = featuredCompetition
-      ? (featuredPrize?.prize || (featuredPrize?.amount ? `RM${featuredPrize.amount}` : 'Cabutan bertuah & hadiah lumayan'))
+      ? (featuredCompetition.prizeHighlight?.trim()
+        || featuredPrize?.prize
+        || (featuredPrize?.amount ? `RM${featuredPrize.amount}` : 'Cabutan bertuah & hadiah lumayan'))
       : 'Akan diumumkan';
     const isCountdownReady = !!featuredCompetition && featuredCountdown.status !== 'idle';
     const showLive = featuredCountdown.status === 'live';

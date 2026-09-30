@@ -3682,7 +3682,8 @@ nav.kks-legacy-v3-nav::before {
   50% { box-shadow: 0 0 0 6px rgba(231,25,45,0); }
 }
 .kks-event-body { padding: 0 38px 38px; }
-.kks-event-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 8px 0 26px; }
+.kks-event-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; margin: 8px 0 26px; }
+.kks-event-grid > :nth-child(1), .kks-event-grid > :nth-child(2), .kks-event-grid > :nth-child(3) { grid-column: span 2; }
 .kks-event-metric {
   border: 1px solid var(--line); border-radius: 16px;
   padding: 16px; background: #fbfcfd;
@@ -3693,11 +3694,13 @@ nav.kks-legacy-v3-nav::before {
 }
 .kks-event-metric strong { display: block; font-family: "Barlow Condensed"; font-size: 24px; line-height: 1; }
 .kks-event-prize {
-  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: start; gap: 18px;
   padding: 20px; border-radius: 18px;
   background: linear-gradient(135deg, #eef8fc, #fff5f6);
   margin-bottom: 22px;
 }
+.kks-event-prize > :first-child { grid-column: span 2; }
+.kks-event-prize > :last-child { grid-column: span 4; }
 .kks-event-prize small { color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; }
 .kks-event-prize strong { display: block; margin-top: 4px; font-size: 18px; }
 .kks-event-actions { display: grid; grid-template-columns: 1fr auto; gap: 12px; }
@@ -3942,9 +3945,11 @@ nav.kks-legacy-v3-nav::before {
   .kks-badge { margin-top: 14px; }
   .kks-event-body { padding: 0 22px 24px; }
   .kks-event-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; }
+  .kks-event-grid > :nth-child(1), .kks-event-grid > :nth-child(2), .kks-event-grid > :nth-child(3) { grid-column: auto; }
   .kks-event-metric { padding: 14px; border-radius: 14px; }
   .kks-event-metric strong { font-size: 21px; }
   .kks-event-prize { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 16px; }
+  .kks-event-prize > :first-child, .kks-event-prize > :last-child { grid-column: auto; }
   .kks-event-actions { grid-template-columns: 1fr; }
   .kks-event-actions .btn { width: 100%; }
   .kks-event-side { grid-template-columns: 1fr; }

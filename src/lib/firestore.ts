@@ -111,6 +111,7 @@ const normalizeCompetition = (data: any): Competition => ({
   id: data.id,
   name: data.name || 'Fishing Competition',
   description: data.description || '',
+  prizeHighlight: typeof data.prizeHighlight === 'string' ? data.prizeHighlight : undefined,
   startDate: normalizeTimestamp(data.eventDate) || new Date().toISOString(),
   endDate: normalizeTimestamp(data.endDate) || normalizeTimestamp(data.eventDate) || new Date().toISOString(),
   topN: data.topN || 20,
@@ -402,6 +403,7 @@ export const createCompetition = async (data: Partial<Competition>) => {
   const competitionsRef = collection(db, 'competitions');
   const docRef = await addDoc(competitionsRef, {
     name: data.name || 'Pertandingan Baru',
+    prizeHighlight: data.prizeHighlight?.trim() || '',
     eventDate: data.startDate || new Date().toISOString(),
     endDate: data.endDate || data.startDate || new Date().toISOString(),
     topN: data.topN || 20,
@@ -1041,6 +1043,7 @@ export const updateCompetition = async (competitionId: string, updates: Partial<
     updatedAt: serverTimestamp(),
   };
   if (typeof updates.name !== 'undefined') payload.name = updates.name;
+  if (typeof updates.prizeHighlight !== 'undefined') payload.prizeHighlight = updates.prizeHighlight.trim();
   if (typeof updates.startDate !== 'undefined') payload.eventDate = updates.startDate;
   if (typeof updates.endDate !== 'undefined') payload.endDate = updates.endDate;
   if (typeof updates.topN !== 'undefined') payload.topN = updates.topN;

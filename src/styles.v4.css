@@ -306,7 +306,7 @@
 .kl-topn-ctl input { width: 54px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; font-family: var(--font-heading); font-size: 14px; text-align: center; color: var(--navy); background: #f8fafc; }
 .kl-topn-ctl input:focus { outline: none; border-color: var(--red); }
 .kl-peg-search { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--muted); }
-.kl-peg-search input { width: 126px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-family: var(--font-heading); font-size: 14px; color: var(--navy); background: #f8fafc; }
+.kl-peg-search input { width: 210px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font-family: var(--font-heading); font-size: 14px; color: var(--navy); background: #f8fafc; }
 .kl-peg-search input:focus { outline: none; border-color: var(--red); }
 .kl-last-upd { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--muted); }
 
@@ -323,6 +323,12 @@
 .kl-angler { min-width: 0; }
 .kl-angler strong { display: block; font-weight: 900; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kl-angler span { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; }
+.kl-angler .kl-peg-primary { display: flex; align-items: baseline; gap: 8px; color: var(--navy); font-family: var(--font-heading); font-size: 25px; line-height: 1; }
+.kl-angler .kl-peg-primary small { color: var(--red); font-family: inherit; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.kl-angler .kl-pond-name { color: var(--navy); font-weight: 800; }
+.kl-angler .kl-pond-name i, .kl-winner-entry > span i { width: 16px; color: var(--red); text-align: center; }
+.kl-angler .kl-participant-name { font-size: 12px; }
+.kl-angler .kl-participant-name b { color: var(--navy); }
 .kl-weight { text-align: right; }
 .kl-weight small { display: block; color: var(--red); font-size: 10px; font-weight: 900; text-transform: uppercase; margin-bottom: 4px; }
 .kl-weight strong { display: block; font-family: var(--font-heading); font-size: 28px; line-height: .95; }
@@ -377,12 +383,18 @@
 .kl-winner-summary-item { padding: 18px 20px; background: #fff; }
 .kl-winner-summary-item small { display: block; margin-bottom: 7px; color: var(--muted); font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
 .kl-winner-summary-item strong { display: block; font-family: var(--font-heading); font-size: 28px; line-height: .9; }
+.kl-winner-summary-item > span { display: block; margin-top: 7px; color: var(--muted); font-size: 12px; }
+.kl-winner-summary-item > span b { color: var(--navy); }
 .kl-table-head, .kl-winner-row { display: grid; grid-template-columns: 70px 1fr 110px 120px; gap: 16px; align-items: center; padding: 16px 22px; }
 .kl-table-head { background: #f7f9fb; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
 .kl-winner-row { border-bottom: 1px solid var(--line); }
 .kl-winner-row:last-child { border-bottom: 0; }
 .kl-winner-row strong { font-weight: 900; }
 .kl-winner-row span { color: var(--muted); font-size: 13px; }
+.kl-winner-entry > strong { display: flex; align-items: baseline; gap: 8px; color: var(--navy); font-family: var(--font-heading); font-size: 24px; line-height: 1; }
+.kl-winner-entry > strong small { color: var(--red); font-family: inherit; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.kl-winner-entry > span { display: block; margin-top: 5px; }
+.kl-winner-entry > span b { color: var(--navy); }
 .kl-winner-rank { width: 42px; height: 42px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; background: var(--navy); color: #fff; font-family: var(--font-heading); font-size: 22px; font-weight: 900; }
 .kl-winner-row:first-of-type .kl-winner-rank { background: var(--red); }
 .kl-no-data { text-align: center; padding: 48px 24px; color: var(--muted); font-size: 14px; }

@@ -170,8 +170,12 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     ? rankedLb.filter((entry) => {
         const pond = ponds.find(p => p.id === entry.pondId);
         const formattedSeat = pond?.code ? formatSeat(pond.code, entry.peg).toLowerCase() : '';
+        const pondName = (pond?.name || entry.pondName || '').toLowerCase();
+        const participantName = entry.name.toLowerCase();
         return entry.peg.toString().includes(pegSearchTerm)
           || formattedSeat.includes(pegSearchTerm)
+          || pondName.includes(pegSearchTerm)
+          || participantName.includes(pegSearchTerm)
           || `peg #${entry.peg}`.includes(pegSearchTerm);
       })
     : rankedLb.slice(0, topN));
@@ -203,7 +207,13 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
 
   // ── Past results (ended competitions) ───────────────────────────────────
   const endedComps = useMemo(
-    () => competitions.filter(c => c.id && isCompetitionEnded(c)),
+    () => competitions
+      .filter(c => c.id && isCompetitionEnded(c))
+      .sort((a, b) => {
+        const endTimeDifference = new Date(b.endDate).getTime() - new Date(a.endDate).getTime();
+        if (Number.isFinite(endTimeDifference) && endTimeDifference !== 0) return endTimeDifference;
+        return b.endDate.localeCompare(a.endDate);
+      }),
     [competitions],
   );
   const endedKey = endedComps.map(c => c.id).join(',');
@@ -251,6 +261,11 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const pastPonds = selectedPastComp?.activePondIds?.length || 0;
   const pastChampWeight = pastLb[0]?.weight;
   const pastChampPrize = selectedPastComp ? getPrize(1, selectedPastComp.prizes) : '';
+  const pastChampion = pastWinners[0];
+  const pastChampionPond = pastChampion ? ponds.find(pond => pond.id === pastChampion.pondId) : null;
+  const pastChampionSeat = pastChampion
+    ? pastChampionPond?.code ? formatSeat(pastChampionPond.code, pastChampion.peg) : `#${pastChampion.peg}`
+    : '—';
 
   const statusLabel = cdStatus === 'upcoming' ? 'Akan Datang' : cdStatus === 'live' ? 'Live' : 'Tamat';
   const cdLabel = cdStatus === 'upcoming' ? 'Bermula dalam' : cdStatus === 'live' ? 'Tamat dalam' : 'Status Event';
@@ -336,11 +351,11 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 Teratas
               </div>
               <label className="kl-peg-search">
-                <span>No Pancang</span>
+                <span>Cari</span>
                 <input
                   type="search"
                   value={pegSearch}
-                  placeholder="Cari..."
+                  placeholder="Peserta, kolam, pancang..."
                   onChange={(e) => setPegSearch(e.target.value)}
                 />
               </label>
@@ -355,14 +370,16 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                   const rank = e.rank;
                   const isMe = isUserEntry(e);
                   const pond = ponds.find(p => p.id === e.pondId);
-                  const pondName = pond ? pond.name.split('—')[0].trim() : '';
+                  const pondName = (pond?.name || e.pondName || '').split('—')[0].trim();
+                  const seatLabel = pond?.code ? formatSeat(pond.code, e.peg) : `#${e.peg}`;
                   const time = timeByPeg[e.peg];
                   return (
                     <article key={e.peg} className={`kl-rank-row ${rank === 1 ? 'champ' : ''} ${isMe ? 'me' : ''}`}>
                       <div className="kl-rank-no">{p2(rank)}</div>
                       <div className="kl-angler">
-                        <strong>{e.name}{isMe ? ' · Anda' : ''}</strong>
-                        <span>{pond?.code ? formatSeat(pond.code, e.peg) : `Peg #${e.peg}${pondName ? ` · ${pondName}` : ''}`}</span>
+                        <strong className="kl-peg-primary"><small>No. Pancang</small>{seatLabel}</strong>
+                        <span className="kl-pond-name"><i className="fa-solid fa-water"></i> {pondName || 'Nama kolam tidak tersedia'}</span>
+                        <span className="kl-participant-name">Peserta: <b>{e.name}{isMe ? ' · Anda' : ''}</b></span>
                         {bookingRefByPeg[e.peg] && <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>Ref: {bookingRefByPeg[e.peg]}</span>}
                       </div>
                       <div className="kl-weight">
@@ -377,7 +394,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 }) : (
                   <div className="kl-no-data">
                     <i className="fa-solid fa-fish-fins"></i>{' '}
-                    {loadingScores ? 'Memuatkan data…' : pegSearchTerm ? 'Tiada rekod untuk No Pancang ini.' : 'Tiada rekod berat lagi — sila semak semula semasa pertandingan!'}
+                    {loadingScores ? 'Memuatkan data…' : pegSearchTerm ? 'Tiada rekod yang sepadan dengan carian.' : 'Tiada rekod berat lagi — sila semak semula semasa pertandingan!'}
                   </div>
                 )}
               </div>
@@ -509,13 +526,17 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               </div>
 
               <div className="kl-winner-summary">
-                <div className="kl-winner-summary-item"><small>Juara</small><strong>{pastWinners[0]?.name || '—'}</strong></div>
+                <div className="kl-winner-summary-item">
+                  <small>Juara · No. Pancang</small>
+                  <strong>{pastChampionSeat}</strong>
+                  {pastChampion && <span>Peserta: <b>{pastChampion.name}</b></span>}
+                </div>
                 <div className="kl-winner-summary-item"><small>Berat Terberat</small><strong>{pastChampWeight != null ? `${formatWeight(pastChampWeight, decimalPlaces)}KG` : '—'}</strong></div>
                 <div className="kl-winner-summary-item"><small>Hadiah Utama</small><strong>{pastChampPrize || '—'}</strong></div>
               </div>
 
               <div className="kl-table-head">
-                <div>Kedudukan</div><div>Peserta</div><div>Berat</div><div>Hadiah</div>
+                <div>Kedudukan</div><div>No. Pancang</div><div>Berat</div><div>Hadiah</div>
               </div>
               {pastLoading ? (
                 <div className="kl-no-data">Memuatkan keputusan…</div>
@@ -523,11 +544,16 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 const rank = i + 1;
                 const prize = selectedPastComp ? getPrize(rank, selectedPastComp.prizes) : '';
                 const pond = ponds.find(p => p.id === e.pondId);
-                const pondName = pond ? pond.name.split('—')[0].trim() : '';
+                const pondName = (pond?.name || e.pondName || '').split('—')[0].trim();
+                const seatLabel = pond?.code ? formatSeat(pond.code, e.peg) : `#${e.peg}`;
                 return (
                   <div key={e.peg} className="kl-winner-row">
                     <div><span className="kl-winner-rank">{p2(rank)}</span></div>
-                    <div><strong>{e.name}</strong><br /><span>{pond?.code ? formatSeat(pond.code, e.peg) : `Peg #${e.peg}${pondName ? ` · ${pondName}` : ''}`}</span></div>
+                    <div className="kl-winner-entry">
+                      <strong><small>No. Pancang</small>{seatLabel}</strong>
+                      <span><i className="fa-solid fa-water"></i> {pondName || 'Nama kolam tidak tersedia'}</span>
+                      <span>Peserta: <b>{e.name}</b></span>
+                    </div>
                     <div>{formatWeight(e.weight, decimalPlaces)}kg</div>
                     <div>{prize || '—'}</div>
                   </div>

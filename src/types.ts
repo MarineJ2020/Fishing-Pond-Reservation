@@ -207,6 +207,8 @@ export interface Prize {
 export interface Competition {
   id?: string;
   name: string;
+  /** Short promotional prize text shown on the homepage event card. */
+  prizeHighlight?: string;
   startDate: string;
   endDate: string;
   topN: number;

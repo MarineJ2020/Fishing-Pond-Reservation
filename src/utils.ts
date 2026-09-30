@@ -78,13 +78,13 @@ const scoreTime = (value?: unknown): number => {
   return Number.isFinite(ms) ? ms : 0;
 };
 
-export const getLB = (scores: Record<number, Score>, pondFilter?: number | null): { peg: number; name: string; weight: number; rankWeight: number; pondId: number; capturedAt?: unknown }[] => {
-  const e: { peg: number; name: string; weight: number; rankWeight: number; pondId: number; capturedAt?: unknown }[] = [];
+export const getLB = (scores: Record<number, Score>, pondFilter?: number | null): { peg: number; name: string; weight: number; rankWeight: number; pondId: number; pondName: string; capturedAt?: unknown }[] => {
+  const e: { peg: number; name: string; weight: number; rankWeight: number; pondId: number; pondName: string; capturedAt?: unknown }[] = [];
   for (const [peg, d] of Object.entries(scores)) {
     if (d.weight == null || isNaN(parseFloat(d.weight.toString()))) continue;
     const weight = parseFloat(d.weight.toString());
     const rankWeight = Number.isFinite(d.rankWeight) ? Number(d.rankWeight) : weight;
-    e.push({ peg: parseInt(peg), name: d.anglerName || 'Angler #' + peg, weight, rankWeight, pondId: d.pondId, capturedAt: d.capturedAt });
+    e.push({ peg: parseInt(peg), name: d.anglerName || 'Angler #' + peg, weight, rankWeight, pondId: d.pondId, pondName: d.pondName, capturedAt: d.capturedAt });
   }
   return e.sort((a, b) => (b.rankWeight - a.rankWeight) || (scoreTime(b.capturedAt) - scoreTime(a.capturedAt)));
 };
