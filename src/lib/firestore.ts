@@ -29,7 +29,9 @@ import { LANDING_DEFAULTS, SEO_DEFAULTS } from '../config/landingDefaults';
 import { normalizeLandingSections } from '../config/landingSections';
 import { bookingRequest } from './bookingApi';
 
-const AVAILABILITY_TIMEOUT_MS = 5500;
+// Cloud Functions can cold-start above 5 seconds. Keep the public booking page
+// from falsely closing peg selection while the backend warms up.
+const AVAILABILITY_TIMEOUT_MS = 30000;
 
 const withTimeout = async <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;

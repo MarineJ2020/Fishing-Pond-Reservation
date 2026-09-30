@@ -1229,6 +1229,15 @@ const AppContent: React.FC = () => {
   };
 
   const renderSection = () => {
+    if (dbLoading && (currentSection === 'home' || currentSection === 'book')) {
+      return (
+        <main className="kks-page-loading" aria-busy="true" aria-live="polite">
+          <span className="kks-page-loading-spinner" aria-hidden="true" />
+          <strong>Memuatkan maklumat terkini...</strong>
+        </main>
+      );
+    }
+
     switch (currentSection) {
       case 'home':
         return renderHome();

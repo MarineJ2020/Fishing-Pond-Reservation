@@ -90,12 +90,10 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   const applyCoreLoadedDB = useCallback((loaded: DB) => {
-    setDbState((current) => ({
-      ...current,
-      bookings: loaded.bookings,
-      comp: loaded.comp,
-      competitions: loaded.competitions,
-    }));
+    setDbState({
+      ...loaded,
+      settings: liveSettings.current ?? loaded.settings,
+    });
   }, []);
 
   useEffect(() => subscribeSettings((settings) => {
@@ -118,6 +116,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       const remoteDb = await loadAppDB((coreDb) => {
         if (!canceled && current === generation) {
           applyCoreLoadedDB(coreDb);
+          setDbLoading(false);
           setBookingsLoading(false);
         }
       });

@@ -3514,6 +3514,29 @@ nav.kks-legacy-v3-nav::before {
   display: inline-block; width: 2.4em; height: 1em; border-radius: 4px;
   background: rgba(255,255,255,.35); animation: pulse 1.5s infinite;
 }
+.kks-page-loading {
+  min-height: calc(100vh - 72px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px;
+  background: #f3f6f8;
+  color: var(--navy);
+  font-size: 14px;
+}
+.kks-page-loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #dce4ea;
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: kks-page-loading-spin .75s linear infinite;
+}
+@keyframes kks-page-loading-spin {
+  to { transform: rotate(360deg); }
+}
 .btn-hero { padding: 15px 28px; font-size: 13px; }
 
 /* ===== BTN-RED override (homepage primary action) ===== */
