@@ -34,3 +34,6 @@ functions/src/template.html
 
 # Local release verification checklist
 /7222026_update.md
+
+# Firebase CLI deploy cache
+.firebase/
