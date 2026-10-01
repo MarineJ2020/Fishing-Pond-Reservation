@@ -7,6 +7,7 @@ import { createBooking as createBookingApi } from '../lib/api';
 import { uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel } from '../utils/competition';
+import { isBookingManagerRole, isStaffRole } from '../utils/roles';
 import { auth } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -269,12 +270,12 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       throw new Error(`${msg}. / Booking for this competition is not open right now.`);
     }
 
-    const isStaff = user.role === 'ADMIN' || user.role === 'STAFF';
+    const isStaff = isStaffRole(user.role);
     // Gate: email/password users must verify before booking. Google accounts and
     // staff are exempt (Google is pre-verified; staff manage bookings directly).
     if (!isStaff && user.emailVerified === false) return null;
 
-    const isAdminProxy = user.role === 'ADMIN' && adminProxyName.trim() !== '';
+    const isAdminProxy = isBookingManagerRole(user.role) && adminProxyName.trim() !== '';
     const effectiveName = isAdminProxy ? adminProxyName.trim() : user.name;
     const effectiveEmail = isAdminProxy ? adminProxyEmail.trim() : (user.uid || user.email);
     const effectivePhone = isAdminProxy ? adminProxyPhone.trim() : (user.phone || '');

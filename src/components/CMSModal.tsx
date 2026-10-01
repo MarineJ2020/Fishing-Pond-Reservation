@@ -55,6 +55,7 @@ import DocPreviewModal from './DocPreviewModal';
 import ReceiptReviewModal from './cms/ReceiptReviewModal';
 import AdminInstructions from './cms/AdminInstructions';
 import { updateUserRole, UserRole } from '../lib/users';
+import { ROLE_LABELS, canEditRole, isAdminRole, isBookingManagerRole, isStaffRole } from '../utils/roles';
 
 // ── Pond alphabet-code helpers (single letter A–Z, unique across ponds) ──
 const POND_CODE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -80,6 +81,7 @@ type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes
 
 const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'prize-records', 'contact-settings', 'landing-content', 'seo', 'users', 'email-log', 'audit-log'];
 const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins', 'prize-records'];
+const COUNTER_STAFF_CMS_PAGES: CMSPage[] = ['approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'prize-records'];
 const ALL_BOOKING_STATUS_OPTIONS = [
   ['all', 'Semua'],
   ['confirmed', 'Disahkan'],
@@ -137,26 +139,28 @@ interface CMSModalProps {
 }
 
 const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB }) => {
-  const isAdmin = user?.role === 'ADMIN';
-  const isStaff = isAdmin || user?.role === 'STAFF';
+  const isAdmin = isAdminRole(user?.role);
+  const isBookingManager = isBookingManagerRole(user?.role);
+  const isStaff = isStaffRole(user?.role);
+  const allowedStaffPages = isBookingManager ? COUNTER_STAFF_CMS_PAGES : STAFF_CMS_PAGES;
   // Active CMS tab is mirrored in the URL (?tab=) so a page refresh stays on the
   // same tab instead of resetting to the dashboard.
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') as CMSPage | null;
   const requestedPage: CMSPage = tabParam && CMS_PAGES.includes(tabParam) ? tabParam : 'dashboard';
-  const page: CMSPage = isAdmin || !isStaff || STAFF_CMS_PAGES.includes(requestedPage) ? requestedPage : 'checkin';
+  const page: CMSPage = isAdmin || !isStaff || allowedStaffPages.includes(requestedPage) ? requestedPage : allowedStaffPages[0];
   const setPage = (next: CMSPage) => {
-    const allowedPage = isAdmin || !isStaff || STAFF_CMS_PAGES.includes(next) ? next : 'checkin';
+    const allowedPage = isAdmin || !isStaff || allowedStaffPages.includes(next) ? next : allowedStaffPages[0];
     const params = new URLSearchParams(searchParams);
     if (allowedPage === 'dashboard') params.delete('tab');
     else params.set('tab', allowedPage);
     setSearchParams(params);
   };
   useEffect(() => {
-    if (isOpen && user?.role === 'STAFF' && requestedPage !== page) setPage(page);
+    if (isOpen && isStaff && !isAdmin && requestedPage !== page) setPage(page);
     // setPage intentionally depends on the current URLSearchParams snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, user?.role, requestedPage, page]);
+  }, [isOpen, isStaff, isAdmin, requestedPage, page]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingPond, setEditingPond] = useState<Pond | null>(null);
   // Inline "Tambah Pertandingan" quick-create form (raw input strings; combined on save).
@@ -424,14 +428,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     onConfirm: () => void | Promise<void>;
   } | null>(null);
   const requestRoleChange = (target: User, nextRole: UserRole) => {
-    if (!isAdmin || !target.uid || target.role === 'ADMIN' || target.uid === user?.uid || target.role === nextRole) return;
+    if (!canEditRole(user?.role, target, user?.uid) || target.role === nextRole) return;
     const previousRole = target.role || 'CLIENT';
     setRoleMessage(null);
     setConfirmDialog({
       title: 'Tukar Peranan Pengguna',
       message: `Tukar peranan ${target.name || target.email} daripada ${previousRole} kepada ${nextRole}?`,
       confirmLabel: 'Tukar Peranan',
-      tone: nextRole === 'ADMIN' ? 'danger' : 'primary',
+      tone: nextRole === 'ADMIN' || nextRole === 'SUPER_ADMIN' ? 'danger' : 'primary',
       onConfirm: async () => {
         setRoleUpdatingUid(target.uid!);
         try {
@@ -2561,8 +2565,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       { id: 'audit-log' as CMSPage, icon: '🗒️', text: 'Log Audit' },
     ] },
   ];
-  const navSections = isAdmin ? adminNavSections : [
-    { label: 'Hari Pertandingan', items: adminNavSections.flatMap((section) => section.items).filter((item) => ['checkin', 'results', 'all-weigh-ins', 'prize-records'].includes(item.id)) },
+  const counterStaffNavSections = [
+    { label: 'Tempahan', items: adminNavSections.flatMap((section) => section.items).filter((item) => ['approvals', 'all-bookings', 'manual-booking'].includes(item.id)) },
+    { label: 'Hari Pertandingan', items: adminNavSections.flatMap((section) => section.items).filter((item) => STAFF_CMS_PAGES.includes(item.id)) },
+  ];
+  const navSections = isAdmin ? adminNavSections : isBookingManager ? counterStaffNavSections : [
+    { label: 'Hari Pertandingan', items: adminNavSections.flatMap((section) => section.items).filter((item) => STAFF_CMS_PAGES.includes(item.id)) },
   ];
 
   const pageTitle = navSections.flatMap(s => s.items).find(i => i.id === page)?.text || 'Dashboard';
@@ -4837,7 +4845,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               bookingCountByEmail.set(email, (bookingCountByEmail.get(email) || 0) + 1);
             });
             const roleBadge = (role: User['role']) =>
-              role === 'ADMIN' ? <span className="badge badge-live">Admin</span>
+              role === 'SUPER_ADMIN' ? <span className="badge badge-rejected">Super Admin</span>
+              : role === 'ADMIN' ? <span className="badge badge-live">Admin</span>
+              : role === 'COUNTER_STAFF' ? <span className="badge badge-approved">Staf Kaunter</span>
               : role === 'STAFF' ? <span className="badge badge-deposit">Staf</span>
               : <span className="badge badge-open">Pengguna</span>;
 
@@ -4902,7 +4912,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <td>{bookingCountByEmail.get(u.email.toLowerCase()) || 0}</td>
                       {isAdmin && (
                         <td>
-                          {u.role === 'ADMIN' || u.uid === user?.uid ? (
+                          {!canEditRole(user?.role, u, user?.uid) ? (
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Dikunci</span>
                           ) : (
                             <select
@@ -4915,7 +4925,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             >
                               <option value="CLIENT">Pengguna</option>
                               <option value="STAFF">Staf</option>
+                              <option value="COUNTER_STAFF">Staf Kaunter</option>
                               <option value="ADMIN">Admin</option>
+                              <option value="SUPER_ADMIN">{ROLE_LABELS.SUPER_ADMIN}</option>
                             </select>
                           )}
                         </td>

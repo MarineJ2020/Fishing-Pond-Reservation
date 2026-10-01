@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Settings, User } from '../types';
 import { asset } from '../config/landingAssets';
+import { isStaffRole } from '../utils/roles';
 
 interface NavbarProps {
   user: User | null;
@@ -107,7 +108,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, authReady, onSectionChange, onOpe
               )}
             </a>
             <a href={sectionHref('profile')} onClick={(event) => handleNav(event, 'profile')}><i className="fa-solid fa-user"></i> Profil Saya</a>
-            {(user.role === 'ADMIN' || user.role === 'STAFF') && (
+            {isStaffRole(user.role) && (
               <a href={sectionHref('cms')} onClick={(event) => {
                 setMenuOpen(false);
                 if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

@@ -134,6 +134,7 @@ export interface Score {
   anglerName: string;
   pondId: number;
   pondName: string;
+  fishCount?: number;
   capturedAt?: unknown;
 }
 
@@ -207,6 +208,7 @@ export interface Prize {
 export interface Competition {
   id?: string;
   name: string;
+  description?: string;
   /** Short promotional prize text shown on the homepage event card. */
   prizeHighlight?: string;
   startDate: string;
@@ -365,7 +367,7 @@ export interface User {
   name: string;
   phone: string;
   pass?: string;
-  role?: 'CLIENT' | 'STAFF' | 'ADMIN';
+  role?: 'CLIENT' | 'STAFF' | 'COUNTER_STAFF' | 'ADMIN' | 'SUPER_ADMIN';
 }
 
 export interface DB {

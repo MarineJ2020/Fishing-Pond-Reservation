@@ -3,6 +3,7 @@ import { User, Pond, Settings } from '../types';
 import PhoneNumberField from './PhoneNumberField';
 import QrZoomModal from './QrZoomModal';
 import { formatMyPhone } from '../utils/phone';
+import { isBookingManagerRole } from '../utils/roles';
 
 interface BookingFormProps {
   user: User | null;
@@ -116,10 +117,10 @@ const BookingForm: React.FC<BookingFormProps> = ({
     );
   }
 
-  const isAdmin = user?.role === 'ADMIN';
-  const isAdminProxyMode = isAdmin && adminProxyName.trim() !== '';
+  const isBookingManager = isBookingManagerRole(user?.role);
+  const isAdminProxyMode = isBookingManager && adminProxyName.trim() !== '';
   // Email/password users must verify before booking (Google accounts are pre-verified).
-  const needsVerification = !!user && !isAdmin && user.emailVerified === false;
+  const needsVerification = !!user && !isBookingManager && user.emailVerified === false;
 
   const canSubmit =
     !isSubmitting &&
@@ -187,8 +188,8 @@ const BookingForm: React.FC<BookingFormProps> = ({
         </div>
       )}
 
-      {/* ── Admin: book on behalf of customer ── */}
-      {isAdmin && (
+      {/* ── Counter/Admin: book on behalf of customer ── */}
+      {isBookingManager && (
         <div style={{ background: 'rgba(250,204,21,0.08)', border: '1px solid rgba(250,204,21,0.25)', borderRadius: '10px', padding: '14px 16px', marginBottom: '16px' }}>
           <div style={{ fontSize: '.72rem', color: 'var(--gold)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700, marginBottom: '10px' }}>🛠 Tempahan atas nama pelanggan</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

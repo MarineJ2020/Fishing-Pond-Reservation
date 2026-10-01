@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
-import App from './App.tsx'
+import App from './App'
 
 // A refresh can otherwise restore the previous scroll offset while the short
 // loading shell is visible, which clamps the homepage to its footer. Take over

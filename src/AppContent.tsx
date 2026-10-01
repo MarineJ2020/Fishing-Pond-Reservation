@@ -32,6 +32,7 @@ import { countOutstanding, outstandingBalance } from './utils/booking';
 import { trackEvent } from './utils/analytics';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindowState } from './utils/competition';
 import { normalizePdfUrl } from './utils/pdfStorage';
+import { isStaffRole } from './utils/roles';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
 
@@ -393,7 +394,7 @@ const AppContent: React.FC = () => {
       setAuthModalOpen(true);
       return;
     }
-    const isStaff = user.role === 'ADMIN' || user.role === 'STAFF';
+    const isStaff = isStaffRole(user.role);
     if (!isStaff && user.emailVerified === false) {
       addToast('Sila sahkan email anda dahulu sebelum menempah.', 'error');
       return;
@@ -683,12 +684,13 @@ const AppContent: React.FC = () => {
       }
     });
 
-    if (!nearest) return null;
-    const nextFocused = nearest.dataset.competitionKey || '';
+    const nearestCard = nearest as HTMLElement | null;
+    if (!nearestCard) return null;
+    const nextFocused = nearestCard.dataset.competitionKey || '';
     if (nextFocused && nextFocused !== focusedCompetitionKey) {
       setFocusedCompetitionKey(nextFocused);
     }
-    return nearest;
+    return nearestCard;
   };
 
   const snapCompetitionToCenter = () => {
@@ -1853,7 +1855,7 @@ const AppContent: React.FC = () => {
         }
         // Privacy: only owner (or staff/admin) can view a booking's full details.
         const canView = !!user && (
-          user.role === 'STAFF' || user.role === 'ADMIN'
+          isStaffRole(user.role)
           || booking.userId === user.uid
           || booking.userId === user.email
           || booking.createdByUid === user.uid

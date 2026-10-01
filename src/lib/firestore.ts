@@ -28,6 +28,7 @@ import { emptyDB } from '../data';
 import { LANDING_DEFAULTS, SEO_DEFAULTS } from '../config/landingDefaults';
 import { normalizeLandingSections } from '../config/landingSections';
 import { bookingRequest } from './bookingApi';
+import { isStaffRole } from '../utils/roles';
 
 // Cloud Functions can cold-start above 5 seconds. Keep the public booking page
 // from falsely closing peg selection while the backend warms up.
@@ -55,7 +56,7 @@ const getVisibleBookingDocs = async () => {
   if (user.emailVerified && user.email) requests.push(getDocs(query(collection(db, 'bookings'), where('userEmail', '==', user.email))));
   const ownerBookingsPromise = Promise.all(requests);
   const profile = await profilePromise;
-  if (['ADMIN', 'STAFF'].includes(profile.data()?.role)) return (await getDocs(collection(db, 'bookings'))).docs;
+  if (isStaffRole(profile.data()?.role)) return (await getDocs(collection(db, 'bookings'))).docs;
   const snapshots = await ownerBookingsPromise;
   return [...new Map(snapshots.flatMap((snap) => snap.docs).map((snap) => [snap.id, snap])).values()];
 };
@@ -365,6 +366,7 @@ const buildScores = async (competitionId: string, bookings: Booking[]) => {
       fishCount: data.fishCount || 0,
       anglerName: booking?.userName || 'Angler',
       pondId: booking?.pondId || 0,
+      pondName: booking?.pondName || '',
     };
   });
 
@@ -1164,7 +1166,7 @@ export const createPond = async (pondData: Omit<Pond, 'id' | 'seats'>) => {
   const seatsRef = collection(db, 'seats');
   const totalSeats = (pondData as any).totalSeats || 30;
   const pricePerSeat = (pondData as any).pricePerSeat || 100;
-  const seatPromises = [];
+  const seatPromises: Promise<unknown>[] = [];
   for (let i = 1; i <= totalSeats; i++) {
     seatPromises.push(addDoc(seatsRef, {
       pondId: docRef.id,

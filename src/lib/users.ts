@@ -1,8 +1,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import app from '../../lib/firebase';
-import { User } from '../types';
-
-export type UserRole = NonNullable<User['role']>;
+import { UserRole } from '../utils/roles';
+export type { UserRole } from '../utils/roles';
 
 export interface UpdateUserRoleResult {
   success: true;

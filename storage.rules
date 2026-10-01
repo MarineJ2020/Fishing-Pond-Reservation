@@ -8,11 +8,11 @@ service firebase.storage {
     }
 
     function isAdmin() {
-      return request.auth != null && roleFromDoc() == 'ADMIN';
+      return request.auth != null && roleFromDoc() in ['ADMIN', 'SUPER_ADMIN'];
     }
 
     function isStaff() {
-      return request.auth != null && roleFromDoc() in ['STAFF', 'ADMIN'];
+      return request.auth != null && roleFromDoc() in ['STAFF', 'COUNTER_STAFF', 'ADMIN', 'SUPER_ADMIN'];
     }
 
     // Rules PDF published from CMS landing-content.

@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import * as functions from 'firebase-functions';
-import { adminAuth, adminDb, verifyToken, requireStaff, requireAdmin } from './auth-utils.js';
+import { adminAuth, adminDb, verifyToken, requireStaff, requireAdmin, requireBookingManager } from './auth-utils.js';
 import {
     initialBookingEmailKind,
     isConfirmedStatus,
@@ -14,7 +14,7 @@ import {
     shouldQueueBookingApprovedEmail,
 } from './email-service.js';
 import { buildCancelCheckInState, buildCheckInState } from './booking-seats.js';
-import { ALLOWED_ROLES, normalizeRole, roleChangeBlockReason } from './role-policy.js';
+import { ADMIN_ROLES, ALLOWED_ROLES, normalizeRole, roleChangeBlockReason } from './role-policy.js';
 import { registerBookingRoutes, releaseClaims } from './booking-service.js';
 
 const app = express();
@@ -174,7 +174,7 @@ app.post('/acquireSeatLock', verifyToken, async (req, res) => {
 
 // Admins accept a single receipt. Recomputes paidAmount, records a payment, and
 // (on the first accepted receipt) confirms the booking + holds the seats.
-app.post('/acceptBookingReceipt', verifyToken, requireAdmin, async (req, res) => {
+app.post('/acceptBookingReceipt', verifyToken, requireBookingManager, async (req, res) => {
     const { bookingId, receiptIndex } = req.body;
     if (!bookingId || receiptIndex == null) {
         return res.status(400).json({ error: 'bookingId and receiptIndex are required.' });
@@ -242,7 +242,7 @@ app.post('/acceptBookingReceipt', verifyToken, requireAdmin, async (req, res) =>
 
 // Admins reject a single receipt (e.g. unreadable / wrong amount). Does not reject
 // the whole booking — the user can re-upload while under the receipt cap.
-app.post('/rejectBookingReceipt', verifyToken, requireAdmin, async (req, res) => {
+app.post('/rejectBookingReceipt', verifyToken, requireBookingManager, async (req, res) => {
     const { bookingId, receiptIndex } = req.body;
     if (!bookingId || receiptIndex == null) {
         return res.status(400).json({ error: 'bookingId and receiptIndex are required.' });
@@ -292,7 +292,7 @@ app.post('/rejectBookingReceipt', verifyToken, requireAdmin, async (req, res) =>
     }
 });
 
-app.post('/approveBooking', verifyToken, requireAdmin, async (req, res) => {
+app.post('/approveBooking', verifyToken, requireBookingManager, async (req, res) => {
     const { bookingId } = req.body;
     if (!bookingId) {
         return res.status(400).json({ error: 'bookingId is required.' });
@@ -322,7 +322,7 @@ app.post('/approveBooking', verifyToken, requireAdmin, async (req, res) => {
     }
 });
 
-app.post('/rejectBooking', verifyToken, requireAdmin, async (req, res) => {
+app.post('/rejectBooking', verifyToken, requireBookingManager, async (req, res) => {
     const { bookingId } = req.body;
     if (!bookingId) {
         return res.status(400).json({ error: 'bookingId is required.' });
@@ -593,7 +593,7 @@ export const backfillUserRoleClaims = functions.https.onCall(async (_data, conte
 
     const callerProfile = await adminDb.collection('users').doc(context.auth.uid).get();
     const callerRole = normalizeRole(callerProfile.data()?.role);
-    if (callerRole !== 'ADMIN') {
+    if (!ADMIN_ROLES.has(callerRole)) {
         throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
     }
 
@@ -637,7 +637,7 @@ export const updateUserRole = functions.https.onCall(async (data, context) => {
     const callerRef = adminDb.collection('users').doc(context.auth.uid);
     const callerSnap = await callerRef.get();
     const callerRole = callerSnap.exists ? normalizeRole(callerSnap.data()?.role) : 'CLIENT';
-    if (callerRole !== 'ADMIN') {
+    if (!ADMIN_ROLES.has(callerRole)) {
         throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
     }
 
@@ -665,7 +665,10 @@ export const updateUserRole = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError('failed-precondition', 'You cannot change your own role.');
     }
     if (blockReason === 'admin-locked') {
-        throw new functions.https.HttpsError('failed-precondition', 'Existing admin roles cannot be changed in the CMS.');
+        throw new functions.https.HttpsError('failed-precondition', 'Existing admin roles can only be changed by a Super Admin.');
+    }
+    if (blockReason === 'super-admin-locked') {
+        throw new functions.https.HttpsError('failed-precondition', 'Existing Super Admin roles cannot be changed in the CMS.');
     }
     if (previousRole === requestedRole) {
         return { success: true, uid, previousRole, role: requestedRole };
@@ -690,15 +693,26 @@ export const updateUserRole = functions.https.onCall(async (data, context) => {
                 transaction.get(callerRef),
                 transaction.get(targetRef),
             ]);
-            if (!freshCaller.exists || normalizeRole(freshCaller.data()?.role) !== 'ADMIN') {
+            const freshCallerRole = freshCaller.exists ? normalizeRole(freshCaller.data()?.role) : 'CLIENT';
+            if (!ADMIN_ROLES.has(freshCallerRole)) {
                 throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
             }
             if (!freshTarget.exists) {
                 throw new functions.https.HttpsError('not-found', 'User profile not found.');
             }
             const freshPreviousRole = normalizeRole(freshTarget.data()?.role);
-            if (freshPreviousRole !== previousRole || freshPreviousRole === 'ADMIN') {
+            if (freshPreviousRole !== previousRole) {
                 throw new functions.https.HttpsError('aborted', 'The user role changed while this request was being processed.');
+            }
+            const freshBlockReason = roleChangeBlockReason({
+                callerUid: context.auth.uid,
+                callerRole: freshCallerRole,
+                targetUid: uid,
+                targetRole: freshPreviousRole,
+                requestedRole,
+            });
+            if (freshBlockReason) {
+                throw new functions.https.HttpsError('failed-precondition', 'This role change is no longer allowed.');
             }
 
             const changedAt = new Date();

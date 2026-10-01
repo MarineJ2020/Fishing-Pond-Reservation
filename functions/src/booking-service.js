@@ -1,6 +1,7 @@
 import admin from 'firebase-admin';
 import { adminDb, verifyToken } from './auth-utils.js';
 import { bookingSelections, claimId, confirmed, fail, newBookingRef, occupiesSeats, ownsBooking, pondCatalog, receiptPath, receiptUpdate, refId, validateBookingWindow, validateSelections } from './booking-policy.js';
+import { BOOKING_MANAGER_ROLES, STAFF_ROLES, normalizeRole } from './role-policy.js';
 
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 150 && !value.includes('/');
 const text = (value, max = 200) => typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -31,11 +32,11 @@ export async function createSecureBooking(db, payload, user) {
     const result = await db.runTransaction(async (tx) => {
         const compRef = db.collection('competitions').doc(payload.competitionId);
         const profile = await tx.get(db.collection('users').doc(user.uid));
-        const role = String(profile.data()?.role || '').toUpperCase();
+        const role = normalizeRole(profile.data()?.role);
         const staffMode = payload.createdByStaff === true;
-        if (staffMode && !['ADMIN', 'STAFF'].includes(role)) fail('Kebenaran petugas diperlukan.', 403);
-        if (!staffMode && !user.email_verified && !['ADMIN', 'STAFF'].includes(role)) fail('Sila sahkan alamat e-mel anda.', 403);
-        if (staffMode && role !== 'ADMIN' && text(payload.userEmail) && payload.userEmail !== user.email) fail('Kebenaran pentadbir diperlukan untuk tempahan bagi pihak pelanggan.', 403);
+        if (staffMode && !STAFF_ROLES.has(role)) fail('Kebenaran petugas diperlukan.', 403);
+        if (!staffMode && !user.email_verified && !STAFF_ROLES.has(role)) fail('Sila sahkan alamat e-mel anda.', 403);
+        if (staffMode && !BOOKING_MANAGER_ROLES.has(role) && text(payload.userEmail) && payload.userEmail !== user.email) fail('Kebenaran staf kaunter diperlukan untuk tempahan bagi pihak pelanggan.', 403);
         if (!text(payload.bookingPhone) || !text(payload.bankReference)) fail('Nombor telefon dan rujukan bank diperlukan.');
         const competitionSnap = await tx.get(compRef);
         const competition = competitionSnap.data();
