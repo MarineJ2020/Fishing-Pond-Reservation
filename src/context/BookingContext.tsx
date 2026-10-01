@@ -11,6 +11,8 @@ import { isBookingManagerRole, isStaffRole } from '../utils/roles';
 import { auth } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
+export type BookingSubmitStage = 'upload' | 'save';
+
 interface BookingContextType {
   db: DB;
   /** True until the first Firestore DB load resolves. See dbLoading state below. */
@@ -46,7 +48,7 @@ interface BookingContextType {
   setAdminProxyEmail: (email: string) => void;
   setAdminProxyPhone: (phone: string) => void;
   setUser: (user: User | null) => void;
-  submitBooking: (pond: Pond) => Promise<Booking | null>;
+  submitBooking: (pond: Pond, onStage?: (stage: BookingSubmitStage) => void) => Promise<Booking | null>;
   clearBooking: () => void;
   updateDB: (newDb: DB) => void;
   reloadDB: () => Promise<void>;
@@ -250,7 +252,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     setPayType('full');
   }, []);
 
-  const submitBooking = useCallback(async (pond: Pond): Promise<Booking | null> => {
+  const submitBooking = useCallback(async (pond: Pond, onStage?: (stage: BookingSubmitStage) => void): Promise<Booking | null> => {
     const totalSelectedSeats = Object.values(selectedPondSeats).reduce((sum, seats) => sum + seats.length, 0);
     if (!user || !totalSelectedSeats || !receiptData || !receiptFile || !bankReference.trim()) return null;
 
@@ -313,6 +315,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const tot = totalSelectedSeats * getCompetitionPricePerPeg(pond);
     const payAmt = tot;
 
+    onStage?.('upload');
     const receiptUrl = await uploadReceipt(receiptData, receiptFile);
 
     const payload = {
@@ -338,6 +341,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       ...(isStaff && user.uid ? { createdByUid: user.uid } : {}),
     };
 
+    onStage?.('save');
     const result = await createBookingApi(payload);
     if (!result?.bookingId) return null;
 

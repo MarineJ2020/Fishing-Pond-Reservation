@@ -20,7 +20,7 @@ import ProfileContent from './components/ProfileContent';
 import Toast from './components/Toast';
 import Footer from './components/Footer';
 import CustomLandingHtml from './components/CustomLandingHtml';
-import { useBooking } from './context/BookingContext';
+import { BookingSubmitStage, useBooking } from './context/BookingContext';
 import { useUI } from './context/UIContext';
 import { useNavigation } from './hooks/useNavigation';
 import { useAuth } from './hooks/useAuth';
@@ -124,6 +124,7 @@ const AppContent: React.FC = () => {
   const prizeWrapRef = useRef<HTMLDivElement | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  const [submitStage, setSubmitStage] = useState<BookingSubmitStage>('upload');
   const [pondMapOpen, setPondMapOpen] = useState(false);
   const [seatModalOpen, setSeatModalOpen] = useState(false);
   const [choiceOpen, setChoiceOpen] = useState(false);
@@ -421,9 +422,10 @@ const AppContent: React.FC = () => {
     if (!pond) return;
 
     let booking: Booking | null = null;
+    setSubmitStage('upload');
     setBookingSubmitting(true);
     try {
-      booking = await submitBooking(pond);
+      booking = await submitBooking(pond, setSubmitStage);
     } catch (err: any) {
       setBookingError(err?.message || 'Ralat semasa menghantar tempahan. Sila cuba lagi.');
       setBookingSubmitting(false);
@@ -1621,23 +1623,29 @@ const AppContent: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {bookingSubmitting && (
+              <div className="modal-overlay open" style={{ zIndex: 950 }} role="alertdialog" aria-live="polite" aria-label="Menghantar Tempahan">
+                <div className="modal" style={{ maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+                  <div className="modal-header">
+                    <div className="modal-title">Menghantar Tempahan</div>
+                  </div>
+                  <div className="modal-body" style={{ textAlign: 'center', paddingTop: 20, paddingBottom: 22 }}>
+                    <div style={{ fontSize: '2rem', marginBottom: 10 }}>
+                      <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                    </div>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: 6 }}>
+                      {submitStage === 'upload' ? 'Langkah 1/2: Memuat naik resit...' : 'Langkah 2/2: Menyimpan tempahan...'}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Proses ini mungkin mengambil masa sehingga 30 saat. Jangan tutup atau muat semula halaman ini.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
-
-        {bookingSubmitting && (
-          <div className="modal-overlay open" style={{ zIndex: 950 }}>
-            <div className="modal" style={{ maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <div className="modal-title">Menghantar Tempahan</div>
-              </div>
-              <div className="modal-body" style={{ textAlign: 'center', paddingTop: 20, paddingBottom: 22 }}>
-                <div style={{ fontSize: '2rem', marginBottom: 10 }}>⏳</div>
-                <div style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: 6 }}>Sila tunggu sebentar...</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Kami sedang menyimpan tempahan dan memuat naik resit anda.</div>
-              </div>
-            </div>
-          </div>
-        )}
       }
       case 'live':
         return <LiveResults decimalPlaces={db.settings.ocrDecimalPlaces} comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} availability={db.availability} user={user} />;
