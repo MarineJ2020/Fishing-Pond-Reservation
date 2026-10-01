@@ -2,8 +2,8 @@
 
 A React + TypeScript + Vite web app for managing catfish pond fishing competition bookings, live results, and staff administration.
 
-- **Live site**: https://fishingpond-e34e9.web.app
-- **Firebase project**: `fishingpond-e34e9`
+- **Live site**: https://kolamkelisayang.web.app
+- **Firebase project**: `kolamkelisayang`
 
 ## Tech Stack
 
@@ -13,8 +13,8 @@ A React + TypeScript + Vite web app for managing catfish pond fishing competitio
 | Styling | CSS3 + CSS Variables (Tailwind configured but unused) |
 | Database | Cloud Firestore |
 | Auth | Firebase Authentication (email/password) |
-| File storage | Cloudinary (images) + Firebase Storage (PDF uploads) |
-| Email | Resend API (via Cloud Functions) |
+| File storage | Firebase Storage (receipts, PDFs, maps, scale photos, landing/SEO images) |
+| Email | Trigger Email from Firestore extension via Zoho SMTP |
 | Deployment | Firebase Hosting |
 | Backend | Cloud Functions (Node.js + Express) — requires Blaze plan |
 
@@ -48,20 +48,14 @@ VITE_USE_FIREBASE_EMULATOR=false
 VITE_FUNCTIONS_BASE_URL=        # deployed Cloud Functions URL
 ```
 
-### Cloudinary (receipt uploads)
-```env
-VITE_CLOUDINARY_CLOUD_NAME=
-VITE_CLOUDINARY_UPLOAD_PRESET=  # unsigned preset
-```
-
-### Cloud Functions (set via Firebase config)
-```bash
-firebase functions:config:set resend.api_key="re_..."
-```
+### Email
+Transactional email is queued in Firestore's `mail` collection and delivered by
+the Firebase Trigger Email extension configured with Zoho SMTP credentials. SMTP
+secrets live in Firebase/Google Secret Manager, not in `.env.local`.
 
 ## Firebase Setup
 
-1. [Firebase Console](https://console.firebase.google.com/) → create project `fishingpond-e34e9`
+1. [Firebase Console](https://console.firebase.google.com/) → use project `kolamkelisayang`
 2. Enable: **Firestore**, **Authentication** (Email/Password), **Cloud Functions**, **Hosting**
 3. Project Settings → Service Accounts → generate private key → add to `.env.local`
 4. Firestore → `seatLocks` collection → enable TTL policy on `expiresAt` field (auto-deletes expired locks)
@@ -81,10 +75,12 @@ firebase functions:config:set resend.api_key="re_..."
 
 ## Cloud Functions Endpoints
 
-All routes require a Firebase ID token (`Authorization: Bearer <token>`).
+Write routes require a Firebase ID token (`Authorization: Bearer <token>`).
+`GET /bookingAvailability` is public and returns only compact occupancy data.
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
+| `GET /bookingAvailability` | Public | Compact occupied-seat projection for the booking page |
 | `POST /createClientAccount` | STAFF | Create client account + send welcome email |
 | `POST /acquireSeatLock` | USER | Reserve seat for 15 minutes |
 | `POST /createBooking` | USER | Submit booking + send confirmation email |
@@ -171,15 +167,15 @@ service cloud.firestore {
 
 ## Important Notes
 
-- **No Google OAuth** — would require Blaze plan
-- **Cloud Functions are optional** — app falls back to direct Firestore writes if functions aren't deployed; email delivery won't work without functions + Resend key
-- **PDF uploads use Firebase Storage** — rules PDF and any uploaded receipt PDFs
-- **Image uploads use Cloudinary** — receipts/photos/maps remain on existing image flow
+- **Cloud Functions are required** for secure booking creation, receipt submission, email queueing and SEO rendering.
+- **Always deploy hosting and functions together** so `seoRender` and hashed frontend assets stay in sync.
+- **Deploy Firestore and Storage rules whenever rules changed**: `firebase deploy --only "hosting,functions,firestore,storage" --project kolamkelisayang`.
+- **Uploads use Firebase Storage** for receipts, rules PDFs, maps, payment QR, scale photos, landing images and SEO images.
 
 ## Troubleshooting
 
 | Error | Fix |
 |---|---|
 | "Token verification failed" | Pass `getIdToken()` result as `Authorization: Bearer <token>` |
-| "RESEND_API_KEY not configured" | `firebase functions:config:set resend.api_key="re_..."` |
+| "Availability request timed out" | Check `GET /bookingAvailability` latency and deploy both `hosting,functions`; the client allows cold starts but the endpoint should stay fast. |
 | "Emulator connection refused" | Run `firebase emulators:start` or set `VITE_USE_FIREBASE_EMULATOR=false` |
