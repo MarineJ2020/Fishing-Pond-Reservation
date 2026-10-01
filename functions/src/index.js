@@ -735,7 +735,7 @@ export const updateUserRole = functions.https.onCall(async (data, context) => {
 
 // Clients can request verification, but only trusted server code controls the
 // recipient and rendered message. Deterministic one-minute ids rate-limit spam.
-const CONTINUE_URL = process.env.APP_URL || 'https://kolamkelisayang.web.app';
+const CONTINUE_URL = process.env.APP_URL || 'https://kolamkelisayang.com.my';
 const VERIFICATION_WINDOW_MS = 60 * 1000;
 
 export const requestEmailVerification = functions.https.onCall(async (data, context) => {

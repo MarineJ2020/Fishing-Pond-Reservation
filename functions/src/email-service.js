@@ -8,7 +8,7 @@ import {
     renderWelcomeEmail,
 } from './email-templates.js';
 
-export const APP_URL = process.env.APP_URL || 'https://kolamkelisayang.web.app';
+export const APP_URL = process.env.APP_URL || 'https://kolamkelisayang.com.my';
 export const STAFF_CC = 'hello@kolamkelisayang.com.my';
 const MAIL_COLLECTION = 'mail';
 
