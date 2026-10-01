@@ -6,6 +6,8 @@ import { BOOKING_MANAGER_ROLES, STAFF_ROLES, normalizeRole } from './role-policy
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 150 && !value.includes('/');
 const text = (value, max = 200) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const OCCUPYING_STATUSES = ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE', 'pending', 'confirmed'];
+const AVAILABILITY_CACHE_MS = 15 * 1000;
+let availabilityCache = null;
 const handle = (handler) => async (req, res) => {
     try { return res.json(await handler(req)); }
     catch (error) {
@@ -126,17 +128,22 @@ export async function releaseClaims(db, bookingId) {
 
 export function registerBookingRoutes(app) {
     app.get('/bookingAvailability', handle(async () => {
+        if (availabilityCache && Date.now() - availabilityCache.createdAt < AVAILABILITY_CACHE_MS) {
+            return availabilityCache.payload;
+        }
         const [bookings, ponds, seats] = await Promise.all([
             adminDb.collection('bookings').where('status', 'in', OCCUPYING_STATUSES).get(),
             adminDb.collection('ponds').get(),
             adminDb.collection('seats').get(),
         ]);
         const catalog = pondCatalog(ponds.docs, seats.docs);
-        return { availability: bookings.docs.filter((snap) => occupiesSeats(snap.data())).map((snap) => {
+        const payload = { availability: bookings.docs.filter((snap) => occupiesSeats(snap.data())).map((snap) => {
             const booking = snap.data();
             const groups = bookingSelections(booking, catalog, seats.docs);
             return { competitionId: refId(booking.competitionId), status: confirmed(booking) ? 'confirmed' : 'pending', pondId: groups[0]?.pondId || 0, seats: groups[0]?.seats || [], pondSelections: groups };
         }) };
+        availabilityCache = { createdAt: Date.now(), payload };
+        return payload;
     }));
     app.post('/createBooking', verifyToken, handle(async (req) => {
         await validateReceipt(req.body.receiptUrl, req.user.uid);
