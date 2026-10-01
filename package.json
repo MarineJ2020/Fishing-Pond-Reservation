@@ -21,7 +21,7 @@
     "bcryptjs": "^2.4.3",
     "date-fns": "^2.30.0",
     "dompurify": "^3.4.14",
-    "firebase": "^10.7.2",
+    "firebase": "^12.19.0",
     "firebase-admin": "^12.1.0",
     "lucide-react": "^0.294.0",
     "onnxruntime-web": "^1.26.0",
