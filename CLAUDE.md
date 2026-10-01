@@ -64,9 +64,11 @@ missing or malformed (`vite.config.mjs`), to avoid deploying a blank site.
   function with a Firebase ID token; `src/lib/email.ts`, `users.ts` and
   `hooks/useAuth.ts` use `httpsCallable` functions. Some CMS actions in `api.ts`
   fall back to `*Direct` Firestore writes only when `VITE_FUNCTIONS_BASE_URL` is unset.
-- Root-level `lib/firebase.ts` (outside `src/`) initialises the client Firebase SDK
-  (App Check, emulator hookup when `VITE_USE_FIREBASE_EMULATOR=true` in dev) and is
-  imported by `src/`. Other files in root `lib/` (emails, admin, auth-utils) are legacy.
+- Root-level `lib/firebase` (outside `src/`) initialises the client Firebase SDK and
+  is imported by `src/`. **Vite resolves `lib/firebase.js` before `lib/firebase.ts`**,
+  so the stale `.js` copy is what ships (the `.ts` App Check / auth-persistence code is
+  not live). Edit both, or remove the `.js` deliberately. Other files in root `lib/`
+  (emails, admin, auth-utils) are legacy.
 - Scale weigh-in OCR: `src/lib/sevenSegmentOcr/` runs an ONNX model
   (`public/ocr-model/`) via onnxruntime-web WASM, single-threaded; Vite copies only
   the needed `ort-wasm-simd-threaded.*` blobs to `dist/ort/`. Tesseract is a fallback.
@@ -75,6 +77,14 @@ missing or malformed (`vite.config.mjs`), to avoid deploying a blank site.
 ### Cloud Functions (`functions/src/`, Node 22, plain ESM JavaScript — no build step)
 - Entry point is `index.js` (per `functions/package.json` `main`). `index.jsx` and
   `*.bak` files are dead legacy code (`*.bak` is excluded from deploy) — don't edit them.
+- Region: everything runs in `asia-southeast1` next to Firestore (`regions.js`).
+  Browser-facing functions are temporarily *also* in `us-central1` for old cached
+  clients; triggers/schedules are Singapore-only. The client's `FUNCTIONS_REGION`
+  (`lib/firebase.*`) and the `seoRender` rewrites in `firebase.json` must match.
+- Performance/cost: each pond has ~480 seat docs and a large `seatLayout`. Never read
+  the whole `seats` collection or full pond docs per request — query only the ponds
+  involved (see `booking-service.js`); the owner prefers low-cost fixes over paid
+  server upgrades.
 - `api` — one Express app exported as a public-invoker HTTPS function. Every write
   route verifies the ID token and a role/ownership check in-handler (`auth-utils.js`
   middlewares: `verifyToken`, `requireStaff`, `requireBookingManager`, `requireAdmin`).
