@@ -37,3 +37,6 @@ functions/src/template.html
 
 # Firebase CLI deploy cache
 .firebase/
+
+# TypeScript incremental build info
+*.tsbuildinfo
