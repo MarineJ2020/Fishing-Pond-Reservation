@@ -1,6 +1,6 @@
 import admin from 'firebase-admin';
 import { adminDb, verifyToken } from './auth-utils.js';
-import { bookingSelections, claimId, confirmed, fail, newBookingRef, occupiesSeats, ownsBooking, pondCatalog, receiptPath, receiptUpdate, refId, validateBookingWindow, validateSelections } from './booking-policy.js';
+import { bookingSelections, claimId, confirmed, fail, legacySeatIds, newBookingRef, occupiesSeats, ownsBooking, pondCatalog, receiptPath, receiptUpdate, refId, validateBookingWindow, validateSelections } from './booking-policy.js';
 import { BOOKING_MANAGER_ROLES, STAFF_ROLES, normalizeRole } from './role-policy.js';
 
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 150 && !value.includes('/');
@@ -8,6 +8,19 @@ const text = (value, max = 200) => typeof value === 'string' ? value.trim().slic
 const OCCUPYING_STATUSES = ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE', 'pending', 'confirmed'];
 const AVAILABILITY_CACHE_MS = 15 * 1000;
 let availabilityCache = null;
+// Each pond has hundreds of seat docs (and a matching seatLayout), so never read
+// the whole seats collection or full pond docs when only a few ponds matter.
+// select() keeps pond order, which pondCatalog uses for non-numeric pond ids.
+const pondIndexQuery = (db) => db.collection('ponds').select();
+const seatQueries = (db, pondDocIds) => {
+    const queries = [];
+    // Match string and reference encodings; 'in' takes at most 30 values.
+    for (let i = 0; i < pondDocIds.length; i += 15) {
+        const values = pondDocIds.slice(i, i + 15).flatMap((id) => [id, db.collection('ponds').doc(id)]);
+        queries.push(db.collection('seats').where('pondId', 'in', values));
+    }
+    return queries;
+};
 const handle = (handler) => async (req, res) => {
     try { return res.json(await handler(req)); }
     catch (error) {
@@ -43,9 +56,13 @@ export async function createSecureBooking(db, payload, user) {
         const competitionSnap = await tx.get(compRef);
         const competition = competitionSnap.data();
         validateBookingWindow(competition);
-        const pondSnapshot = await tx.get(db.collection('ponds'));
-        const seatSnapshot = await tx.get(db.collection('seats'));
-        const ponds = pondCatalog(pondSnapshot.docs, seatSnapshot.docs);
+        const pondIndex = (await tx.get(pondIndexQuery(db))).docs;
+        const requestedIds = new Set((Array.isArray(payload.pondSelections) ? payload.pondSelections : []).map((group) => group?.pondId));
+        const wantedDocIds = pondCatalog(pondIndex, []).filter((pond) => requestedIds.has(pond.id)).map((pond) => pond.docId);
+        const fullPonds = wantedDocIds.length ? await tx.getAll(...wantedDocIds.map((id) => db.collection('ponds').doc(id))) : [];
+        const seatDocs = (await Promise.all(seatQueries(db, wantedDocIds).map((query) => tx.get(query)))).flatMap((snap) => snap.docs);
+        const fullById = new Map(fullPonds.filter((snap) => snap.exists).map((snap) => [snap.id, snap]));
+        const ponds = pondCatalog(pondIndex.map((snap) => fullById.get(snap.id) || snap), seatDocs);
         const { selections, amount, totalAmount } = validateSelections(payload, competition, ponds);
 
         // Query both historical encodings inside the transaction. No backfill is required.
@@ -54,7 +71,8 @@ export async function createSecureBooking(db, payload, user) {
         const occupied = new Set();
         [...legacyStrings.docs, ...legacyRefs.docs].forEach((snap) => {
             if (!occupiesSeats(snap.data())) return;
-            bookingSelections(snap.data(), ponds, seatSnapshot.docs).forEach((group) => group.seats.forEach((num) => occupied.add(`${group.pondId}:${num}`)));
+            // Seats outside the requested ponds are not loaded; they cannot conflict anyway.
+            bookingSelections(snap.data(), ponds, seatDocs).forEach((group) => group.seats.forEach((num) => occupied.add(`${group.pondId}:${num}`)));
         });
         const claims = [];
         for (const group of selections) {
@@ -131,15 +149,19 @@ export function registerBookingRoutes(app) {
         if (availabilityCache && Date.now() - availabilityCache.createdAt < AVAILABILITY_CACHE_MS) {
             return availabilityCache.payload;
         }
-        const [bookings, ponds, seats] = await Promise.all([
+        const [bookings, pondIndex] = await Promise.all([
             adminDb.collection('bookings').where('status', 'in', OCCUPYING_STATUSES).get(),
-            adminDb.collection('ponds').get(),
-            adminDb.collection('seats').get(),
+            pondIndexQuery(adminDb).get(),
         ]);
-        const catalog = pondCatalog(ponds.docs, seats.docs);
-        const payload = { availability: bookings.docs.filter((snap) => occupiesSeats(snap.data())).map((snap) => {
+        const occupying = bookings.docs.filter((snap) => occupiesSeats(snap.data()));
+        const seatIds = [...new Set(occupying.flatMap((snap) => legacySeatIds(snap.data())))];
+        const seats = seatIds.length
+            ? (await adminDb.getAll(...seatIds.map((id) => adminDb.collection('seats').doc(id)))).filter((snap) => snap.exists)
+            : [];
+        const catalog = pondCatalog(pondIndex.docs, []);
+        const payload = { availability: occupying.map((snap) => {
             const booking = snap.data();
-            const groups = bookingSelections(booking, catalog, seats.docs);
+            const groups = bookingSelections(booking, catalog, seats);
             return { competitionId: refId(booking.competitionId), status: confirmed(booking) ? 'confirmed' : 'pending', pondId: groups[0]?.pondId || 0, seats: groups[0]?.seats || [], pondSelections: groups };
         }) };
         availabilityCache = { createdAt: Date.now(), payload };

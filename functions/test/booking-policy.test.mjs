@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { claimId, receiptPath, receiptUpdate, validateBookingWindow, validateSelections } from '../src/booking-policy.js';
+import { claimId, legacySeatIds, receiptPath, receiptUpdate, validateBookingWindow, validateSelections } from '../src/booking-policy.js';
 
 const now = Date.parse('2026-09-09T04:00:00Z');
 const competition = { eventDate: '2026-09-09T02:00:00Z', endDate: '2026-09-09T10:00:00Z', pricePerPeg: 101 };
@@ -66,4 +66,10 @@ test('rejected receipt replacement retains amount, and legacy receipts remain su
     const legacy = receiptUpdate({ status: 'APPROVED', totalAmount: 200, amount: 100, receiptUrl: 'old' }, { receiptUrl: 'new', amount: 100 });
     assert.equal(legacy.receipts[0].status, 'accepted');
     assert.equal(legacy.receipts[1].status, 'pending');
+});
+
+test('legacy seat ids are only needed for selections without seat numbers', () => {
+    assert.deepEqual(legacySeatIds({ seatIds: ['s1', { id: 's2' }] }), ['s1', 's2']);
+    assert.deepEqual(legacySeatIds({ seatNumbers: [3], seatIds: ['s3'] }), []);
+    assert.deepEqual(legacySeatIds({ pondSelections: [{ pondId: 1, seats: [1], seatIds: ['a'] }, { pondId: 2, seatIds: ['b'] }] }), ['b']);
 });

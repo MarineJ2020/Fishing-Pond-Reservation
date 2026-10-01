@@ -87,6 +87,15 @@ export function bookingSelections(booking, ponds, seats) {
     });
 }
 
+// Seat doc ids that bookingSelections must resolve because a legacy selection
+// stored only seatIds and no seat numbers.
+export function legacySeatIds(booking) {
+    const selections = booking.pondSelections?.length ? booking.pondSelections
+        : [{ seats: booking.seatNumbers || booking.seats || [], seatIds: booking.seatIds || [] }];
+    return selections.filter((selection) => !selection.seats?.length)
+        .flatMap((selection) => (selection.seatIds || []).map(refId)).filter(Boolean);
+}
+
 export function validateSelections(payload, competition, ponds) {
     if (payload.paymentType !== 'full') fail('Tempahan hanya menerima bayaran penuh.');
     const requested = payload.pondSelections;
