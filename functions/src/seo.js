@@ -1,8 +1,8 @@
-import * as functions from 'firebase-functions';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { adminDb } from './auth-utils.js';
+import { browserFacing } from './regions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -163,7 +163,7 @@ function sendSitemap(res, seo, updatedAt) {
     res.status(200).send(xml);
 }
 
-export const seoRender = functions.https.onRequest(async (req, res) => {
+export const seoRender = browserFacing.https.onRequest(async (req, res) => {
     const raw = (await getSettings()) || {};
     const seo = mergeSeo(raw.seo);
 

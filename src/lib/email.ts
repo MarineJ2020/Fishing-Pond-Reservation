@@ -1,7 +1,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import app from '../../lib/firebase';
+import app, { FUNCTIONS_REGION } from '../../lib/firebase';
 
-const functions = getFunctions(app);
+const functions = getFunctions(app, FUNCTIONS_REGION);
 
 export interface EmailLogEntry {
   id: string;

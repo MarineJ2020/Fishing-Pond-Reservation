@@ -1,9 +1,9 @@
-import { auth } from '../../lib/firebase';
+import { auth, FUNCTIONS_REGION } from '../../lib/firebase';
 
 const project = import.meta.env.VITE_FIREBASE_PROJECT_ID;
 const emulator = import.meta.env.DEV && import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
 const defaultUrl = project
-  ? (emulator ? `http://localhost:5001/${project}/us-central1/api` : `https://us-central1-${project}.cloudfunctions.net/api`)
+  ? (emulator ? `http://localhost:5001/${project}/${FUNCTIONS_REGION}/api` : `https://${FUNCTIONS_REGION}-${project}.cloudfunctions.net/api`)
   : '';
 const baseUrl = (import.meta.env.VITE_FUNCTIONS_BASE_URL || defaultUrl).replace(/\/$/, '');
 

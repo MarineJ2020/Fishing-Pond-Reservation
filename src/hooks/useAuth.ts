@@ -10,7 +10,7 @@ import {
 } from 'firebase/auth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
-import app, { auth, db as firestoreDb, googleProvider } from '../../lib/firebase';
+import app, { auth, db as firestoreDb, FUNCTIONS_REGION, googleProvider } from '../../lib/firebase';
 import { useBooking } from '../context/BookingContext';
 import { useUI } from '../context/UIContext';
 import { requestPasswordResetEmail, requestWelcomeEmail } from '../lib/email';
@@ -21,7 +21,7 @@ import { User } from '../types';
 // not Firebase's built-in sender. A callable Cloud Function generates the
 // verification link (Admin SDK) and queues a branded mail doc.
 const callRequestEmailVerification = async (): Promise<void> => {
-  const fns = getFunctions(app);
+  const fns = getFunctions(app, FUNCTIONS_REGION);
   await httpsCallable(fns, 'requestEmailVerification')();
 };
 

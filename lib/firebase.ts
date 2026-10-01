@@ -70,6 +70,10 @@ export const auth = (() => {
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 
+// Cloud Functions run next to Firestore in Singapore. Must match REGION in
+// functions/src/regions.js; getFunctions() would otherwise default to us-central1.
+export const FUNCTIONS_REGION = 'asia-southeast1';
+
 export const googleProvider = new GoogleAuthProvider();
 export const emailProvider = new EmailAuthProvider();
 

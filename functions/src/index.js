@@ -16,6 +16,7 @@ import {
 import { buildCancelCheckInState, buildCheckInState } from './booking-seats.js';
 import { ADMIN_ROLES, ALLOWED_ROLES, normalizeRole, roleChangeBlockReason } from './role-policy.js';
 import { registerBookingRoutes, releaseClaims } from './booking-service.js';
+import { browserFacing, regional } from './regions.js';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -545,10 +546,10 @@ app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
 });
 
 // Browser requests reach Express; each write route verifies Firebase Auth itself.
-export const api = functions.runWith({ invoker: 'public' }).https.onRequest(app);
+export const api = browserFacing.runWith({ invoker: 'public' }).https.onRequest(app);
 
 // Re-read current state so delayed trigger delivery cannot release a reused peg.
-export const releaseBookingSeatClaims = functions.firestore.document('bookings/{bookingId}')
+export const releaseBookingSeatClaims = regional.firestore.document('bookings/{bookingId}')
     .onWrite(async (_change, context) => {
         await releaseClaims(adminDb, context.params.bookingId);
         return null;
@@ -558,7 +559,7 @@ export { seoRender } from './seo.js';
 
 // Keep Firebase Auth custom claims in sync with users/{uid}.role for external
 // consumers. Application authorization reads the profile document directly.
-export const syncUserRoleClaims = functions.firestore
+export const syncUserRoleClaims = regional.firestore
     .document('users/{uid}')
     .onWrite(async (change, context) => {
         const { uid } = context.params;
@@ -586,7 +587,7 @@ export const syncUserRoleClaims = functions.firestore
     });
 
 // One-time/manual fixer for existing users. Admin-only callable.
-export const backfillUserRoleClaims = functions.https.onCall(async (_data, context) => {
+export const backfillUserRoleClaims = browserFacing.https.onCall(async (_data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
     }
@@ -629,7 +630,7 @@ export const backfillUserRoleClaims = functions.https.onCall(async (_data, conte
 // Admin-only role management for CMS > Pengguna. Firestore profile roles are
 // authoritative; custom claims are kept in sync for Firebase services that use
 // token claims, but stale claims never grant application permissions.
-export const updateUserRole = functions.https.onCall(async (data, context) => {
+export const updateUserRole = browserFacing.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
     }
@@ -752,7 +753,7 @@ export const updateUserRole = functions.https.onCall(async (data, context) => {
 const CONTINUE_URL = process.env.APP_URL || 'https://kolamkelisayang.com.my';
 const VERIFICATION_WINDOW_MS = 60 * 1000;
 
-export const requestEmailVerification = functions.https.onCall(async (data, context) => {
+export const requestEmailVerification = browserFacing.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
     }
@@ -792,7 +793,7 @@ export const requestEmailVerification = functions.https.onCall(async (data, cont
 // Firebase Auth default ("Reset your password for project-<id>"). Callable
 // without auth by nature — the caller is locked out — so it never reveals
 // whether an address is registered and dedupes to one mail per account/minute.
-export const requestPasswordReset = functions.https.onCall(async (data) => {
+export const requestPasswordReset = browserFacing.https.onCall(async (data) => {
     const email = typeof data?.email === 'string' ? data.email.trim() : '';
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         throw new functions.https.HttpsError('invalid-argument', 'A valid email is required.');
@@ -825,7 +826,7 @@ export const requestPasswordReset = functions.https.onCall(async (data) => {
 });
 
 // ── Balance-reminder scheduler ──────────────────────────────────────────────
-export const requestWelcomeEmail = functions.https.onCall(async (_data, context) => {
+export const requestWelcomeEmail = browserFacing.https.onCall(async (_data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
     }
@@ -852,7 +853,7 @@ const callableHasRole = async (context, allowedRoles) => {
     return allowedRoles.includes(role);
 };
 
-export const listEmailLogs = functions.https.onCall(async (data, context) => {
+export const listEmailLogs = browserFacing.https.onCall(async (data, context) => {
     try {
         if (!context.auth) {
             throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
@@ -884,7 +885,7 @@ export const listEmailLogs = functions.https.onCall(async (data, context) => {
     }
 });
 
-export const requestBalanceReminder = functions.https.onCall(async (data, context) => {
+export const requestBalanceReminder = browserFacing.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
     }
@@ -920,7 +921,7 @@ export const requestBalanceReminder = functions.https.onCall(async (data, contex
 
 // Persisted booking state drives email creation, so browser disconnects cannot
 // lose notifications. Deterministic ids make event retries idempotent.
-export const queueInitialBookingEmail = functions.firestore
+export const queueInitialBookingEmail = regional.firestore
     .document('bookings/{bookingId}')
     .onCreate(async (snapshot, context) => {
         const booking = snapshot.data();
@@ -932,7 +933,7 @@ export const queueInitialBookingEmail = functions.firestore
         return null;
     });
 
-export const queueBookingApprovedEmail = functions.firestore
+export const queueBookingApprovedEmail = regional.firestore
     .document('bookings/{bookingId}')
     .onUpdate(async (change, context) => {
         if (!shouldQueueBookingApprovedEmail(change.before.data().status, change.after.data().status)) {
@@ -961,7 +962,7 @@ const toMillis = (value) => {
     return Number.isFinite(t) ? t : 0;
 };
 
-export const remindOutstandingBalances = functions.pubsub
+export const remindOutstandingBalances = regional.pubsub
     .schedule('every 24 hours')
     .timeZone('Asia/Kuala_Lumpur')
     .onRun(async () => {
@@ -1010,7 +1011,7 @@ export const remindOutstandingBalances = functions.pubsub
 
 // The Trigger Email extension owns delivery.state. Persist business timestamps
 // only after SMTP reports SUCCESS, and expose a compact status on the booking.
-export const syncMailDeliveryStatus = functions.firestore
+export const syncMailDeliveryStatus = regional.firestore
     .document('mail/{mailId}')
     .onUpdate(async (change) => {
         const beforeState = change.before.data()?.delivery?.state;
@@ -1051,7 +1052,7 @@ export const syncMailDeliveryStatus = functions.firestore
 
 // The extension does not retry terminal ERROR jobs automatically. Retry only
 // server-created, explicitly retryable messages, capped by delivery.attempts.
-export const retryFailedTransactionalEmails = functions.pubsub
+export const retryFailedTransactionalEmails = regional.pubsub
     .schedule('every 15 minutes')
     .timeZone('Asia/Kuala_Lumpur')
     .onRun(async () => {
