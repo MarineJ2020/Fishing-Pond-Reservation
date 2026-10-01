@@ -27,7 +27,7 @@ The existing repository-wide TypeScript check is not clean (including missing Ne
 
 ## Staged release
 
-Keep hosting and functions together as required by `AGENTS.md`, because `seoRender` embeds the current asset names. Do not deploy restrictive Firestore rules before the new API and client are available.
+Keep hosting and functions together as required by `CLAUDE.md`, because `seoRender` embeds the current asset names. Do not deploy restrictive Firestore rules before the new API and client are available.
 
 1. Build with the intended Firebase project configuration and run `scripts/copy-seo-template.mjs` (already included in `npm run build`). The booking API defaults to `https://us-central1-${VITE_FIREBASE_PROJECT_ID}.cloudfunctions.net/api`; an explicit `VITE_FUNCTIONS_BASE_URL` must include `/api`.
 2. Deploy the compatibility stage: `firebase deploy --only "hosting,functions,storage" --project kolamkelisayang`. This enables the new API, frontend, immutable scoped uploads and claim cleanup. Existing Firestore rules remain temporarily in effect. This stage alone does not complete booking privacy hardening.
@@ -38,7 +38,7 @@ Keep hosting and functions together as required by `AGENTS.md`, because `seoRend
 
 - No historical bookings, receipts, payments, results or winners need modification or deletion. The only new stored coordination data is `bookingSeatClaims` for new bookings.
 - Existing download-token URLs are bearer links; their compatibility is intentionally retained. This release does not revoke historical receipt tokens.
-- Availability currently scans existing bookings server-side on each request. This preserves historical compatibility; a later public occupancy projection can reduce read cost if booking volume requires it.
+- Availability currently derives from existing bookings server-side and is protected by a short in-memory function cache for burst traffic/cold-start recovery. This preserves historical compatibility; a persisted public occupancy projection should be the next scaling step if booking volume or event-day traffic outgrows the cached scan.
 - If the availability API fails, the public site can still load, but peg selection fails closed with a Malay error. Booking submission has no direct-write fallback. A client-only preview using production Firebase needs the new Functions API deployed, or an emulator backend.
 - Do not roll back only the frontend to the former direct-write client after lockdown. Keep a known-good build using the new API, or fix forward. Reopening booking rules would restore the original security problem.
 - Live browser/CMS production smoke checks are still required during the staged release; automated emulator tests do not replace those checks.
