@@ -19,33 +19,34 @@ REM  "MIME type text/html" module-script error. This script therefore always
 REM  deploys hosting AND functions in one go.
 REM ============================================================================
 
-REM Prepend a clean Node path. The machine's PATH has a malformed nodejs entry,
-REM so cmd.exe-spawned child processes (firebase's source analysis, npm) can
-REM otherwise fail to resolve `node`/`npm`.
-set "PATH=C:\Program Files\nodejs;%PATH%"
-
 set "PROJECT=kolamkelisayang"
+set "NODE_EXE=%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
+
+where node >nul 2>nul
+if not errorlevel 1 (
+  set "NODE_CMD=node"
+) else if exist "%NODE_EXE%" (
+  set "NODE_CMD=%NODE_EXE%"
+) else (
+  echo Could not find node on PATH or at "%NODE_EXE%".
+  goto :fail
+)
 
 echo(
 echo === [1/3] Building app bundle (vite) ===
-REM Mirrors `npm run build` step 1, called directly to sidestep the npm shim.
-node ".\node_modules\vite\bin\vite.js" build
+REM Mirrors `npm run build` step 1, called directly to sidestep missing npm shims.
+"%NODE_CMD%" ".\node_modules\vite\bin\vite.js" build
 if errorlevel 1 goto :fail
 
 echo(
 echo === [2/3] Syncing SEO template (index.html -^> app.html + functions template) ===
 REM Mirrors `npm run build` step 2.
-node ".\scripts\copy-seo-template.mjs"
+"%NODE_CMD%" ".\scripts\copy-seo-template.mjs"
 if errorlevel 1 goto :fail
 
 echo(
 echo === [3/3] Deploying hosting + functions ===
-call firebase deploy --only "hosting,functions" --project %PROJECT%
-if not errorlevel 1 goto :done
-
-echo(
-echo firebase CLI failed - retrying via npx...
-call npx firebase deploy --only "hosting,functions" --project %PROJECT%
+call ".\scripts\firebase-cli.cmd" deploy --only "hosting,functions" --project %PROJECT%
 if errorlevel 1 goto :fail
 
 :done
