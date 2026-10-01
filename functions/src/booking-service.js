@@ -7,6 +7,7 @@ const validId = (value) => typeof value === 'string' && value.length > 0 && valu
 const text = (value, max = 200) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const OCCUPYING_STATUSES = ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE', 'pending', 'confirmed'];
 const AVAILABILITY_CACHE_MS = 15 * 1000;
+const AVAILABILITY_CACHE_CONTROL = 'public, max-age=5, s-maxage=10';
 let availabilityCache = null;
 // Each pond has hundreds of seat docs (and a matching seatLayout), so never read
 // the whole seats collection or full pond docs when only a few ponds matter.
@@ -25,6 +26,7 @@ const handle = (handler) => async (req, res) => {
     try { return res.json(await handler(req)); }
     catch (error) {
         if (!error.status) console.error('Booking service:', error);
+        res.set('Cache-Control', 'no-store');
         return res.status(error.status || 500).json({ error: error.status ? error.message : 'Tempahan tidak dapat diproses. Sila cuba lagi.' });
     }
 };
@@ -145,7 +147,12 @@ export async function releaseClaims(db, bookingId) {
 }
 
 export function registerBookingRoutes(app) {
-    app.get('/bookingAvailability', handle(async () => {
+    app.get('/bookingAvailability', (_req, res, next) => {
+        // Lets the Hosting CDN answer event-day crowds; seat conflicts are still
+        // re-checked inside the createBooking transaction.
+        res.set('Cache-Control', AVAILABILITY_CACHE_CONTROL);
+        next();
+    }, handle(async () => {
         if (availabilityCache && Date.now() - availabilityCache.createdAt < AVAILABILITY_CACHE_MS) {
             return availabilityCache.payload;
         }

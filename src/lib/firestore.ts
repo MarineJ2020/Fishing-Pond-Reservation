@@ -7,6 +7,7 @@ import {
   startAfter,
   getDocs,
   doc,
+  documentId,
   getDoc,
   updateDoc,
   addDoc,
@@ -61,6 +62,24 @@ const getVisibleBookingDocs = async () => {
   return [...new Map(snapshots.flatMap((snap) => snap.docs).map((snap) => [snap.id, snap])).values()];
 };
 
+// buildBooking needs seat docs only for legacy bookings that stored seatIds
+// without seatNumbers; fetch those few instead of the whole seats collection.
+const getLegacySeatDocs = async (bookingDocs: Array<{ data: () => DocumentData }>) => {
+  const ids = new Set<string>();
+  bookingDocs.forEach((snap) => {
+    const data = snap.data();
+    if (Array.isArray(data.seatNumbers) || !Array.isArray(data.seatIds)) return;
+    data.seatIds.forEach((ref: any) => {
+      const id = typeof ref === 'string' ? ref.split('/').pop() : ref?.id;
+      if (id) ids.add(id);
+    });
+  });
+  const list = [...ids];
+  const chunks = Array.from({ length: Math.ceil(list.length / 30) }, (_, i) => list.slice(i * 30, i * 30 + 30));
+  const snaps = await Promise.all(chunks.map((chunk) => getDocs(query(collection(db, 'seats'), where(documentId(), 'in', chunk)))));
+  return snaps.flatMap((snap) => snap.docs);
+};
+
 const normalizeTimestamp = (value: any) => {
   if (!value) return null;
   if (value instanceof Timestamp) {
@@ -73,7 +92,8 @@ const normalizeSeats = (
   pondId: string,
   totalSeats: number,
   seatDocs: Array<{ id: string; seatNumber: number; row?: string; zone?: string; price?: number }>,
-  seatLayout?: Array<{ num: number; px: number; py: number; active: boolean }>
+  seatLayout?: Array<{ num: number; px: number; py: number; active: boolean }>,
+  pricePerSeat?: unknown,
 ): Seat[] => {
   const layoutMap = new Map<number, { px: number; py: number; active: boolean }>(
     (seatLayout ?? []).map(sl => [sl.num, { px: sl.px, py: sl.py, active: sl.active }])
@@ -101,7 +121,7 @@ const normalizeSeats = (
     return {
       num,
       zone: index < totalSeats / 2 ? 'A' : 'B',
-      price: 100,
+      price: typeof pricePerSeat === 'number' && Number.isFinite(pricePerSeat) ? pricePerSeat : 100,
       status: 'available' as const,
       ...(layout ? { px: layout.px, py: layout.py, active: layout.active } : {}),
     };
@@ -455,16 +475,15 @@ export const getOrCreateDefaultCompetition = async (
   return newComp;
 };
 
+// Seats are derived from each pond's totalSeats/pricePerSeat/seatLayout instead
+// of reading the `seats` collection (~480 docs per pond) on every page load —
+// syncPondSeats keeps those docs at exactly that count and price. Pass seatDocs
+// only where real seat doc ids are required.
 export const getPondsWithSeats = async (
-  preFetched?: { pondDocs: QueryDocumentSnapshot<DocumentData>[]; seatDocs: QueryDocumentSnapshot<DocumentData>[] }
+  preFetched?: { pondDocs: QueryDocumentSnapshot<DocumentData>[]; seatDocs?: QueryDocumentSnapshot<DocumentData>[] }
 ): Promise<Pond[]> => {
-  const { pondDocs, seatDocs } = preFetched ?? await (async () => {
-    const [pondSnapshot, seatSnapshot] = await Promise.all([
-      getDocs(collection(db, 'ponds')),
-      getDocs(collection(db, 'seats')),
-    ]);
-    return { pondDocs: pondSnapshot.docs, seatDocs: seatSnapshot.docs };
-  })();
+  const pondDocs = preFetched?.pondDocs ?? (await getDocs(collection(db, 'ponds'))).docs;
+  const seatDocs = preFetched?.seatDocs ?? [];
 
   const seatsByPond = new Map<string, Array<any>>();
   seatDocs.forEach((seatSnap) => {
@@ -490,7 +509,7 @@ export const getPondsWithSeats = async (
       date: normalizeTimestamp(data.eventDate) || new Date().toISOString(),
       open: data.open !== false,
       maxSeats: data.totalSeats || undefined,
-      seats: normalizeSeats(pondSnap.id, totalSeats, seatDocs, data.seatLayout),
+      seats: normalizeSeats(pondSnap.id, totalSeats, seatDocs, data.seatLayout, data.pricePerSeat),
       shape: Array.isArray(data.shape) && data.shape.length > 0 ? data.shape : undefined,
       order: typeof data.order === 'number' ? data.order : undefined,
       _idx: index,
@@ -525,7 +544,7 @@ export const getBookings = async (
     if (pond._docId) pondMap.set(pond._docId, pond);
   });
 
-  const seatDocs = preFetched?.seatDocs ?? (await getDocs(collection(db, 'seats'))).docs;
+  const seatDocs = preFetched?.seatDocs ?? await getLegacySeatDocs(bookingDocs);
   const seatMap = new Map<string, number>();
   seatDocs.forEach((seatSnap) => {
     const data = seatSnap.data();
@@ -609,7 +628,7 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
     pondMap.set(pond.id.toString(), pond);
     if (pond._docId) pondMap.set(pond._docId, pond);
   });
-  const seatSnapshot = await getDocs(collection(db, 'seats'));
+  const seatSnapshot = await getLegacySeatDocs(pageDocs);
   const seatMap = new Map<string, number>();
   seatSnapshot.forEach((seatSnap) => {
     const data = seatSnap.data();
@@ -645,15 +664,14 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void): Promise<DB> 
         console.error('Failed to load availability:', error);
         return { availability: [], availabilityError: true };
       });
-    const [pondSnapshot, seatSnapshot, competitionSnapshot, bookingDocs, settings] = await Promise.all([
+    const [pondSnapshot, competitionSnapshot, bookingDocs, settings] = await Promise.all([
       getDocs(collection(db, 'ponds')),
-      getDocs(collection(db, 'seats')),
       getDocs(collection(db, 'competitions')),
       getVisibleBookingDocs(),
       getSettings(),
     ]);
 
-    const ponds = await getPondsWithSeats({ pondDocs: pondSnapshot.docs, seatDocs: seatSnapshot.docs });
+    const ponds = await getPondsWithSeats({ pondDocs: pondSnapshot.docs });
     const competitions = await getCompetitions(competitionSnapshot.docs);
     const activeComp = await getActiveCompetition(competitionSnapshot.docs);
     const competition = await getOrCreateDefaultCompetition({ active: activeComp });
@@ -662,7 +680,6 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void): Promise<DB> 
     // already fetched above instead of re-querying them.
     const bookings = await getBookings(undefined, competitions, {
       ponds,
-      seatDocs: seatSnapshot.docs,
       bookingDocs,
     });
     const bookingAvailabilityFallback = bookings

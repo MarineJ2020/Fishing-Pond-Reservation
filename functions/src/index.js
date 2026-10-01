@@ -21,6 +21,12 @@ import { browserFacing, regional } from './regions.js';
 const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
+// Hosting rewrites /api/** here (so public GETs can be CDN-cached) and keeps the
+// prefix; direct cloudfunctions.net calls arrive without it.
+app.use((req, _res, next) => {
+    if (req.url === '/api' || req.url.startsWith('/api/')) req.url = req.url.slice(4) || '/';
+    next();
+});
 registerBookingRoutes(app);
 
 const randomTempPassword = () => Math.random().toString(36).slice(2, 10) + '!1A';

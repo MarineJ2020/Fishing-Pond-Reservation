@@ -6,9 +6,13 @@ const defaultUrl = project
   ? (emulator ? `http://localhost:5001/${project}/${FUNCTIONS_REGION}/api` : `https://${FUNCTIONS_REGION}-${project}.cloudfunctions.net/api`)
   : '';
 const baseUrl = (import.meta.env.VITE_FUNCTIONS_BASE_URL || defaultUrl).replace(/\/$/, '');
+// Public GETs go through Firebase Hosting's same-origin /api/** rewrite so the
+// CDN serves event-day crowds from cache; authenticated POSTs go direct.
+const publicGetUrl = import.meta.env.PROD && !import.meta.env.VITE_FUNCTIONS_BASE_URL ? '/api' : baseUrl;
 
 export async function bookingRequest(path: string, payload?: unknown) {
   if (!baseUrl) throw new Error('Perkhidmatan tempahan belum tersedia. Sila cuba lagi kemudian.');
+  const url = `${payload === undefined ? publicGetUrl : baseUrl}${path}`;
   const headers: Record<string, string> = {};
   if (payload !== undefined) {
     if (!auth.currentUser) throw new Error('Sila log masuk dan cuba lagi.');
@@ -17,7 +21,7 @@ export async function bookingRequest(path: string, payload?: unknown) {
   }
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}${path}`, {
+    response = await fetch(url, {
       method: payload === undefined ? 'GET' : 'POST', headers,
       ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     });
