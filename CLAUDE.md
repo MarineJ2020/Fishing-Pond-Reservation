@@ -9,7 +9,7 @@ pond fishing competitions, live weigh-in results, and a staff CMS. Firebase proj
 
 ## Git commits
 - Do **not** include a `Co-Authored-By` trailer in commit messages.
-- `AGENTS.md` holds the same rules for Codex; keep the two in sync when changing them.
+- `AGENTS.md` (for Codex) just points here; this file is the single source of agent instructions.
 
 ## Commands
 
