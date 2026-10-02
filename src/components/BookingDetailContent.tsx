@@ -340,6 +340,12 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                     </span>
                     <span style={{ fontSize: '.72rem', fontWeight: 700, color: meta.color }}>{meta.label}</span>
                   </div>
+                  {/* A replaced receipt keeps its old reason but is pending again, so gate on status. */}
+                  {r.status === 'rejected' && r.rejectReason && (
+                    <div role="note" style={{ fontSize: '.78rem', color: 'var(--red)', background: 'rgba(231,25,45,0.06)', borderRadius: '8px', padding: '8px 10px', marginBottom: '8px' }}>
+                      <strong>Sebab ditolak / Reason:</strong> {r.rejectReason}
+                    </div>
+                  )}
                   {reference && (
                     <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
                       No. Rujukan Bank: <strong style={{ fontFamily: 'monospace', letterSpacing: '.3px' }}>{reference}</strong>
