@@ -565,10 +565,19 @@ app.post('/bookingActivity', verifyToken, requireStaff, async (req, res) => {
     if (!bookingId || bookingId.includes('/')) return res.status(400).json({ error: 'bookingId is required.' });
     try {
         const log = adminDb.collection('auditLog');
-        const [byEntity, byBooking] = await Promise.all([
+        const [byEntity, byBooking, bookingSnap] = await Promise.all([
             log.where('entityId', '==', bookingId).limit(200).get(),
             log.where('bookingId', '==', bookingId).limit(200).get(),
+            adminDb.collection('bookings').doc(bookingId).get(),
         ]);
+        // Staff-made bookings: name stored at creation, else resolved from the
+        // creating account (older bookings only stored createdByUid).
+        const booking = bookingSnap.exists ? bookingSnap.data() : {};
+        let createdByName = booking.createdByStaff ? (booking.createdByName || '') : '';
+        if (booking.createdByStaff && !createdByName && typeof booking.createdByUid === 'string' && booking.createdByUid) {
+            const creator = await adminDb.collection('users').doc(booking.createdByUid).get();
+            createdByName = (creator.exists && (creator.data()?.name || creator.data()?.email)) || '';
+        }
         const entries = new Map();
         [...byEntity.docs, ...byBooking.docs].forEach((snap) => {
             const data = snap.data();
@@ -582,7 +591,7 @@ app.post('/bookingActivity', verifyToken, requireStaff, async (req, res) => {
                 at: data.createdAt?.toDate?.().toISOString() || '',
             });
         });
-        return res.json({ entries: [...entries.values()] });
+        return res.json({ entries: [...entries.values()], createdByName });
     } catch (error) {
         console.error('bookingActivity failed:', error);
         return res.status(500).json({ error: 'Log aktiviti tidak dapat dimuatkan.' });

@@ -8,14 +8,17 @@ type TimelineRow = { key: string; at: string; label: string; actor?: string; det
 
 // Server audit entries plus what the booking doc itself records (creation,
 // receipt uploads, staff remarks), newest first.
-const buildTimeline = (booking: Booking, entries: BookingActivityEntry[]): TimelineRow[] => {
+const buildTimeline = (booking: Booking, entries: BookingActivityEntry[], createdByName: string): TimelineRow[] => {
   const rows: TimelineRow[] = entries.map((e) => ({
     key: e.id, at: e.at, label: e.actionLabel, actor: e.actorName, details: e.details, reason: e.reason,
   }));
   if (booking.createdAt) {
     rows.push({
-      key: 'created', at: booking.createdAt, label: 'Tempahan dihantar',
-      actor: booking.createdByStaff ? `Staf (bagi pihak ${booking.userName})` : booking.userName,
+      key: 'created', at: booking.createdAt,
+      label: booking.createdByStaff ? 'Tempahan manual oleh staf' : 'Tempahan dihantar',
+      actor: booking.createdByStaff
+        ? `${createdByName || booking.createdByName || 'Staf'} (bagi pihak ${booking.userName})`
+        : booking.userName,
     });
   }
   (booking.receipts || []).forEach((r, i) => {
@@ -56,6 +59,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [activity, setActivity] = useState<BookingActivityEntry[]>([]);
+  const [createdByName, setCreatedByName] = useState('');
   const [activityState, setActivityState] = useState<'idle' | 'loading' | 'error'>('idle');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,7 +69,12 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
     let active = true;
     setActivityState('loading');
     getBookingActivity(booking.id)
-      .then((entries) => { if (active) { setActivity(entries); setActivityState('idle'); } })
+      .then((result) => {
+        if (!active) return;
+        setActivity(result.entries);
+        setCreatedByName(result.createdByName);
+        setActivityState('idle');
+      })
       .catch(() => { if (active) setActivityState('error'); });
     return () => { active = false; };
   }, [booking]);
@@ -86,7 +95,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
   const remarks = booking.staffRemarks || [];
   const canRecordManualPayment = booking.status === 'pending' || (booking.balanceDue ?? 0) > 0;
 
-  const timeline = buildTimeline(booking, activity);
+  const timeline = buildTimeline(booking, activity, createdByName);
 
   const handleClose = () => { setManualMode(false); setRemarkText(''); setRejectMode(false); setRejectReason(''); onClose(); };
   const handleConfirmReject = () => {

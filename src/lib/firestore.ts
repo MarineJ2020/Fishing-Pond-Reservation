@@ -334,6 +334,7 @@ const buildBooking = (
     bookingRef: data.bookingRef || undefined,
     createdByStaff: data.createdByStaff === true,
     createdByUid: data.createdByUid || undefined,
+    createdByName: data.createdByName || undefined,
     checkedIn: data.checkedIn === true,
     checkedInSeats: Array.isArray(data.checkedInSeats)
       ? data.checkedInSeats.map((seat: any) => Number(seat)).filter(Number.isFinite)

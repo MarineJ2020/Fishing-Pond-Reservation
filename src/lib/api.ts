@@ -43,9 +43,12 @@ export const acquireSeatLock = async (payload: { seatId: string; competitionId: 
 export const createBooking = async (payload: any) => {
   return bookingRequest('/createBooking', payload);
 };
-export const getBookingActivity = async (bookingId: string): Promise<BookingActivityEntry[]> => {
+export const getBookingActivity = async (bookingId: string): Promise<{ entries: BookingActivityEntry[]; createdByName: string }> => {
   const result = await bookingRequest('/bookingActivity', { bookingId });
-  return Array.isArray(result?.entries) ? result.entries : [];
+  return {
+    entries: Array.isArray(result?.entries) ? result.entries : [],
+    createdByName: typeof result?.createdByName === 'string' ? result.createdByName : '',
+  };
 };
 export const submitBookingReceipt = async (payload: { bookingId: string; receiptUrl: string; amount: number; bankReference?: string }) => {
   return bookingRequest('/submitBookingReceipt', payload);

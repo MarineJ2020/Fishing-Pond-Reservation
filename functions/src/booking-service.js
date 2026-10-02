@@ -114,6 +114,8 @@ export async function createSecureBooking(db, payload, user) {
             userName: text(payload.userName) || text(profile.data()?.name) || text(user.name),
             userPhone: text(payload.userPhone), bookingPhone: text(payload.bookingPhone),
             createdByUid: staffMode ? user.uid : null, createdByStaff: staffMode,
+            // Name at booking time, for the CMS activity log and "Ditempah oleh" badge.
+            createdByName: staffMode ? (text(profile.data()?.name) || text(user.name) || text(user.email)) : null,
             competitionId: payload.competitionId, competitionName: competition.name || '',
             pondId: primary.pondId, pondCode: primary.pondCode,
             pondSelections: selections.map(({ pondDocId: _pondDocId, ...selection }) => selection),

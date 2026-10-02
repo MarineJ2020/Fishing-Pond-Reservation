@@ -94,6 +94,8 @@ export interface Booking {
   createdByStaff?: boolean;
   /** UID of the staff/admin account that created a proxy customer booking. */
   createdByUid?: string;
+  /** Staff name at booking time (set by the server for staff-made bookings). */
+  createdByName?: string;
   checkedIn?: boolean;
   /** Seat numbers that have individually checked in (subset of `seats`). */
   checkedInSeats?: number[];
