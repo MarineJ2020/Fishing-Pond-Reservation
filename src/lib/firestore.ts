@@ -806,6 +806,19 @@ export const getUsersPage = async (opts: UsersPageOptions = {}): Promise<UsersPa
   };
 };
 
+// Per-staff "seen" marker for the Kelulusan badge: pending bookings created
+// after this time count as new for that staff member.
+export const getApprovalsSeenAt = async (uid: string): Promise<number | null> => {
+  const snap = await getDoc(doc(db, 'users', uid));
+  const value = snap.exists() ? snap.data().approvalsSeenAt : null;
+  const ms = value ? Date.parse(normalizeTimestamp(value) || '') : NaN;
+  return Number.isFinite(ms) ? ms : null;
+};
+
+export const markApprovalsSeen = async (uid: string): Promise<void> => {
+  await setDoc(doc(db, 'users', uid), { approvalsSeenAt: serverTimestamp() }, { merge: true });
+};
+
 export const createUserProfile = async (uid: string, data: { email: string; name: string; phone?: string; role?: string }) => {
   await setDoc(doc(db, 'users', uid), {
     ...data,

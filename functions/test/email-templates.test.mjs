@@ -93,3 +93,22 @@ test('cancellation email shows the escaped reason and the booking pegs', () => {
     assert.match(mail.html, /B-7, B-8/);
     assert.match(renderBookingCancelledEmail({ bookingId: 'b9', booking, reason: '', appUrl: 'https://x.my' }).html, /Tiada sebab dinyatakan/);
 });
+
+test('booking summary shows booking time, competition schedule and pegs in Malaysia time', () => {
+    const booking = {
+        bookingRef: 'KKS-GM726UJ8', competitionName: 'Pertandingan Bulanan Okt',
+        createdAt: new Date('2026-10-02T04:15:00Z'),
+        pondSelections: [{ pondName: 'Bella', pondCode: 'B', seats: [7, 8] }, { pondName: 'Aisyah', pondCode: 'A', seats: [3] }],
+    };
+    const competition = { eventDate: new Date('2026-10-04T00:00:00Z'), endDate: new Date('2026-10-04T10:00:00Z') };
+    const mail = renderBookingReceivedEmail({ booking, competition });
+    assert.match(mail.html, /Tarikh &amp; Masa Tempahan/);
+    assert.match(mail.html, /Jum, 2 Okt 2026, 12:15 PTG/);
+    assert.match(mail.html, /Pertandingan Bulanan Okt/);
+    assert.match(mail.html, /Ahd, 4 Okt 2026, 8:00 PG – 6:00 PTG/);
+    assert.match(mail.html, /Bella: B-7, B-8<br\/>Aisyah: A-3/);
+    assert.doesNotMatch(mail.html, /Tarikh: -/);
+    assert.match(mail.text, /Kolam & No\. Pancang: Bella: B-7, B-8; Aisyah: A-3/);
+    // Missing competition doc degrades to '-' rather than failing the email.
+    assert.match(renderBookingReceivedEmail({ booking }).html, /Tarikh &amp; Masa Pertandingan<\/td>\s*<td[^>]*>-<\/td>/);
+});

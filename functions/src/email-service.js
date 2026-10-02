@@ -121,11 +121,25 @@ export const queuePasswordResetMail = ({ uid, email, link, name, requestWindow }
     message: renderPasswordResetEmail({ link, name }),
 });
 
+// Competition doc for the booking emails' schedule line. The booking stores
+// competitionId as a string or (legacy) reference; a missing doc just shows '-'.
+export const loadBookingCompetition = async (booking) => {
+    const id = booking?.competitionId?.id ?? booking?.competitionId;
+    if (typeof id !== 'string' || !id || id.includes('/')) return null;
+    try {
+        const snap = await adminDb.collection('competitions').doc(id).get();
+        return snap.exists ? snap.data() : null;
+    } catch (error) {
+        console.error(`Could not load competition ${id} for booking email:`, error);
+        return null;
+    }
+};
+
 export const queueBookingLifecycleMail = async ({ bookingId, booking, kind }) => {
-    const recipient = await resolveBookingRecipient(booking);
+    const [recipient, competition] = await Promise.all([resolveBookingRecipient(booking), loadBookingCompetition(booking)]);
     const message = kind === 'booking_approved'
-        ? renderBookingApprovedEmail({ bookingId, booking, appUrl: APP_URL })
-        : renderBookingReceivedEmail({ booking });
+        ? renderBookingApprovedEmail({ bookingId, booking, competition, appUrl: APP_URL })
+        : renderBookingReceivedEmail({ booking, competition });
     return createMailJob({
         id: `${kind}_${bookingId}`,
         to: recipient,
@@ -152,7 +166,7 @@ export const newlyRejectedReceipts = (before = {}, after = {}) => {
 };
 
 export const queueReceiptRejectedMail = async ({ bookingId, before, after, receipt, index }) => {
-    const recipient = await resolveBookingRecipient(after);
+    const [recipient, competition] = await Promise.all([resolveBookingRecipient(after), loadBookingCompetition(after)]);
     const bookingCancelled = String(after.status || '').toUpperCase() === 'REJECTED'
         && String(before.status || '').toUpperCase() !== 'REJECTED';
     // One email per rejection event; a replaced-then-rejected-again receipt gets a new one.
@@ -163,7 +177,7 @@ export const queueReceiptRejectedMail = async ({ bookingId, before, after, recei
         kind: 'receipt_rejected',
         bookingId,
         message: renderReceiptRejectedEmail({
-            bookingId, booking: after, receiptIndex: index, amount: receipt.amount,
+            bookingId, booking: after, competition, receiptIndex: index, amount: receipt.amount,
             reason: receipt.rejectReason, bookingCancelled, appUrl: APP_URL,
         }),
     });
@@ -176,25 +190,25 @@ export const shouldQueueBookingCancelledEmail = (before = {}, after = {}) =>
     isConfirmedStatus(before.status) && String(after.status || '').toUpperCase() === 'REJECTED';
 
 export const queueBookingCancelledMail = async ({ bookingId, booking }) => {
-    const recipient = await resolveBookingRecipient(booking);
+    const [recipient, competition] = await Promise.all([resolveBookingRecipient(booking), loadBookingCompetition(booking)]);
     const eventMs = timestampMs(booking.cancelledAt) || timestampMs(booking.updatedAt) || Date.now();
     return createMailJob({
         id: `booking_cancelled_${bookingId}_${eventMs}`,
         to: recipient,
         kind: 'booking_cancelled',
         bookingId,
-        message: renderBookingCancelledEmail({ bookingId, booking, reason: booking.cancelReason, appUrl: APP_URL }),
+        message: renderBookingCancelledEmail({ bookingId, booking, competition, reason: booking.cancelReason, appUrl: APP_URL }),
     });
 };
 
 export const queueBalanceReminderMail = async ({ bookingId, booking, balanceDue, id, anchorMs }) => {
-    const recipient = await resolveBookingRecipient(booking);
+    const [recipient, competition] = await Promise.all([resolveBookingRecipient(booking), loadBookingCompetition(booking)]);
     return createMailJob({
         id,
         to: recipient,
         kind: 'balance_reminder',
         bookingId,
         anchorMs,
-        message: renderBalanceReminderEmail({ bookingId, booking, balanceDue, appUrl: APP_URL }),
+        message: renderBalanceReminderEmail({ bookingId, booking, competition, balanceDue, appUrl: APP_URL }),
     });
 };

@@ -26,6 +26,8 @@ import {
   deleteScoreEntry,
   approveDepositWithProofDirect,
   getUsersPage,
+  getApprovalsSeenAt,
+  markApprovalsSeen,
   countUsers,
   logAuditEvent,
   getAuditLog,
@@ -355,6 +357,23 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [resultsCompId, setResultsCompId] = useState<string>(comp.id || '');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
   const [scanOpen, setScanOpen] = useState(false);
+  // Kelulusan badge: only pending bookings that arrived since THIS staff member
+  // last opened Kelulusan (stored on their profile, so it follows them across devices).
+  const [approvalsSeenAt, setApprovalsSeenAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isOpen || !user?.uid) return;
+    let active = true;
+    getApprovalsSeenAt(user.uid)
+      .then((ms) => { if (active) setApprovalsSeenAt(ms); })
+      .catch((err) => console.error('Failed to load approvals seen marker:', err));
+    return () => { active = false; };
+  }, [isOpen, user?.uid]);
+  useEffect(() => {
+    if (!isOpen || page !== 'approvals' || !user?.uid) return;
+    setApprovalsSeenAt(Date.now());
+    markApprovalsSeen(user.uid).catch((err) => console.error('Failed to mark approvals seen:', err));
+  }, [isOpen, page, user?.uid]);
+
   // Photo URL per weigh-in entryId, so a retried save does not upload twice.
   const uploadedScanPhotosRef = useRef<Record<string, string>>({});
   // The OCR engine (~13 MB WASM + model) is slow on pond-side mobile data; start
@@ -2374,7 +2393,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
   };
 
-  const pendingCount = effectiveBookings.filter(b => b.status === 'pending').length;
+  const unseenPendingCount = effectiveBookings.filter((b) => b.status === 'pending'
+    && (approvalsSeenAt === null || (Date.parse(b.createdAt || '') || 0) > approvalsSeenAt)).length;
 
   const hasConflict = (b: Booking) => {
     const selections = b.pondSelections?.length ? b.pondSelections : [{ pondId: b.pondId, seats: b.seats ?? [] }];
@@ -2721,7 +2741,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       { id: 'prizes' as CMSPage, icon: '🥇', text: 'Hadiah & Ranking' },
     ]},
     { label: 'Tempahan', items: [
-      { id: 'approvals' as CMSPage, icon: '✅', text: 'Kelulusan', badge: pendingCount },
+      { id: 'approvals' as CMSPage, icon: '✅', text: 'Kelulusan', badge: unseenPendingCount },
       { id: 'all-bookings' as CMSPage, icon: '📋', text: 'Semua Tempahan' },
       { id: 'manual-booking' as CMSPage, icon: '➕', text: 'Tempahan Manual' },
     ]},

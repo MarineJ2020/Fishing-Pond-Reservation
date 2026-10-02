@@ -25,16 +25,35 @@ const layout = (title, body) => `
     </div>
 `;
 
-const formatDate = (value) => {
-    if (!value) return '-';
-    if (typeof value === 'string') {
-        const isoDate = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-        if (isoDate) return `${isoDate[3]}/${isoDate[2]}/${isoDate[1]}`;
-    }
+const MY_TIME_ZONE = 'Asia/Kuala_Lumpur';
+// e.g. "Ahd, 4 Okt 2026, 8:30 PG"
+const myDateTime = new Intl.DateTimeFormat('ms-MY', {
+    timeZone: MY_TIME_ZONE, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+});
+const myTime = new Intl.DateTimeFormat('ms-MY', { timeZone: MY_TIME_ZONE, hour: 'numeric', minute: '2-digit', hour12: true });
+const myDayKey = new Intl.DateTimeFormat('en-CA', { timeZone: MY_TIME_ZONE });
+
+const toDate = (value) => {
+    if (!value) return null;
     const date = typeof value?.toDate === 'function' ? value.toDate() : new Date(value);
-    return Number.isNaN(date.getTime())
-        ? String(value)
-        : new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur' }).format(date);
+    return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatDateTime = (value) => {
+    const date = toDate(value);
+    return date ? myDateTime.format(date) : '-';
+};
+
+// "Ahd, 4 Okt 2026, 8:00 PG – 6:00 PTG" (end time only when on the same day).
+const competitionSchedule = (competition) => {
+    const start = toDate(competition?.eventDate ?? competition?.startDate);
+    if (!start) return '-';
+    const end = toDate(competition?.endDate);
+    if (!end || end <= start) return myDateTime.format(start);
+    return myDayKey.format(start) === myDayKey.format(end)
+        ? `${myDateTime.format(start)} – ${myTime.format(end)}`
+        : `${myDateTime.format(start)} – ${myDateTime.format(end)}`;
 };
 
 const seatLabel = (seat, pondCode) => {
@@ -63,22 +82,28 @@ const selectionList = (booking) => {
     }];
 };
 
-const selectionDetails = (booking) => selectionList(booking).map((selection) => {
-    const seats = selection.seats.map((seat) => escapeHtml(seatLabel(seat, selection.pondCode))).join(', ') || '-';
+// Booking summary shared by every booking email. `competition` is the
+// competitions doc (for its schedule); the booking only stores the name.
+const summaryRows = (booking, competition) => [
+    ['Tarikh & Masa Tempahan', formatDateTime(booking.createdAt)],
+    ['Pertandingan', booking.competitionName || competition?.name || '-'],
+    ['Tarikh & Masa Pertandingan', competitionSchedule(competition)],
+    ['Kolam & No. Pancang', selectionList(booking).map((selection) => {
+        const seats = selection.seats.map((seat) => seatLabel(seat, selection.pondCode)).join(', ') || '-';
+        return `${selection.pondName}: ${seats}`;
+    })],
+];
+
+const selectionDetails = (booking, competition) => summaryRows(booking, competition).map(([label, value]) => {
+    const html = (Array.isArray(value) ? value : [value]).map(escapeHtml).join('<br/>');
     return `<tr>
-      <td style="padding:8px 0;border-bottom:1px solid #eee;">
-        <div style="font-weight:700;">${escapeHtml(selection.pondName)}</div>
-        <div style="font-size:13px;color:#666;">Tarikh: ${escapeHtml(formatDate(selection.pondDate))}</div>
-        <div style="font-size:13px;color:#666;">Peg: ${seats}</div>
-      </td>
+      <td style="padding:7px 12px 7px 0;border-bottom:1px solid #eee;color:#666;font-size:13px;vertical-align:top;white-space:nowrap;">${escapeHtml(label)}</td>
+      <td style="padding:7px 0;border-bottom:1px solid #eee;font-weight:700;vertical-align:top;">${html}</td>
     </tr>`;
 }).join('');
 
-const selectionText = (booking) => selectionList(booking)
-    .map((selection) => {
-        const seats = selection.seats.map((seat) => seatLabel(seat, selection.pondCode)).join(', ') || '-';
-        return `${selection.pondName} | ${formatDate(selection.pondDate)} | ${seats}`;
-    })
+const selectionText = (booking, competition) => summaryRows(booking, competition)
+    .map(([label, value]) => `${label}: ${Array.isArray(value) ? value.join('; ') : value}`)
     .join('\n');
 
 export const renderWelcomeEmail = ({ name, appUrl }) => ({
@@ -122,16 +147,16 @@ export const renderPasswordResetEmail = ({ link, name }) => ({
         <p style="font-size:12px;color:#888;">Pautan ini sah selama 1 jam dan hanya boleh digunakan sekali. Jika anda tidak membuat permintaan ini, abaikan e-mel ini — kata laluan anda kekal tidak berubah.</p>`),
 });
 
-export const renderBookingReceivedEmail = ({ booking }) => {
+export const renderBookingReceivedEmail = ({ booking, competition }) => {
     const bookingRef = subjectText(booking.bookingRef, 'Pending Approval');
     return {
         subject: `Tempahan Diterima - ${bookingRef}`,
-        text: `Tempahan ${bookingRef} diterima dan menunggu pengesahan.\n${selectionText(booking)}\nJumlah bayaran: RM ${Number(booking.amount || 0).toFixed(2)}`,
+        text: `Tempahan ${bookingRef} diterima dan menunggu pengesahan.\n${selectionText(booking, competition)}\nJumlah bayaran: RM ${Number(booking.amount || 0).toFixed(2)}`,
         html: layout('Tempahan Diterima', `
             <p>Salam sejahtera,</p>
             <p>Kami telah menerima permohonan tempahan anda. Pasukan kami akan menyemak resit bayaran dan mengesahkan tempahan sebentar lagi.</p>
             <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
-            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking)}</table>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
             <p><strong>Jumlah Bayaran:</strong> <span style="color:${BRAND_RED};">RM ${Number(booking.amount || 0).toFixed(2)}</span></p>
             <p>Status: <strong>Menunggu Pengesahan</strong></p>
             <p>Tempat anda telah dikunci buat sementara waktu. Anda akan menerima e-mel lain sebaik sahaja staf mengesahkan tempahan.</p>`),
@@ -158,17 +183,17 @@ const qrTable = ({ bookingId, booking, appUrl }) => {
     return rows.join('');
 };
 
-export const renderBookingApprovedEmail = ({ bookingId, booking, appUrl }) => {
+export const renderBookingApprovedEmail = ({ bookingId, booking, competition, appUrl }) => {
     const bookingRef = subjectText(booking.bookingRef, bookingId);
     const bookingUrl = `${appUrl}/bookings/${encodeURIComponent(bookingId)}`;
     return {
         subject: `Tempahan Disahkan - ${bookingRef}`,
-        text: `Tempahan ${bookingRef} telah disahkan.\n${selectionText(booking)}\nLihat tempahan: ${bookingUrl}`,
+        text: `Tempahan ${bookingRef} telah disahkan.\n${selectionText(booking, competition)}\nLihat tempahan: ${bookingUrl}`,
         html: layout('Tempahan Disahkan', `
             <p>Salam sejahtera,</p>
             <p>Tempahan anda telah <strong style="color:${BRAND_RED};">disahkan</strong>. Sila simpan butiran berikut untuk rujukan pada hari pertandingan.</p>
             <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
-            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking)}</table>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
             <div style="text-align:center;margin:22px 0;">
               <div style="font-size:12px;color:#888;margin-bottom:8px;">Setiap peg mempunyai QR sendiri — imbas QR peg berkenaan semasa check-in / timbang ikan</div>
               <table style="border-collapse:collapse;margin:0 auto;">${qrTable({ bookingId, booking, appUrl })}</table>
@@ -179,17 +204,17 @@ export const renderBookingApprovedEmail = ({ bookingId, booking, appUrl }) => {
     };
 };
 
-export const renderBalanceReminderEmail = ({ bookingId, booking, balanceDue, appUrl }) => {
+export const renderBalanceReminderEmail = ({ bookingId, booking, competition, balanceDue, appUrl }) => {
     const bookingRef = subjectText(booking.bookingRef, bookingId);
     const bookingUrl = `${appUrl}/bookings/${encodeURIComponent(bookingId)}`;
     return {
         subject: `Peringatan Baki Bayaran - ${bookingRef}`,
-        text: `Baki RM ${Number(balanceDue || 0).toFixed(2)} untuk tempahan ${bookingRef} masih tertunggak.\n${selectionText(booking)}\nMuat naik resit: ${bookingUrl}`,
+        text: `Baki RM ${Number(balanceDue || 0).toFixed(2)} untuk tempahan ${bookingRef} masih tertunggak.\n${selectionText(booking, competition)}\nMuat naik resit: ${bookingUrl}`,
         html: layout('Peringatan: Baki Bayaran Tertunggak', `
             <p>Salam sejahtera,</p>
             <p>Tempahan deposit anda masih menunggu <strong style="color:${BRAND_RED};">baki bayaran</strong>. Sila muat naik resit bayaran baki anda untuk mengesahkan tempahan dan mengekalkan tempat anda.</p>
             <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
-            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking)}</table>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
             <p><strong>Baki Tertunggak:</strong> <span style="color:${BRAND_RED};">RM ${Number(balanceDue || 0).toFixed(2)}</span></p>
             <p style="text-align:center;margin:24px 0;"><a href="${escapeHtml(bookingUrl)}" style="display:inline-block;background:${BRAND_RED};color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">Muat Naik Resit Baki</a></p>
             <p style="font-size:12px;color:#666;">Pautan terus: <a href="${escapeHtml(bookingUrl)}" style="color:${BRAND_NAVY};">${escapeHtml(bookingUrl)}</a></p>
@@ -199,7 +224,7 @@ export const renderBalanceReminderEmail = ({ bookingId, booking, balanceDue, app
 
 // bookingCancelled: the first (only) receipt was rejected, which rejects the whole
 // booking and frees its pegs; otherwise the customer can re-upload that receipt.
-export const renderReceiptRejectedEmail = ({ bookingId, booking, receiptIndex, amount, reason, bookingCancelled, appUrl }) => {
+export const renderReceiptRejectedEmail = ({ bookingId, booking, competition, receiptIndex, amount, reason, bookingCancelled, appUrl }) => {
     const bookingRef = subjectText(booking.bookingRef, bookingId);
     const bookingUrl = `${appUrl}/bookings/${encodeURIComponent(bookingId)}`;
     const reasonText = String(reason || '').trim() || 'Tiada sebab dinyatakan. Sila hubungi kami untuk maklumat lanjut.';
@@ -220,7 +245,7 @@ export const renderReceiptRejectedEmail = ({ bookingId, booking, receiptIndex, a
               <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Sebab ditolak</div>
               <div style="font-weight:700;">${escapeHtml(reasonText)}</div>
             </div>
-            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking)}</table>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
             <p>${escapeHtml(nextStep)}</p>
             <p style="text-align:center;margin:24px 0;"><a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background:${BRAND_RED};color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">${escapeHtml(ctaLabel)}</a></p>
             <p style="font-size:12px;color:#888;">Ada pertanyaan? Balas e-mel ini atau hubungi kami.</p>`),
@@ -228,13 +253,13 @@ export const renderReceiptRejectedEmail = ({ bookingId, booking, receiptIndex, a
 };
 
 // Staff force-cancelled an already-confirmed booking; its pegs are released.
-export const renderBookingCancelledEmail = ({ bookingId, booking, reason, appUrl }) => {
+export const renderBookingCancelledEmail = ({ bookingId, booking, competition, reason, appUrl }) => {
     const bookingRef = subjectText(booking.bookingRef, bookingId);
     const reasonText = String(reason || '').trim() || 'Tiada sebab dinyatakan. Sila hubungi kami untuk maklumat lanjut.';
     const bookingUrl = `${appUrl}/bookings/${encodeURIComponent(bookingId)}`;
     return {
         subject: `Tempahan Dibatalkan - ${bookingRef}`,
-        text: `Tempahan ${bookingRef} telah dibatalkan oleh pihak kami.\nSebab: ${reasonText}\n${selectionText(booking)}\nUntuk sebarang pertanyaan, termasuk bayaran yang telah dibuat, sila hubungi kami.`,
+        text: `Tempahan ${bookingRef} telah dibatalkan oleh pihak kami.\nSebab: ${reasonText}\n${selectionText(booking, competition)}\nUntuk sebarang pertanyaan, termasuk bayaran yang telah dibuat, sila hubungi kami.`,
         html: layout('Tempahan Dibatalkan', `
             <p>Salam sejahtera,</p>
             <p>Dimaklumkan bahawa tempahan anda yang telah disahkan sebelum ini telah <strong style="color:${BRAND_RED};">dibatalkan</strong> oleh pihak kami. QR peg untuk tempahan ini tidak lagi sah.</p>
@@ -243,7 +268,7 @@ export const renderBookingCancelledEmail = ({ bookingId, booking, reason, appUrl
               <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Sebab pembatalan</div>
               <div style="font-weight:700;">${escapeHtml(reasonText)}</div>
             </div>
-            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking)}</table>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
             <p>Untuk sebarang pertanyaan, termasuk bayaran yang telah dibuat, sila balas e-mel ini atau hubungi kami.</p>
             <p style="font-size:12px;color:#666;">Butiran tempahan: <a href="${escapeHtml(bookingUrl)}" style="color:${BRAND_NAVY};">${escapeHtml(bookingUrl)}</a></p>`),
     };
