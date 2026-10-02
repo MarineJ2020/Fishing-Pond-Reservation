@@ -147,16 +147,23 @@ service cloud.firestore {
           'ocrUserVerified', 'scanMethod', 'capturedBy', 'createdAt', 'updatedAt'
         ])
         && request.resource.data.capturedBy == request.auth.uid;
-      allow update: if isStaff()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'anglerName', 'pondId', 'pondName', 'seatNum', 'weight', 'photoUrl',
-          'ocrConfidence', 'ocrRawText', 'ocrUserVerified', 'scanMethod', 'updatedAt'
-        ])
-        || (isAdmin()
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+      // Saved weights decide prizes: only admins may change them, and only as
+      // an attributed correction (who, when, reason, previous value) or a
+      // soft delete. Both are also written to auditLog by the CMS.
+      allow update: if isAdmin() && (
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'weight', 'previousWeight', 'editReason', 'editedBy', 'editedAt', 'updatedAt'
+          ])
+          && request.resource.data.editedBy == request.auth.uid
+          && request.resource.data.weight is number
+          && request.resource.data.weight > 0
+          && request.resource.data.editReason is string
+          && request.resource.data.editReason.size() > 0)
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'deletedAt', 'deletedBy', 'updatedAt'
           ])
-          && request.resource.data.deletedBy == request.auth.uid);
+          && request.resource.data.deletedBy == request.auth.uid)
+      );
       allow delete: if false;
     }
 

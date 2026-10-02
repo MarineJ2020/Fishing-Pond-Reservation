@@ -20,6 +20,8 @@ import {
   getScoresForCompetition,
   getPrizeClaimsForCompetition,
   saveScoreEntry,
+  getScoreEntryWeight,
+  updateScoreWeight,
   savePrizeClaimStatus,
   deleteScoreEntry,
   approveDepositWithProofDirect,
@@ -47,12 +49,13 @@ import {
   receiptBankReference,
 } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta, sortCompetitionsLatestFirst } from '../utils/competition';
-import { formatWeight } from '../utils/weight';
+import { formatWeight, weightSanityWarning } from '../utils/weight';
 import { buildDashboardStats, DashboardFilter, DashboardRange } from '../utils/dashboard';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { prizeRange, formatDate } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull, ScannedSeatEntry } from './cms/ScaleScanModal';
+import { prewarmOcr } from '../utils/scaleOcr';
 import DocPreviewModal from './DocPreviewModal';
 import ReceiptReviewModal from './cms/ReceiptReviewModal';
 import AdminInstructions from './cms/AdminInstructions';
@@ -89,6 +92,19 @@ const ALL_BOOKING_STATUS_OPTIONS = [
   ['confirmed', 'Disahkan'],
   ['cancelled', 'Dibatalkan'],
 ] as const;
+
+// Weigh-in saves on pond-side mobile data: give up (and let staff retry) instead of hanging.
+const SCAN_UPLOAD_TIMEOUT_MS = 60_000;
+const SCAN_SAVE_TIMEOUT_MS = 30_000;
+const SCAN_TIMEOUT_MESSAGE = 'Sambungan lemah — rekod mungkin belum disimpan. Tekan Sahkan & Simpan sekali lagi (rekod tidak akan berganda).';
+const withTimeout = <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
 
 // Pengguna page tabs. 'all' keeps unfiltered access for accounts with a missing
 // or legacy role value, which neither role-filtered tab can match.
@@ -339,6 +355,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [resultsCompId, setResultsCompId] = useState<string>(comp.id || '');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
   const [scanOpen, setScanOpen] = useState(false);
+  // Photo URL per weigh-in entryId, so a retried save does not upload twice.
+  const uploadedScanPhotosRef = useRef<Record<string, string>>({});
+  // The OCR engine (~13 MB WASM + model) is slow on pond-side mobile data; start
+  // fetching it when staff reach the weigh-in pages, not at the first scan.
+  useEffect(() => {
+    if (isOpen && (page === 'results' || page === 'checkin')) prewarmOcr();
+  }, [isOpen, page]);
   const [scanInitialSelection, setScanInitialSelection] = useState<{ booking: ScannedBookingFull; seatNum?: number } | null>(null);
   const [scorePegFilter, setScorePegFilter] = useState('');
   const [scoreNameFilter, setScoreNameFilter] = useState('');
@@ -2008,6 +2031,42 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setQrImgUploading(false);
   };
 
+  // Admin-only weight correction: requires a reason; rules record who/when and
+  // the previous value, and the audit log keeps the full history.
+  const handleEditEntryWeight = async (entry: ScoreEntry) => {
+    if (!isAdmin || !entry.id) return;
+    const current = formatWeight(entry.weight, settings.ocrDecimalPlaces);
+    const raw = window.prompt(`Berat baharu untuk ${entry.anglerName}, ${entry.pondName} peg ${entry.seatNum} (sekarang ${current} kg):`, String(entry.weight));
+    if (raw === null) return;
+    const weight = parseFloat(raw);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      window.alert('Berat tidak sah.');
+      return;
+    }
+    if (weight === entry.weight) return;
+    const warning = weightSanityWarning(weight, raw, settings.ocrDecimalPlaces);
+    if (warning && !window.confirm(`${warning}\n\nTeruskan dengan ${weight} kg?`)) return;
+    const reason = (window.prompt('Sebab pembetulan (wajib):') || '').trim();
+    if (!reason) {
+      window.alert('Sebab diperlukan. Berat tidak diubah.');
+      return;
+    }
+    try {
+      await updateScoreWeight(entry.id, weight, entry.weight, reason);
+      setScoreEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, weight } : e)));
+      await logAuditEvent({
+        action: 'score.edit', actionLabel: 'Betulkan Berat', entityType: 'score',
+        entityId: entry.id, bookingId: entry.bookingId || undefined,
+        entityLabel: `${entry.anglerName} · ${entry.pondName} peg ${entry.seatNum}`,
+        details: `${entry.weight} kg → ${weight} kg`, reason,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    } catch (err) {
+      console.error('Failed to edit weight:', err);
+      window.alert(`Gagal membetulkan berat: ${err instanceof Error ? err.message : 'Ralat tidak diketahui'}`);
+    }
+  };
+
   const handleDeleteEntry = async (id: string) => {
     if (!isAdmin) {
       window.alert('Hanya admin boleh padam rekod papan markah.');
@@ -2166,20 +2225,39 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
    * Auto-saves directly — no manual form. Staff cannot edit any field at this
    * point, the only escape is "Ambil Semula" inside the modal.
    */
+  // The modal stays open until this resolves; a rejection shows its message in
+  // the modal so staff can press save again. Retries reuse scan.entryId, so a
+  // save that reached the server despite timing out is detected, not duplicated.
   const handleScanApprove = async (scan: ScaleScanApproved) => {
-    setScanOpen(false);
+    const sb = scan.scannedBooking;
+    const weighInLog = () => logAuditEvent({
+      action: 'score.create', actionLabel: 'Rekod Timbangan', entityType: 'score',
+      entityId: scan.entryId, bookingId: sb.bookingId || undefined,
+      entityLabel: `${sb.anglerName} · peg ${formatSeat(sb.pondCode, sb.seatNum)}`,
+      details: `${formatWeight(scan.weight, settings.ocrDecimalPlaces)} kg (${scan.userEdited ? 'disunting staf' : scan.method})`,
+      actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+    }).catch((err) => console.error('Failed to log weigh-in:', err));
     setSaving(true);
-    let savedAnglerName = '';
-    let nextScanBooking: ScannedBookingFull | null = null;
     try {
-      // OCR/seven-segment recognition already ran on the original frame in
-      // ScaleScanModal; only the stored copy is WebP-compressed here.
-      const webp = await compressBlobToWebp(scan.photoBlob, scan.photoFileName);
-      const photoUrl = await uploadImageToFirebaseStorage(webp, 'fishing-pond-weights', webp.name);
-      const sb = scan.scannedBooking;
-      savedAnglerName = sb.anglerName;
-      nextScanBooking = lookupBookingFullForScan(sb.bookingId, sb.pondId);
-      const scoreId = await saveScoreEntry({
+      const existingWeight = await withTimeout(getScoreEntryWeight(scan.entryId), SCAN_SAVE_TIMEOUT_MS, SCAN_TIMEOUT_MESSAGE);
+      if (existingWeight !== null) {
+        if (existingWeight !== scan.weight) {
+          throw new Error(`Rekod ini telah disimpan sebelum ini dengan ${existingWeight} kg. Admin boleh membetulkannya di Rekod Timbangan.`);
+        }
+        weighInLog();
+      } else {
+        let photoUrl = uploadedScanPhotosRef.current[scan.entryId];
+        if (!photoUrl) {
+          // OCR already ran on the original frame; only the stored copy is WebP-compressed.
+          const webp = await compressBlobToWebp(scan.photoBlob, scan.photoFileName);
+          photoUrl = await withTimeout(
+            uploadImageToFirebaseStorage(webp, 'fishing-pond-weights', webp.name),
+            SCAN_UPLOAD_TIMEOUT_MS,
+            'Muat naik gambar terlalu lama (sambungan lemah). Rekod BELUM disimpan — tekan Sahkan & Simpan sekali lagi.',
+          );
+          uploadedScanPhotosRef.current[scan.entryId] = photoUrl;
+        }
+        await withTimeout(saveScoreEntry({
         competitionId: sb.competitionId || resultsCompId,
         bookingId: sb.bookingId,
         anglerName: sb.anglerName,
@@ -2193,29 +2271,32 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         ocrUserVerified: !scan.userEdited,
         scanMethod: scan.method,
         capturedBy: user?.uid || user?.email || 'unknown',
-      });
-      logAuditEvent({
-        action: 'score.create', actionLabel: 'Rekod Timbangan', entityType: 'score',
-        entityId: scoreId, bookingId: sb.bookingId || undefined,
-        entityLabel: `${sb.anglerName} · peg ${formatSeat(sb.pondCode, sb.seatNum)}`,
-        details: `${formatWeight(scan.weight, settings.ocrDecimalPlaces)} kg (${scan.userEdited ? 'disunting staf' : scan.method})`,
-        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
-      }).catch((err) => console.error('Failed to log weigh-in:', err));
-      setScoreEntries(await getScoresForCompetition(resultsCompId));
+      }, scan.entryId), SCAN_SAVE_TIMEOUT_MS, SCAN_TIMEOUT_MESSAGE);
+        weighInLog();
+      }
     } catch (err) {
       console.error('Failed to save scanned weight:', err);
+      setSaving(false);
+      throw new Error(err instanceof Error && err.message ? err.message : 'Gagal menyimpan rekod timbangan. Sila cuba lagi.');
     }
+    delete uploadedScanPhotosRef.current[scan.entryId];
     setSaving(false);
-    if (savedAnglerName) {
-      const continueForSameAngler = window.confirm(
-        `Berjaya simpan timbang untuk ${savedAnglerName}. Hantar satu lagi rekod untuk pemancing sama?`,
-      );
-      if (continueForSameAngler) {
-        setScanInitialSelection(nextScanBooking ? { booking: nextScanBooking } : null);
-        setScanOpen(true);
-      } else {
-        setScanInitialSelection(null);
-      }
+    setScanOpen(false);
+    const nextScanBooking = lookupBookingFullForScan(sb.bookingId, sb.pondId);
+    getScoresForCompetition(resultsCompId)
+      .then(setScoreEntries)
+      .catch((err) => console.error('Failed to refresh weigh-ins:', err));
+    // Let the close render (and reset the modal) before the blocking prompt,
+    // otherwise React batches close+reopen and the old reading stays on screen.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const continueForSameAngler = window.confirm(
+      `Berjaya simpan timbang untuk ${sb.anglerName}. Hantar satu lagi rekod untuk pemancing sama?`,
+    );
+    if (continueForSameAngler) {
+      setScanInitialSelection(nextScanBooking ? { booking: nextScanBooking } : null);
+      setScanOpen(true);
+    } else {
+      setScanInitialSelection(null);
     }
   };
 
@@ -4080,7 +4161,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 ) : '—'}
                               </td>
                               {isAdmin && (
-                                <td>
+                                <td style={{ whiteSpace: 'nowrap' }}>
+                                  <button
+                                    className="btn btn-sm"
+                                    title="Betulkan berat (admin)"
+                                    aria-label={`Betulkan berat ${e.anglerName}`}
+                                    onClick={() => handleEditEntryWeight(e)}
+                                  >✎</button>
                                   <button
                                     className="btn btn-sm"
                                     style={{ color: '#ef4444' }}

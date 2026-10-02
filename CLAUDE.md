@@ -76,7 +76,16 @@ missing or malformed (`vite.config.mjs`), to avoid deploying a blank site.
   bypasses the CDN after edits.
 - Scale weigh-in OCR: `src/lib/sevenSegmentOcr/` runs an ONNX model
   (`public/ocr-model/`) via onnxruntime-web WASM, single-threaded; Vite copies only
-  the needed `ort-wasm-simd-threaded.*` blobs to `dist/ort/`. Tesseract is a fallback.
+  the needed `ort-wasm-simd-threaded.*` blobs to `dist/ort/`. `utils/scaleOcr.ts`
+  reports the model's real confidence (least-certain digit) and flags readings
+  below `LOW_CONFIDENCE_PERCENT`; the geometric seven-segment reader is too
+  unreliable to veto the AI and only confirms. Manual entry is the fallback.
+- Weigh-in saves (`handleScanApprove`) keep the scan modal open until stored,
+  time out on weak signal, and reuse one `eventResults` doc id per photo so a
+  retry can't duplicate. Only admins may change a saved weight (rules require
+  `editReason`/`editedBy`), logged as `score.edit`.
+- `npm install` needs `--legacy-peer-deps`: `@firebase/rules-unit-testing` still
+  peers on firebase 10 while the app uses 12.
 - `src/utils/roles.ts` mirrors the server role policy for UI gating.
 
 ### Cloud Functions (`functions/src/`, Node 22, plain ESM JavaScript — no build step)

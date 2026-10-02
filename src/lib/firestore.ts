@@ -1369,7 +1369,11 @@ export const getScoreEntriesPage = async (opts: ScoreEntriesPageOptions = {}): P
   };
 };
 
-export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<string> => {
+/**
+ * `id` makes the save idempotent: the weigh-in modal reuses one id per reading,
+ * so retrying after a timeout cannot create a second record.
+ */
+export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>, id?: string): Promise<string> => {
   const resultsRef = collection(db, 'eventResults');
   const evidenceFields: Record<string, unknown> = {};
   if (entry.photoUrl)                       evidenceFields.photoUrl = entry.photoUrl;
@@ -1379,7 +1383,8 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
   if (entry.scanMethod)                     evidenceFields.scanMethod = entry.scanMethod;
   if (entry.capturedBy)                     evidenceFields.capturedBy = entry.capturedBy;
 
-  const docRef = await addDoc(resultsRef, {
+  const docRef = id ? doc(resultsRef, id) : doc(resultsRef);
+  await setDoc(docRef, {
     competitionId: entry.competitionId,
     bookingId: entry.bookingId || null,
     anglerName: entry.anglerName,
@@ -1392,6 +1397,24 @@ export const saveScoreEntry = async (entry: Omit<ScoreEntry, 'id'>): Promise<str
     updatedAt: serverTimestamp(),
   });
   return docRef.id;
+};
+
+/** Weight of an existing record, or null when it has not been saved yet. */
+export const getScoreEntryWeight = async (id: string): Promise<number | null> => {
+  const snap = await getDoc(doc(db, 'eventResults', id));
+  return snap.exists() ? Number(snap.data().weight) : null;
+};
+
+/** Admin-only correction (enforced by rules); history goes to the audit log. */
+export const updateScoreWeight = async (id: string, weight: number, previousWeight: number, reason: string): Promise<void> => {
+  await updateDoc(doc(db, 'eventResults', id), {
+    weight,
+    previousWeight,
+    editReason: reason.trim().slice(0, 500),
+    editedBy: auth.currentUser?.uid || null,
+    editedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 };
 
 export const deleteScoreEntry = async (id: string): Promise<void> => {

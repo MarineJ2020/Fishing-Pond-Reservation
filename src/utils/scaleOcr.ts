@@ -13,10 +13,10 @@
 //   3. Parse the ONNX string into a numeric weight, using the structure-aware
 //      reconstruction helpers if available.
 //
-// The exported ScanResult shape is preserved so ScaleScanModal compiles
-// unchanged. Fields specific to the old multi-engine pipeline (votes,
-// totalRuns, debug) are now sentinel values — the verify UI gates on staff
-// confirmation, not on OCR confidence.
+// Fields specific to the old multi-engine pipeline (votes, totalRuns, debug)
+// are sentinel values. Staff always confirm the reading; `doubtful` (low model
+// confidence or disagreement with the seven-segment reader) makes the verify
+// step ask them to look twice.
 
 import {
   gaussianBlur,
@@ -86,6 +86,41 @@ export interface ScanResult {
   votes: number;
   totalRuns: number;
   debug?: DebugRun[];
+  /** AI digits vs the independent seven-segment reader on the same image. */
+  crossCheck: CrossCheck;
+  /** True when staff should look twice before saving (see assessReading). */
+  doubtful: boolean;
+  /** Malay reasons shown in the verify step when doubtful. */
+  doubtReasons: string[];
+}
+
+export type CrossCheck = 'agree' | 'disagree' | 'unavailable';
+
+/** Below this (percent) the AI's least-certain digit is treated as a guess. */
+export const LOW_CONFIDENCE_PERCENT = 85;
+
+/**
+ * Pure judgement on one reading. Doubt comes from the model's own confidence
+ * only: the geometric seven-segment reader misreads clean displays too often
+ * (e.g. "744" for a correct 98%-confident "345"), so its disagreement would
+ * flag good readings and train staff to ignore the warning. Its agreement is
+ * still shown as extra assurance.
+ */
+export function assessReading(input: {
+  weight: number | null;
+  confidencePercent: number;
+  aiText: string;
+  sevenSegDigits: number[];
+}): { crossCheck: CrossCheck; doubtful: boolean; doubtReasons: string[] } {
+  const aiDigits = input.aiText.replace(/[^0-9]/g, '');
+  const segDigits = input.sevenSegDigits.join('');
+  const crossCheck: CrossCheck = !segDigits || !aiDigits ? 'unavailable' : segDigits === aiDigits ? 'agree' : 'disagree';
+  const doubtReasons: string[] = [];
+  if (input.weight === null) doubtReasons.push('AI tidak dapat membaca nombor.');
+  else if (input.confidencePercent < LOW_CONFIDENCE_PERCENT) {
+    doubtReasons.push(`AI kurang pasti (${Math.round(input.confidencePercent)}%) — satu atau lebih digit mungkin salah.`);
+  }
+  return { crossCheck, doubtful: doubtReasons.length > 0, doubtReasons };
 }
 
 export type ConfidenceTier = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -288,16 +323,23 @@ export async function scanWeight(
     };
   }
 
-  const raw = await session.recognize(input);
-  // The weight is derived purely from the ONNX text + decimal-place rule.
-  // Structure/seven-seg data is retained on the result for the debug overlay only.
+  const { text: raw, confidence: modelConfidence } = await session.recognizeWithConfidence(input);
+  // The weight is derived purely from the ONNX text + decimal-place rule. The
+  // seven-segment reading only cross-checks it (and feeds the debug overlay).
   const weight = reconstructWeight(raw, opts.decimalPlaces);
+  const confidence = weight === null ? 0 : Math.round(modelConfidence * 1000) / 10;
+  const assessment = assessReading({
+    weight,
+    confidencePercent: confidence,
+    aiText: raw,
+    sevenSegDigits: sevenSegByPolarity[pickedPolarity]?.digits || [],
+  });
 
   return {
     weight,
-    // Sentinel: 100 when we got something parseable, 0 when we didn't.
-    // Verify-flow UI gates on staff confirmation, not on this number.
-    confidence: weight === null ? 0 : 100,
+    // Model's probability (percent) for its least-certain character.
+    confidence,
+    ...assessment,
     rawText: raw,
     preprocessedCanvas: input,
     pickedPolarity,

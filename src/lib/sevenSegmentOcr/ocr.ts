@@ -1,6 +1,6 @@
 import * as ort from "onnxruntime-web/wasm";
 
-import { greedyCtcDecode } from "./ctc";
+import { greedyCtcDecodeWithConfidence } from "./ctc";
 import { preprocess, type ImageSource, type InputSpec } from "./preprocess";
 
 interface ModelMetadata {
@@ -32,11 +32,16 @@ export class OcrSession {
   }
 
   async recognize(image: ImageSource): Promise<string> {
+    return (await this.recognizeWithConfidence(image)).text;
+  }
+
+  /** Text plus the model's confidence (0-1) in its least-certain character. */
+  async recognizeWithConfidence(image: ImageSource): Promise<{ text: string; confidence: number }> {
     if (!this.session) throw new Error("call load() first");
     const tensor = preprocess(image, this.spec);
     const out = await this.session.run({ [this.spec.name]: tensor });
     const logits = out[this.session.outputNames[0]];
-    return greedyCtcDecode(
+    return greedyCtcDecodeWithConfidence(
       logits.data as Float32Array,
       logits.dims,
       this.meta.alphabet,

@@ -3,6 +3,7 @@ import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
 import { parseQrPayload, decodeQr, openQrCameraStream } from '../../utils/qr';
+import { weightSanityWarning } from '../../utils/weight';
 
 export interface ScannedSeatEntry {
   key: string;
@@ -67,12 +68,18 @@ export interface ScaleScanApproved {
   photoBlob: Blob;
   photoFileName: string;
   scannedBooking: ScannedBookingLite;
+  /** Stable per captured photo, so a retried save updates nothing twice. */
+  entryId: string;
 }
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onApprove: (result: ScaleScanApproved) => void;
+  /**
+   * Saves the reading. Resolves only once it is stored; rejects with a
+   * staff-readable message so the modal stays open with the reading intact.
+   */
+  onApprove: (result: ScaleScanApproved) => Promise<void>;
   usePreprocess?: boolean;
   decimalPlaces?: 0 | 1 | 2 | 3;
   /** Resolve a scanned booking id into the full booking (with seat list). */
@@ -299,6 +306,9 @@ const ScaleScanModal: React.FC<Props> = ({
   const [manualPhotoBlob, setManualPhotoBlob] = useState<Blob | null>(null);
   const [manualPhotoUrl, setManualPhotoUrl] = useState<string | null>(null);
   const [manualPhotoFileName, setManualPhotoFileName] = useState<string>('manual-scale.jpg');
+  const [approveBusy, setApproveBusy] = useState(false);
+  // One record id per captured photo; reset whenever a new photo is taken.
+  const entryIdRef = useRef<string | null>(null);
   const manualPhotoInputRef = useRef<HTMLInputElement>(null);
   // Throttles the "QR tidak sah" banner so a foreign QR held in front of the
   // camera doesn't re-trigger setError on every animation frame.
@@ -354,6 +364,8 @@ const ScaleScanModal: React.FC<Props> = ({
       setManualPhotoUrl(null);
       setError(null);
       setProgress('');
+      setApproveBusy(false);
+      entryIdRef.current = null;
       setConfirmedBooking(null);
       setPendingFullBooking(null);
       setPendingCheckIn(null);
@@ -612,6 +624,7 @@ const ScaleScanModal: React.FC<Props> = ({
 
   const handleWeightFileChosen = async (file: File) => {
     setError(null);
+    entryIdRef.current = null;
     setPhotoFileName(file.name || 'scale.jpg');
     setPhotoBlob(file);
     const url = URL.createObjectURL(file);
@@ -715,29 +728,46 @@ const ScaleScanModal: React.FC<Props> = ({
     setStep('identify');
   };
 
-  const handleApprove = () => {
-    if (!activeReading || activeReading.weight === null || !confirmedBooking) return;
+  const handleApprove = async () => {
+    if (approveBusy || !activeReading || activeReading.weight === null || !confirmedBooking) return;
     const isManual = activeReading.source === 'manual';
     const proofBlob = isManual ? (manualPhotoBlob || photoBlob) : photoBlob;
     const proofName = isManual && manualPhotoBlob ? manualPhotoFileName : photoFileName;
     if (!proofBlob) return;
-    onApprove({
-      weight: activeReading.weight,
-      // ONNX reports its own confidence; the deterministic fallback and manual
-      // entry don't have a model confidence, so report 0 (the method tag carries
-      // the provenance instead).
-      ocrConfidence: activeReading.source === 'onnx' && result ? result.confidence : 0,
-      ocrRawText: activeReading.rawText,
-      userEdited: isManual,
-      method: activeReading.source,
-      photoBlob: proofBlob,
-      photoFileName: proofName,
-      scannedBooking: confirmedBooking,
-    });
+    const warning = weightSanityWarning(activeReading.weight, activeReading.displayText, decimalPlaces);
+    if (warning && !window.confirm(`${warning}\n\nSimpan juga ${activeReading.displayText} kg?`)) return;
+    setError(null);
+    setApproveBusy(true);
+    if (!entryIdRef.current) {
+      entryIdRef.current = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID().replace(/-/g, '')
+        : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+    }
+    try {
+      await onApprove({
+        entryId: entryIdRef.current,
+        weight: activeReading.weight,
+        // ONNX reports its own confidence; manual entry has none, so 0 (the
+        // method tag carries the provenance instead).
+        ocrConfidence: activeReading.source === 'onnx' && result ? result.confidence : 0,
+        ocrRawText: activeReading.rawText,
+        userEdited: isManual,
+        method: activeReading.source,
+        photoBlob: proofBlob,
+        photoFileName: proofName,
+        scannedBooking: confirmedBooking,
+      });
+    } catch (err: any) {
+      // Keep the modal and reading so staff can simply press save again.
+      setError(err?.message || 'Rekod belum disimpan. Sila cuba lagi.');
+    } finally {
+      setApproveBusy(false);
+    }
   };
 
   const approveDisabled =
-    !activeReading || activeReading.weight === null || !photoBlob;
+    approveBusy || !activeReading || activeReading.weight === null || !photoBlob;
+  const showDoubt = !!result && activeReading?.source === 'onnx' && result.doubtful;
 
   const showBookingChip =
     confirmedBooking
@@ -1115,16 +1145,20 @@ const ScaleScanModal: React.FC<Props> = ({
                   </div>
                   {(() => {
                     const ok = !!activeReading && activeReading.weight !== null;
+                    // Green = confident read, amber = readable but doubtful, red = no reading.
+                    const tone = !ok ? { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' }
+                      : showDoubt ? { bg: '#fffbeb', border: '#fcd34d', text: '#92400e' }
+                        : { bg: '#f0fdf4', border: '#86efac', text: '#15803d' };
                     return (
                       <div style={{
                         display: 'inline-flex', alignItems: 'baseline', gap: 8,
                         padding: '8px 14px', borderRadius: 8,
-                        background: ok ? '#f0fdf4' : '#fef2f2',
-                        border: `2px solid ${ok ? '#86efac' : '#fca5a5'}`,
+                        background: tone.bg,
+                        border: `2px solid ${tone.border}`,
                       }}>
                         <span style={{
                           fontSize: 44, fontWeight: 800, lineHeight: 1.1,
-                          color: ok ? '#15803d' : '#991b1b',
+                          color: tone.text,
                           fontFamily: 'var(--font-heading, monospace)',
                         }}>
                           {activeReading?.displayText || '—'}
@@ -1134,16 +1168,31 @@ const ScaleScanModal: React.FC<Props> = ({
                     );
                   })()}
                   <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-                    Bandingkan dengan paparan timbangan sebenar sebelum simpan.
+                    {activeReading?.source === 'onnx' && result.weight !== null && `Keyakinan AI: ${result.confidence}%`}
+                    {result.crossCheck === 'agree' && activeReading?.source === 'onnx' && ' · ✓ disahkan pembaca kedua'}
+                    <div>Bandingkan dengan paparan timbangan sebenar sebelum simpan.</div>
                   </div>
                 </div>
               </div>
+
+              {showDoubt && (
+                <div role="alert" style={{
+                  marginTop: 12, padding: 10, borderRadius: 6,
+                  background: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e', fontSize: 13,
+                }}>
+                  <strong>⚠ Sila semak bacaan ini dengan teliti.</strong>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                    {result.doubtReasons.map((reason) => <li key={reason}>{reason}</li>)}
+                  </ul>
+                  Jika berbeza dengan paparan timbangan, laras kotak dan imbas semula, atau masukkan manual.
+                </div>
+              )}
 
               <div style={{
                 marginTop: 12, padding: 10, borderRadius: 6,
                 background: '#eff6ff', color: '#1e3a8a', fontSize: 13,
               }}>
-                ℹ️ Tidak tepat? <strong>Imbas Semula</strong> untuk cuba AI lagi, atau <strong>Ambil Semula</strong>
+                ℹ️ Tidak tepat? <strong>Laras Kotak</strong> supaya hanya angka diliputi dan imbas semula, atau <strong>Ambil Semula</strong>
                 {' '}untuk guna gambar lain. Jika masih gagal, <strong>Masukkan Manual</strong> berat.
                 Gambar timbangan yang telah diambil akan digunakan sebagai bukti.
               </div>
@@ -1179,9 +1228,10 @@ const ScaleScanModal: React.FC<Props> = ({
               )}
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16, flexWrap: 'wrap' }}>
-                <button className="btn" onClick={handleRetakeWeight}>🔄 Ambil Semula</button>
-                <button className="btn" disabled={!photoBlob} onClick={handleScan}>🤖 Imbas Semula</button>
-                <button className="btn" onClick={() => setManualMode((m) => !m)}>
+                <button className="btn" disabled={approveBusy} onClick={handleRetakeWeight}>🔄 Ambil Semula</button>
+                {/* Re-running the same crop gives the same answer; adjusting the box can change it. */}
+                <button className="btn" disabled={!photoBlob || approveBusy} onClick={() => { setError(null); setStep('crop'); }}>✂️ Laras Kotak &amp; Imbas Semula</button>
+                <button className="btn" disabled={approveBusy} onClick={() => setManualMode((m) => !m)}>
                   ✍️ Masukkan Manual
                 </button>
                 <button
@@ -1190,7 +1240,7 @@ const ScaleScanModal: React.FC<Props> = ({
                   onClick={handleApprove}
                   style={approveDisabled ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
                 >
-                  ✅ Sahkan &amp; Simpan
+                  {approveBusy ? 'Menyimpan…' : <>✅ Sahkan &amp; Simpan</>}
                 </button>
               </div>
             </div>
