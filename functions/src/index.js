@@ -902,7 +902,7 @@ export const listEmailLogs = browserFacing.https.onCall(async (data, context) =>
         if (!context.auth) {
             throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
         }
-        if (!await callableHasRole(context, ['ADMIN'])) {
+        if (!await callableHasRole(context, [...ADMIN_ROLES])) {
             throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
         }
 
@@ -933,7 +933,7 @@ export const requestBalanceReminder = browserFacing.https.onCall(async (data, co
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
     }
-    if (!await callableHasRole(context, ['ADMIN'])) {
+    if (!await callableHasRole(context, [...ADMIN_ROLES])) {
         throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
     }
     const bookingId = typeof data?.bookingId === 'string' ? data.bookingId.trim() : '';
