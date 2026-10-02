@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     bookingSelectionsForTest,
     renderBookingApprovedEmail,
+    renderBookingCancelledEmail,
     renderBookingReceivedEmail,
     renderPasswordResetEmail,
     renderReceiptRejectedEmail,
@@ -81,4 +82,14 @@ test('receipt rejection email shows the escaped reason and the right next step',
     assert.match(cancelled.subject, /^Tempahan Tidak Diluluskan/);
     assert.match(cancelled.html, /https:\/\/x\.my\/book"/);
     assert.match(cancelled.html, /Tiada sebab dinyatakan/);
+});
+
+test('cancellation email shows the escaped reason and the booking pegs', () => {
+    const booking = { bookingRef: 'KKS-CX99', pondName: 'Bella', pondCode: 'B', seatNumbers: [7, 8] };
+    const mail = renderBookingCancelledEmail({ bookingId: 'b9', booking, reason: 'Kolam <ditutup>', appUrl: 'https://x.my' });
+    assert.equal(mail.subject, 'Tempahan Dibatalkan - KKS-CX99');
+    assert.match(mail.html, /Kolam &lt;ditutup&gt;/);
+    assert.doesNotMatch(mail.html, /<ditutup>/);
+    assert.match(mail.html, /B-7, B-8/);
+    assert.match(renderBookingCancelledEmail({ bookingId: 'b9', booking, reason: '', appUrl: 'https://x.my' }).html, /Tiada sebab dinyatakan/);
 });

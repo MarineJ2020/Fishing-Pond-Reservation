@@ -7,8 +7,10 @@ import {
     isConfirmedStatus,
     newlyRejectedReceipts,
     queueBalanceReminderMail,
+    queueBookingCancelledMail,
     queueBookingLifecycleMail,
     queueReceiptRejectedMail,
+    shouldQueueBookingCancelledEmail,
     queuePasswordResetMail,
     queueVerificationMail,
     queueWelcomeMail,
@@ -1012,6 +1014,20 @@ export const queueReceiptRejectedEmail = regional.firestore
             if (!result.created && result.reason === 'missing-recipient') {
                 console.warn(`No email recipient for rejected receipt on booking ${context.params.bookingId}.`);
             }
+        }
+        return null;
+    });
+
+// Staff force-cancel of a confirmed booking (CMS writes status + cancelReason).
+export const queueBookingCancelledEmail = regional.firestore
+    .document('bookings/{bookingId}')
+    .onUpdate(async (change, context) => {
+        const before = change.before.data() || {};
+        const after = change.after.data() || {};
+        if (!shouldQueueBookingCancelledEmail(before, after)) return null;
+        const result = await queueBookingCancelledMail({ bookingId: context.params.bookingId, booking: after });
+        if (!result.created && result.reason === 'missing-recipient') {
+            console.warn(`No email recipient for cancelled booking ${context.params.bookingId}.`);
         }
         return null;
     });

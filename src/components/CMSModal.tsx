@@ -949,7 +949,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     if (!forceCancelTarget) return;
     setSaving(true);
     try {
-      await updateBookingStatusFirestore(forceCancelTarget.id, 'rejected');
+      // Reason is stored on the booking so the cancellation email (server
+      // trigger) and the customer's booking page can show it.
+      await updateBookingStatusFirestore(forceCancelTarget.id, 'rejected', {
+        cancelReason: forceCancelReason.trim().slice(0, 500),
+        cancelledBy: user?.uid || null,
+        cancelledAt: new Date().toISOString(),
+      });
       await refetchCurrentBookingList();
       await logAuditEvent({
         action: 'booking.force_cancel', actionLabel: 'Batal Paksa Tempahan', entityType: 'booking',
@@ -3480,7 +3486,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   ? 'Peringatan baki'
                                   : kind === 'receipt_rejected'
                                     ? 'Resit ditolak'
-                                    : kind;
+                                    : kind === 'booking_cancelled'
+                                      ? 'Pembatalan'
+                                      : kind;
                             const sentByReminderTimestamp = kind === 'balance_reminder' && Boolean(b.balanceReminderSentAt);
                             const delivered = (delivery.state === 'SUCCESS' && delivery.recipientAccepted) || sentByReminderTimestamp;
                             const failed = !sentByReminderTimestamp && (delivery.state === 'ERROR' || (delivery.state === 'SUCCESS' && !delivery.recipientAccepted));
@@ -5061,6 +5069,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               booking_approved: 'Tempahan Diluluskan',
               balance_reminder: 'Peringatan Baki',
               receipt_rejected: 'Resit Ditolak',
+              booking_cancelled: 'Tempahan Dibatalkan',
               unknown: 'Tidak Diketahui',
             };
             const statusMeta = (entry: EmailLogEntry) => {

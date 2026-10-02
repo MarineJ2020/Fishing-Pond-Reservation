@@ -96,6 +96,8 @@ export interface Booking {
   createdByUid?: string;
   /** Staff name at booking time (set by the server for staff-made bookings). */
   createdByName?: string;
+  /** Staff-entered reason when a confirmed booking was force-cancelled. */
+  cancelReason?: string;
   checkedIn?: boolean;
   /** Seat numbers that have individually checked in (subset of `seats`). */
   checkedInSeats?: number[];

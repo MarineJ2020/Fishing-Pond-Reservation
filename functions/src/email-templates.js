@@ -227,4 +227,26 @@ export const renderReceiptRejectedEmail = ({ bookingId, booking, receiptIndex, a
     };
 };
 
+// Staff force-cancelled an already-confirmed booking; its pegs are released.
+export const renderBookingCancelledEmail = ({ bookingId, booking, reason, appUrl }) => {
+    const bookingRef = subjectText(booking.bookingRef, bookingId);
+    const reasonText = String(reason || '').trim() || 'Tiada sebab dinyatakan. Sila hubungi kami untuk maklumat lanjut.';
+    const bookingUrl = `${appUrl}/bookings/${encodeURIComponent(bookingId)}`;
+    return {
+        subject: `Tempahan Dibatalkan - ${bookingRef}`,
+        text: `Tempahan ${bookingRef} telah dibatalkan oleh pihak kami.\nSebab: ${reasonText}\n${selectionText(booking)}\nUntuk sebarang pertanyaan, termasuk bayaran yang telah dibuat, sila hubungi kami.`,
+        html: layout('Tempahan Dibatalkan', `
+            <p>Salam sejahtera,</p>
+            <p>Dimaklumkan bahawa tempahan anda yang telah disahkan sebelum ini telah <strong style="color:${BRAND_RED};">dibatalkan</strong> oleh pihak kami. QR peg untuk tempahan ini tidak lagi sah.</p>
+            <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
+            <div style="background:#fdf2f2;border-left:4px solid ${BRAND_RED};padding:12px 14px;margin:16px 0;border-radius:4px;">
+              <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Sebab pembatalan</div>
+              <div style="font-weight:700;">${escapeHtml(reasonText)}</div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking)}</table>
+            <p>Untuk sebarang pertanyaan, termasuk bayaran yang telah dibuat, sila balas e-mel ini atau hubungi kami.</p>
+            <p style="font-size:12px;color:#666;">Butiran tempahan: <a href="${escapeHtml(bookingUrl)}" style="color:${BRAND_NAVY};">${escapeHtml(bookingUrl)}</a></p>`),
+    };
+};
+
 export const bookingSelectionsForTest = selectionList;

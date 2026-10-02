@@ -146,6 +146,11 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
           </div>
         </div>
       </div>
+      {booking.status === 'rejected' && booking.cancelReason && (
+        <div role="note" style={{ fontSize: '.82rem', color: 'var(--red)', background: 'rgba(231,25,45,0.06)', borderRadius: '10px', padding: '10px 12px' }}>
+          <strong>Sebab dibatalkan / Reason:</strong> {booking.cancelReason}
+        </div>
+      )}
 
       {/* One QR per seat — each is valid for that peg only, so a group booking's
           participants can be checked in / weighed independently. Only shown once

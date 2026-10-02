@@ -335,6 +335,7 @@ const buildBooking = (
     createdByStaff: data.createdByStaff === true,
     createdByUid: data.createdByUid || undefined,
     createdByName: data.createdByName || undefined,
+    cancelReason: data.cancelReason || undefined,
     checkedIn: data.checkedIn === true,
     checkedInSeats: Array.isArray(data.checkedInSeats)
       ? data.checkedInSeats.map((seat: any) => Number(seat)).filter(Number.isFinite)
@@ -1025,10 +1026,16 @@ export const updatePond = async (pondId: string, updates: Partial<Pond>) => {
   }, { merge: true });
 };
 
-export const updateBookingStatus = async (bookingId: string, status: 'pending' | 'confirmed' | 'rejected') => {
+// `extra` carries fields written atomically with the status (e.g. force-cancel reason).
+export const updateBookingStatus = async (
+  bookingId: string,
+  status: 'pending' | 'confirmed' | 'rejected',
+  extra: Record<string, unknown> = {},
+) => {
   const bookingRef = doc(db, 'bookings', bookingId);
   const bookingSnap = await getDoc(bookingRef);
   await setDoc(bookingRef, {
+    ...extra,
     status: status.toUpperCase(),
     updatedAt: serverTimestamp(),
   }, { merge: true });

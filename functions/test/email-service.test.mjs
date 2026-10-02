@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
     initialBookingEmailKind,
     newlyRejectedReceipts,
+    shouldQueueBookingCancelledEmail,
     resolveBookingRecipient,
     safeMailLogEntry,
     shouldQueueBookingApprovedEmail,
@@ -78,4 +79,13 @@ test('receipt rejection mail fires only for receipts newly moved to rejected', (
     // Legacy single-receipt booking: no receipts array before the CMS rewrote it.
     assert.deepEqual(newlyRejectedReceipts({ receiptUrl: 'x' }, { receipts: [rejected] }).map((r) => r.index), [0]);
     assert.deepEqual(newlyRejectedReceipts({ receipts: [pending] }, { receipts: [{ ...pending, status: 'accepted' }] }), []);
+});
+
+test('cancellation mail fires only when a confirmed booking is force-cancelled', () => {
+    assert.equal(shouldQueueBookingCancelledEmail({ status: 'APPROVED' }, { status: 'REJECTED' }), true);
+    assert.equal(shouldQueueBookingCancelledEmail({ status: 'confirmed' }, { status: 'REJECTED' }), true);
+    // Rejecting a pending booking's receipt is covered by the receipt-rejected mail.
+    assert.equal(shouldQueueBookingCancelledEmail({ status: 'PENDING_APPROVAL' }, { status: 'REJECTED' }), false);
+    assert.equal(shouldQueueBookingCancelledEmail({ status: 'REJECTED' }, { status: 'REJECTED' }), false);
+    assert.equal(shouldQueueBookingCancelledEmail({ status: 'APPROVED' }, { status: 'APPROVED' }), false);
 });

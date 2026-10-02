@@ -2,6 +2,7 @@ import { adminDb } from './auth-utils.js';
 import {
     renderBalanceReminderEmail,
     renderBookingApprovedEmail,
+    renderBookingCancelledEmail,
     renderBookingReceivedEmail,
     renderPasswordResetEmail,
     renderReceiptRejectedEmail,
@@ -165,6 +166,24 @@ export const queueReceiptRejectedMail = async ({ bookingId, before, after, recei
             bookingId, booking: after, receiptIndex: index, amount: receipt.amount,
             reason: receipt.rejectReason, bookingCancelled, appUrl: APP_URL,
         }),
+    });
+};
+
+// A confirmed booking moved to REJECTED = staff force-cancel. Rejecting a
+// pending booking's receipt never starts from a confirmed status, so the
+// receipt-rejected mail and this one cannot both fire for one update.
+export const shouldQueueBookingCancelledEmail = (before = {}, after = {}) =>
+    isConfirmedStatus(before.status) && String(after.status || '').toUpperCase() === 'REJECTED';
+
+export const queueBookingCancelledMail = async ({ bookingId, booking }) => {
+    const recipient = await resolveBookingRecipient(booking);
+    const eventMs = timestampMs(booking.cancelledAt) || timestampMs(booking.updatedAt) || Date.now();
+    return createMailJob({
+        id: `booking_cancelled_${bookingId}_${eventMs}`,
+        to: recipient,
+        kind: 'booking_cancelled',
+        bookingId,
+        message: renderBookingCancelledEmail({ bookingId, booking, reason: booking.cancelReason, appUrl: APP_URL }),
     });
 };
 
