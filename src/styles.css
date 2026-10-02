@@ -3718,6 +3718,7 @@ nav.kks-legacy-v3-nav::before {
 }
 
 .kks-event-side { display: grid; gap: 18px; }
+.kks-event-side > :only-child { grid-column: 1 / -1; }
 .kks-mini-card {
   position: relative; overflow: hidden;
   border-radius: 22px; padding: 26px; min-height: 160px;

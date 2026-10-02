@@ -1074,13 +1074,10 @@ const AppContent: React.FC = () => {
                     <p className="kks-preserve-lines">{settings.weeklyCardBody}</p>
                     <div className="kks-mini-meta"><span>{settings.weeklyCardTag1}</span><span>{settings.weeklyCardTag2}</span></div>
                   </article>
+                  {secondCompetition && (
                   <article className="kks-mini-card">
-                    <h4>{secondCompetition?.name || 'Next Battle'}</h4>
-                    <p>
-                      {secondCompetition
-                        ? `${formatEventDate(secondCompetition.startDate)} · ${formatEventTime(secondCompetition.startDate, secondCompetition.endDate)}`
-                        : 'Paparan ringkas event akan datang supaya peserta boleh banding tarikh, yuran dan kapasiti sebelum tempah.'}
-                    </p>
+                    <h4>{secondCompetition.name || 'Next Battle'}</h4>
+                    <p>{`${formatEventDate(secondCompetition.startDate)} · ${formatEventTime(secondCompetition.startDate, secondCompetition.endDate)}`}</p>
                     {secondBookingOpenLabel && (
                       <p className="kks-mini-booking-open">Tempahan Dibuka: {secondBookingOpenLabel}</p>
                     )}
@@ -1091,6 +1088,7 @@ const AppContent: React.FC = () => {
                       </div>
                     )}
                   </article>
+                  )}
                 </aside>
               </div>
             </>
