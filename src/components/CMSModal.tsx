@@ -3477,7 +3477,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 ? 'Diterima'
                                 : kind === 'balance_reminder'
                                   ? 'Peringatan baki'
-                                  : kind;
+                                  : kind === 'receipt_rejected'
+                                    ? 'Resit ditolak'
+                                    : kind;
                             const sentByReminderTimestamp = kind === 'balance_reminder' && Boolean(b.balanceReminderSentAt);
                             const delivered = (delivery.state === 'SUCCESS' && delivery.recipientAccepted) || sentByReminderTimestamp;
                             const failed = !sentByReminderTimestamp && (delivery.state === 'ERROR' || (delivery.state === 'SUCCESS' && !delivery.recipientAccepted));
@@ -5057,6 +5059,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               booking_received: 'Tempahan Diterima',
               booking_approved: 'Tempahan Diluluskan',
               balance_reminder: 'Peringatan Baki',
+              receipt_rejected: 'Resit Ditolak',
               unknown: 'Tidak Diketahui',
             };
             const statusMeta = (entry: EmailLogEntry) => {

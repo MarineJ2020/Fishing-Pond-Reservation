@@ -197,4 +197,34 @@ export const renderBalanceReminderEmail = ({ bookingId, booking, balanceDue, app
     };
 };
 
+// bookingCancelled: the first (only) receipt was rejected, which rejects the whole
+// booking and frees its pegs; otherwise the customer can re-upload that receipt.
+export const renderReceiptRejectedEmail = ({ bookingId, booking, receiptIndex, amount, reason, bookingCancelled, appUrl }) => {
+    const bookingRef = subjectText(booking.bookingRef, bookingId);
+    const bookingUrl = `${appUrl}/bookings/${encodeURIComponent(bookingId)}`;
+    const reasonText = String(reason || '').trim() || 'Tiada sebab dinyatakan. Sila hubungi kami untuk maklumat lanjut.';
+    const amountText = `RM ${Number(amount || 0).toFixed(2)}`;
+    const nextStep = bookingCancelled
+        ? 'Tempahan ini telah dibatalkan dan peg telah dilepaskan. Anda boleh membuat tempahan baharu dengan resit yang betul.'
+        : 'Sila muat naik resit yang betul melalui halaman tempahan anda untuk semakan semula.';
+    const ctaUrl = bookingCancelled ? `${appUrl}/book` : bookingUrl;
+    const ctaLabel = bookingCancelled ? 'Buat Tempahan Baharu' : 'Muat Naik Resit Semula';
+    return {
+        subject: `${bookingCancelled ? 'Tempahan Tidak Diluluskan' : 'Resit Ditolak'} - ${bookingRef}`,
+        text: `Resit #${receiptIndex + 1} (${amountText}) untuk tempahan ${bookingRef} telah ditolak.\nSebab: ${reasonText}\n${nextStep}\n${ctaUrl}`,
+        html: layout(bookingCancelled ? 'Tempahan Tidak Diluluskan' : 'Resit Bayaran Ditolak', `
+            <p>Salam sejahtera,</p>
+            <p>Resit bayaran <strong>#${receiptIndex + 1}</strong> (${escapeHtml(amountText)}) untuk tempahan anda telah <strong style="color:${BRAND_RED};">ditolak</strong> oleh petugas kami.</p>
+            <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
+            <div style="background:#fdf2f2;border-left:4px solid ${BRAND_RED};padding:12px 14px;margin:16px 0;border-radius:4px;">
+              <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Sebab ditolak</div>
+              <div style="font-weight:700;">${escapeHtml(reasonText)}</div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking)}</table>
+            <p>${escapeHtml(nextStep)}</p>
+            <p style="text-align:center;margin:24px 0;"><a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background:${BRAND_RED};color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">${escapeHtml(ctaLabel)}</a></p>
+            <p style="font-size:12px;color:#888;">Ada pertanyaan? Balas e-mel ini atau hubungi kami.</p>`),
+    };
+};
+
 export const bookingSelectionsForTest = selectionList;

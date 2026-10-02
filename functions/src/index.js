@@ -5,8 +5,10 @@ import { adminAuth, adminDb, verifyToken, requireStaff, requireAdmin, requireBoo
 import {
     initialBookingEmailKind,
     isConfirmedStatus,
+    newlyRejectedReceipts,
     queueBalanceReminderMail,
     queueBookingLifecycleMail,
+    queueReceiptRejectedMail,
     queuePasswordResetMail,
     queueVerificationMail,
     queueWelcomeMail,
@@ -986,6 +988,22 @@ export const queueBookingApprovedEmail = regional.firestore
             booking: change.after.data(),
             kind: 'booking_approved',
         });
+        return null;
+    });
+
+// Covers both rejection paths (CMS direct write and /rejectBookingReceipt), so the
+// customer always learns the staff-entered reason by email.
+export const queueReceiptRejectedEmail = regional.firestore
+    .document('bookings/{bookingId}')
+    .onUpdate(async (change, context) => {
+        const before = change.before.data() || {};
+        const after = change.after.data() || {};
+        for (const { receipt, index } of newlyRejectedReceipts(before, after)) {
+            const result = await queueReceiptRejectedMail({ bookingId: context.params.bookingId, before, after, receipt, index });
+            if (!result.created && result.reason === 'missing-recipient') {
+                console.warn(`No email recipient for rejected receipt on booking ${context.params.bookingId}.`);
+            }
+        }
         return null;
     });
 

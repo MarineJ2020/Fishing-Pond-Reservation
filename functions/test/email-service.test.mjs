@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     initialBookingEmailKind,
+    newlyRejectedReceipts,
     resolveBookingRecipient,
     safeMailLogEntry,
     shouldQueueBookingApprovedEmail,
@@ -66,4 +67,15 @@ test('email log entries expose metadata without leaking message contents', () =>
         recipientAccepted: true,
     });
     assert.equal(JSON.stringify(entry).includes('secret-reset-link'), false);
+});
+
+test('receipt rejection mail fires only for receipts newly moved to rejected', () => {
+    const pending = { status: 'pending', amount: 120 };
+    const rejected = { status: 'rejected', amount: 120, rejectReason: 'Resit kabur' };
+    assert.deepEqual(newlyRejectedReceipts({ receipts: [pending] }, { receipts: [rejected] }).map((r) => r.index), [0]);
+    assert.deepEqual(newlyRejectedReceipts({ receipts: [rejected] }, { receipts: [rejected] }), []);
+    assert.deepEqual(newlyRejectedReceipts({ receipts: [{ status: 'accepted' }, pending] }, { receipts: [{ status: 'accepted' }, rejected] }).map((r) => r.index), [1]);
+    // Legacy single-receipt booking: no receipts array before the CMS rewrote it.
+    assert.deepEqual(newlyRejectedReceipts({ receiptUrl: 'x' }, { receipts: [rejected] }).map((r) => r.index), [0]);
+    assert.deepEqual(newlyRejectedReceipts({ receipts: [pending] }, { receipts: [{ ...pending, status: 'accepted' }] }), []);
 });

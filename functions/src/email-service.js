@@ -4,6 +4,7 @@ import {
     renderBookingApprovedEmail,
     renderBookingReceivedEmail,
     renderPasswordResetEmail,
+    renderReceiptRejectedEmail,
     renderVerificationEmail,
     renderWelcomeEmail,
 } from './email-templates.js';
@@ -130,6 +131,40 @@ export const queueBookingLifecycleMail = async ({ bookingId, booking, kind }) =>
         kind,
         bookingId,
         message,
+    });
+};
+
+const timestampMs = (value) => {
+    if (!value) return 0;
+    const date = typeof value.toDate === 'function' ? value.toDate() : new Date(value);
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+};
+
+// Receipts that moved into 'rejected' in this update. A legacy booking with no
+// receipts array before counts its first receipt as previously unrejected.
+export const newlyRejectedReceipts = (before = {}, after = {}) => {
+    const previous = Array.isArray(before.receipts) ? before.receipts : [];
+    const current = Array.isArray(after.receipts) ? after.receipts : [];
+    return current
+        .map((receipt, index) => ({ receipt, index }))
+        .filter(({ receipt, index }) => receipt?.status === 'rejected' && previous[index]?.status !== 'rejected');
+};
+
+export const queueReceiptRejectedMail = async ({ bookingId, before, after, receipt, index }) => {
+    const recipient = await resolveBookingRecipient(after);
+    const bookingCancelled = String(after.status || '').toUpperCase() === 'REJECTED'
+        && String(before.status || '').toUpperCase() !== 'REJECTED';
+    // One email per rejection event; a replaced-then-rejected-again receipt gets a new one.
+    const eventMs = timestampMs(receipt.rejectedAt) || timestampMs(after.updatedAt) || Date.now();
+    return createMailJob({
+        id: `receipt_rejected_${bookingId}_${index}_${eventMs}`,
+        to: recipient,
+        kind: 'receipt_rejected',
+        bookingId,
+        message: renderReceiptRejectedEmail({
+            bookingId, booking: after, receiptIndex: index, amount: receipt.amount,
+            reason: receipt.rejectReason, bookingCancelled, appUrl: APP_URL,
+        }),
     });
 };
 

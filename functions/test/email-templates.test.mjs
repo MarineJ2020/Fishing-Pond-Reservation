@@ -5,6 +5,7 @@ import {
     renderBookingApprovedEmail,
     renderBookingReceivedEmail,
     renderPasswordResetEmail,
+    renderReceiptRejectedEmail,
 } from '../src/email-templates.js';
 
 const multiPondBooking = {
@@ -66,4 +67,18 @@ test('booking-controlled fields are HTML escaped', () => {
     assert.doesNotMatch(received.html, /<script>|<img src=x>/);
     assert.match(received.html, /&lt;script&gt;/);
     assert.match(received.html, /&lt;img src=x&gt;/);
+});
+
+test('receipt rejection email shows the escaped reason and the right next step', () => {
+    const booking = { bookingRef: 'KKS-AB12', pondName: 'Aisyah', pondCode: 'A', seatNumbers: [5] };
+    const reupload = renderReceiptRejectedEmail({ bookingId: 'b1', booking, receiptIndex: 1, amount: 60, reason: 'Jumlah <salah>', bookingCancelled: false, appUrl: 'https://x.my' });
+    assert.match(reupload.subject, /^Resit Ditolak - KKS-AB12$/);
+    assert.match(reupload.html, /Jumlah &lt;salah&gt;/);
+    assert.doesNotMatch(reupload.html, /<salah>/);
+    assert.match(reupload.html, /https:\/\/x\.my\/bookings\/b1/);
+    assert.match(reupload.text, /Sebab: Jumlah <salah>/);
+    const cancelled = renderReceiptRejectedEmail({ bookingId: 'b1', booking, receiptIndex: 0, amount: 120, reason: '', bookingCancelled: true, appUrl: 'https://x.my' });
+    assert.match(cancelled.subject, /^Tempahan Tidak Diluluskan/);
+    assert.match(cancelled.html, /https:\/\/x\.my\/book"/);
+    assert.match(cancelled.html, /Tiada sebab dinyatakan/);
 });
