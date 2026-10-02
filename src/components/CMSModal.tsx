@@ -56,7 +56,7 @@ import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull, ScannedSeatEntry
 import DocPreviewModal from './DocPreviewModal';
 import ReceiptReviewModal from './cms/ReceiptReviewModal';
 import AdminInstructions from './cms/AdminInstructions';
-import { updateUserRole, UserRole } from '../lib/users';
+import { fixLegacyRoles, LegacyRoleChange, previewLegacyRoles, updateUserRole, UserRole } from '../lib/users';
 import { ROLE_LABELS, canEditRole, isAdminRole, isBookingManagerRole, isStaffRole } from '../utils/roles';
 
 // ── Pond alphabet-code helpers (single letter A–Z, unique across ponds) ──
@@ -386,6 +386,49 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [userTab, setUserTab] = useState<UserTab>('clients');
   const [userCounts, setUserCounts] = useState<Partial<Record<'clients' | 'staff' | 'all', number>>>({});
   const [userError, setUserError] = useState('');
+  // Legacy role cleanup (Semua Akaun): preview first, then apply.
+  const [legacyChanges, setLegacyChanges] = useState<LegacyRoleChange[] | null>(null);
+  const [legacyBusy, setLegacyBusy] = useState(false);
+  const [legacyMessage, setLegacyMessage] = useState('');
+  const [userRefreshTick, setUserRefreshTick] = useState(0);
+
+  const handlePreviewLegacyRoles = async () => {
+    setLegacyBusy(true);
+    setLegacyMessage('');
+    try {
+      setLegacyChanges(await previewLegacyRoles());
+    } catch (err) {
+      console.error('Failed to preview legacy roles:', err);
+      setLegacyMessage('Gagal menyemak peranan. Cuba lagi.');
+    }
+    setLegacyBusy(false);
+  };
+
+  const handleFixLegacyRoles = async () => {
+    if (!legacyChanges?.length) return;
+    const elevated = legacyChanges.filter((change) => change.to !== 'CLIENT').length;
+    const confirmed = window.confirm(
+      `Betulkan peranan ${legacyChanges.length} akaun?`
+      + (elevated ? `\n\nPERHATIAN: ${elevated} akaun akan mendapat akses staf/admin penuh. Pastikan mereka memang staf anda.` : ''),
+    );
+    if (!confirmed) return;
+    setLegacyBusy(true);
+    try {
+      const result = await fixLegacyRoles();
+      setLegacyMessage(`${result.fixedRoles} akaun dibetulkan${result.failed ? `, ${result.failed} gagal` : ''}.`);
+      await logAuditEvent({
+        action: 'user.role_backfill', actionLabel: 'Betulkan Peranan Lama', entityType: 'user',
+        details: `${result.fixedRoles} akaun; ${elevated} mendapat akses staf/admin`,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+      setLegacyChanges(null);
+      setUserRefreshTick((tick) => tick + 1);
+    } catch (err) {
+      console.error('Failed to fix legacy roles:', err);
+      setLegacyMessage('Gagal membetulkan peranan. Cuba lagi.');
+    }
+    setLegacyBusy(false);
+  };
 
   const fetchUsersPage = async (cursor: any, pageIndex: number) => {
     setUserLoading(true);
@@ -425,7 +468,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setUserCursors([null]);
     fetchUsersPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, page, isAdmin, userSortOrder, userTab]);
+  }, [isOpen, page, isAdmin, userSortOrder, userTab, userRefreshTick]);
   useEffect(() => {
     if (!isOpen || page !== 'users' || !isAdmin) return;
     let active = true;
@@ -435,7 +478,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         .catch((err) => console.error(`Failed to count ${tab} users:`, err));
     });
     return () => { active = false; };
-  }, [isOpen, page, isAdmin, roleUpdatingUid]);
+  }, [isOpen, page, isAdmin, roleUpdatingUid, userRefreshTick]);
 
   // Reorder state for the ponds CMS.
   const [pondReordering, setPondReordering] = useState(false);
@@ -5049,6 +5092,58 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
               {userError && userTab !== 'guests' && (
                 <div role="alert" style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(220,38,38,.35)', background: 'rgba(220,38,38,.08)', color: '#b91c1c' }}>{userError}</div>
+              )}
+              {userTab === 'all' && (
+                <div className="card" style={{ marginBottom: '12px' }}>
+                  <div className="card-header" style={{ flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <div className="card-title">Peranan Lama</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        {typeof userCounts.all === 'number' && typeof userCounts.clients === 'number' && typeof userCounts.staff === 'number'
+                          ? `${Math.max(0, userCounts.all - userCounts.clients - userCounts.staff)} akaun tidak muncul dalam tab Pelanggan atau Staf Dalaman.`
+                          : 'Akaun dengan peranan kosong atau format lama.'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn btn-sm btn-ghost" disabled={legacyBusy} onClick={handlePreviewLegacyRoles}>
+                        {legacyBusy && !legacyChanges ? 'Menyemak...' : 'Semak Peranan Lama'}
+                      </button>
+                      {!!legacyChanges?.length && (
+                        <button className="btn btn-sm btn-primary" disabled={legacyBusy} onClick={handleFixLegacyRoles}>
+                          {legacyBusy ? 'Membetulkan...' : `Betulkan ${legacyChanges.length} Akaun`}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {(legacyMessage || legacyChanges) && (
+                    <div className="card-body">
+                      {legacyMessage && <div role="status" style={{ marginBottom: 8, fontSize: '0.85rem' }}>{legacyMessage}</div>}
+                      {legacyChanges && legacyChanges.length === 0 && (
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Semua akaun sudah mempunyai peranan yang betul.</div>
+                      )}
+                      {!!legacyChanges?.length && (
+                        <div className="table-wrap"><table>
+                          <thead><tr><th>Nama</th><th>Email</th><th>Peranan sekarang</th><th>Akan jadi</th></tr></thead>
+                          <tbody>
+                            {legacyChanges.map((change) => (
+                              <tr key={change.uid}>
+                                <td className="td-name">{change.name || '—'}</td>
+                                <td>{change.email || '—'}</td>
+                                <td><code>{change.from || '(tiada)'}</code></td>
+                                <td>
+                                  {ROLE_LABELS[change.to]}
+                                  {change.to !== 'CLIENT' && (
+                                    <span style={{ marginLeft: 6, fontSize: '0.72rem', fontWeight: 700, color: '#b45309' }}>⚠ akses staf/admin</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table></div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
               {userTab !== 'guests' && (
               <div className="card">

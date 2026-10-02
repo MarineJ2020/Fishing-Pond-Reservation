@@ -642,7 +642,10 @@ export const syncUserRoleClaims = regional.firestore
     });
 
 // One-time/manual fixer for existing users. Admin-only callable.
-export const backfillUserRoleClaims = browserFacing.https.onCall(async (_data, context) => {
+// data.dryRun: list profiles whose stored role is missing or non-canonical
+// (e.g. legacy 'USER', lowercase 'admin') without writing, so an admin can
+// review any that would gain staff access before applying.
+export const backfillUserRoleClaims = browserFacing.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
     }
@@ -654,6 +657,22 @@ export const backfillUserRoleClaims = browserFacing.https.onCall(async (_data, c
     }
 
     const snapshot = await adminDb.collection('users').get();
+    const changes = snapshot.docs
+        .map((docSnap) => {
+            const profile = docSnap.data() || {};
+            return {
+                uid: docSnap.id,
+                name: String(profile.name || ''),
+                email: String(profile.email || ''),
+                from: profile.role === undefined || profile.role === null ? '' : String(profile.role),
+                to: normalizeRole(profile.role),
+            };
+        })
+        .filter((change) => change.from !== change.to);
+    if (data?.dryRun === true) {
+        return { total: snapshot.size, changes };
+    }
+
     let updated = 0;
     let unchanged = 0;
     let failed = 0;
@@ -679,6 +698,7 @@ export const backfillUserRoleClaims = browserFacing.https.onCall(async (_data, c
         updated,
         unchanged,
         failed,
+        fixedRoles: changes.length,
     };
 });
 
