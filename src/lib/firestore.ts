@@ -8,6 +8,7 @@ import {
   getDocs,
   doc,
   documentId,
+  getCountFromServer,
   getDoc,
   updateDoc,
   addDoc,
@@ -764,7 +765,17 @@ export interface UsersPageOptions {
   sortDir?: 'asc' | 'desc';
   pageSize?: number;
   cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  /** Only these roles (needs the users role+name index); omit for everyone. */
+  roles?: string[];
 }
+
+const userRoleClauses = (roles?: string[]) => (roles?.length
+  ? [roles.length === 1 ? where('role', '==', roles[0]) : where('role', 'in', roles)]
+  : []);
+
+/** Server-side count (one aggregation read) for the Pengguna tabs. */
+export const countUsers = async (roles?: string[]): Promise<number> =>
+  (await getCountFromServer(query(collection(db, 'users'), ...userRoleClauses(roles)))).data().count;
 
 export interface UsersPageResult {
   items: User[];
@@ -781,7 +792,7 @@ export const getUsersPage = async (opts: UsersPageOptions = {}): Promise<UsersPa
   const pageSize = opts.pageSize ?? 50;
   const sortDir = opts.sortDir ?? 'asc';
 
-  let q = query(collection(db, 'users'), orderBy('name', sortDir), limit(pageSize + 1));
+  let q = query(collection(db, 'users'), ...userRoleClauses(opts.roles), orderBy('name', sortDir), limit(pageSize + 1));
   if (opts.cursor) q = query(q, startAfter(opts.cursor));
 
   const snap = await getDocs(q);

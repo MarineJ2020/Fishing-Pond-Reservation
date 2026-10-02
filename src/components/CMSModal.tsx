@@ -24,6 +24,7 @@ import {
   deleteScoreEntry,
   approveDepositWithProofDirect,
   getUsersPage,
+  countUsers,
   logAuditEvent,
   getAuditLog,
   getScoreEntriesPage,
@@ -88,6 +89,16 @@ const ALL_BOOKING_STATUS_OPTIONS = [
   ['confirmed', 'Disahkan'],
   ['cancelled', 'Dibatalkan'],
 ] as const;
+
+// Pengguna page tabs. 'all' keeps unfiltered access for accounts with a missing
+// or legacy role value, which neither role-filtered tab can match.
+type UserTab = 'clients' | 'staff' | 'all' | 'guests';
+const USER_TAB_ROLES: Record<UserTab, string[] | undefined> = {
+  clients: ['CLIENT'],
+  staff: ['STAFF', 'COUNTER_STAFF', 'ADMIN', 'SUPER_ADMIN'],
+  all: undefined,
+  guests: undefined,
+};
 
 const resultsCompetitionOptions = (competitions: Competition[]): Competition[] =>
   competitions
@@ -371,11 +382,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [userHasMore, setUserHasMore] = useState(false);
   const [roleUpdatingUid, setRoleUpdatingUid] = useState<string | null>(null);
   const [roleMessage, setRoleMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  // Pengguna tabs: customers vs internal staff, filtered server-side so paging stays correct.
+  const [userTab, setUserTab] = useState<UserTab>('clients');
+  const [userCounts, setUserCounts] = useState<Partial<Record<'clients' | 'staff' | 'all', number>>>({});
+  const [userError, setUserError] = useState('');
 
   const fetchUsersPage = async (cursor: any, pageIndex: number) => {
     setUserLoading(true);
+    setUserError('');
     try {
-      const result = await getUsersPage({ sortDir: userSortOrder, pageSize: 50, cursor });
+      const roles = USER_TAB_ROLES[userTab];
+      const result = await getUsersPage({ sortDir: userSortOrder, pageSize: 50, cursor, ...(roles ? { roles } : {}) });
       setUserEntries(result.items);
       setUserHasMore(result.hasMore);
       setUserCursors((prev) => {
@@ -385,6 +402,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       });
     } catch (err) {
       console.error('Failed to load Pengguna page:', err);
+      setUserError('Senarai pengguna tidak dapat dimuatkan. Cuba lagi sebentar, atau guna tab "Semua".');
     }
     setUserLoading(false);
   };
@@ -402,12 +420,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     fetchUsersPage(userCursors[prevPage] ?? null, prevPage);
   };
   useEffect(() => {
-    if (!isOpen || page !== 'users' || !isAdmin) return;
+    if (!isOpen || page !== 'users' || !isAdmin || userTab === 'guests') return;
     setUserPage(0);
     setUserCursors([null]);
     fetchUsersPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, page, isAdmin, userSortOrder]);
+  }, [isOpen, page, isAdmin, userSortOrder, userTab]);
+  useEffect(() => {
+    if (!isOpen || page !== 'users' || !isAdmin) return;
+    let active = true;
+    (['clients', 'staff', 'all'] as const).forEach((tab) => {
+      countUsers(USER_TAB_ROLES[tab])
+        .then((count) => { if (active) setUserCounts((prev) => ({ ...prev, [tab]: count })); })
+        .catch((err) => console.error(`Failed to count ${tab} users:`, err));
+    });
+    return () => { active = false; };
+  }, [isOpen, page, isAdmin, roleUpdatingUid]);
 
   // Reorder state for the ponds CMS.
   const [pondReordering, setPondReordering] = useState(false);
@@ -4981,21 +5009,49 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {roleMessage.text}
                 </div>
               )}
-              <div className="card">
-                <div className="card-header" style={{ justifyContent: 'flex-end' }}>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      className="form-input"
-                      style={{ width: '280px', maxWidth: '60vw', padding: '6px 28px 6px 10px' }}
-                      placeholder="Cari nama atau email…"
-                      value={userSearch}
-                      onChange={e => setUserSearch(e.target.value)}
-                    />
-                    {userSearch && (
-                      <button onClick={() => setUserSearch('')} title="Kosongkan" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem' }}>×</button>
-                    )}
-                  </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div role="tablist" aria-label="Kategori pengguna" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {([
+                    ['clients', 'Pelanggan', userCounts.clients],
+                    ['staff', 'Staf Dalaman', userCounts.staff],
+                    ['all', 'Semua Akaun', userCounts.all],
+                    ['guests', 'Tanpa Akaun', guestMap.size],
+                  ] as const).map(([tab, label, count]) => (
+                    <button
+                      key={tab}
+                      role="tab"
+                      aria-selected={userTab === tab}
+                      className={`btn btn-sm ${userTab === tab ? 'btn-primary' : 'btn-ghost'}`}
+                      onClick={() => setUserTab(tab)}
+                    >
+                      {label}{typeof count === 'number' ? ` (${count})` : ''}
+                    </button>
+                  ))}
                 </div>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="form-input"
+                    style={{ width: '280px', maxWidth: '60vw', padding: '6px 28px 6px 10px' }}
+                    placeholder="Cari nama atau email…"
+                    value={userSearch}
+                    onChange={e => setUserSearch(e.target.value)}
+                  />
+                  {userSearch && (
+                    <button onClick={() => setUserSearch('')} title="Kosongkan" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem' }}>×</button>
+                  )}
+                </div>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                {userTab === 'clients' && 'Pelanggan luar yang mendaftar sendiri untuk menempah.'}
+                {userTab === 'staff' && 'Akaun dalaman: Staf, Staf Kaunter, Admin dan Super Admin.'}
+                {userTab === 'all' && 'Semua akaun berdaftar, termasuk akaun lama tanpa peranan yang sah.'}
+                {userTab === 'guests' && 'Pelanggan yang ditempah secara manual oleh staf, tanpa akaun berdaftar.'}
+              </div>
+              {userError && userTab !== 'guests' && (
+                <div role="alert" style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(220,38,38,.35)', background: 'rgba(220,38,38,.08)', color: '#b91c1c' }}>{userError}</div>
+              )}
+              {userTab !== 'guests' && (
+              <div className="card">
                 <div className="card-body"><div className="table-wrap"><table>
                 <thead><tr><th></th>{sortableTh('Nama', 'name', 'name', userSortOrder, handleUserSort)}<th>Email</th><th>Peranan</th><th>Tempahan</th>{isAdmin && <th>Tindakan</th>}</tr></thead>
                 <tbody>
@@ -5040,7 +5096,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
               </div>
 
-              <div className="card" style={{ marginTop: '16px' }}>
+              )}
+
+              {userTab === 'guests' && (
+              <div className="card">
                 <div className="card-header"><div className="card-title">Tempahan Manual Tanpa Akaun</div></div>
                 <div className="card-body"><div className="table-wrap"><table>
                   <thead><tr><th>Nama</th><th>Email / Rujukan</th><th>Telefon</th><th>Tempahan</th></tr></thead>
@@ -5057,6 +5116,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </tbody>
                 </table></div></div>
               </div>
+              )}
             </div>
             );
           })()}
