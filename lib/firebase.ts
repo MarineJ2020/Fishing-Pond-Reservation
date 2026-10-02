@@ -6,6 +6,7 @@ import {
   indexedDBLocalPersistence,
   browserLocalPersistence,
   browserSessionPersistence,
+  browserPopupRedirectResolver,
   connectAuthEmulator,
   GoogleAuthProvider,
   EmailAuthProvider,
@@ -62,6 +63,8 @@ export const auth = (() => {
         browserLocalPersistence,
         browserSessionPersistence,
       ],
+      // initializeAuth (unlike getAuth) omits this; signInWithPopup needs it.
+      popupRedirectResolver: browserPopupRedirectResolver,
     });
   } catch {
     return getAuth(app);
