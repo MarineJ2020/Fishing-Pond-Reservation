@@ -20,6 +20,7 @@ interface LiveResultsProps {
 }
 
 const fmtLongDate = (iso?: string): string => formatDate(iso, { weekday: true });
+const PAST_PAGE_SIZE = 10;
 
 const rankWeightForDisplay = (weight: number, decimalPlaces: Settings['ocrDecimalPlaces']): number => {
   if (!Number.isFinite(weight) || decimalPlaces === undefined || ![0, 1, 2, 3].includes(decimalPlaces)) return weight;
@@ -68,6 +69,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
 
   // Past-event results
   const [selectedPastId, setSelectedPastId] = useState('');
+  const [pastPage, setPastPage] = useState(0);
   const [pastScores, setPastScores] = useState<ScoreEntry[]>([]);
   const [pastLoading, setPastLoading] = useState(false);
   const liveCompetitions = useMemo(() => getLiveCompetitions(competitions, comp), [competitions, comp]);
@@ -248,6 +250,10 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     return () => { cancelled = true; };
   }, [selectedPastId]);
 
+  // Acara Lepas grows every event; show it newest-first, PAST_PAGE_SIZE at a time.
+  const pastPageCount = Math.max(1, Math.ceil(endedComps.length / PAST_PAGE_SIZE));
+  const safePastPage = Math.min(pastPage, pastPageCount - 1);
+  const pastPageComps = endedComps.slice(safePastPage * PAST_PAGE_SIZE, (safePastPage + 1) * PAST_PAGE_SIZE);
   const selectedPastComp = competitions.find(c => c.id === selectedPastId) || null;
   const pastScoresRecord: Record<number, Score> = {};
   pastScores.forEach(e => {
@@ -494,7 +500,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                   <h3>PILIH ACARA LEPAS</h3>
                 </div>
                 <div className="kl-event-select">
-                  {endedComps.map(c => (
+                  {pastPageComps.map(c => (
                     <button
                       key={c.id || c.name}
                       type="button"
@@ -509,6 +515,17 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                     </button>
                   ))}
                 </div>
+                {pastPageCount > 1 && (
+                  <nav className="kl-past-pager" aria-label="Halaman acara lepas">
+                    <button type="button" disabled={safePastPage === 0} onClick={() => setPastPage(safePastPage - 1)}>
+                      <i className="fa-solid fa-chevron-left" aria-hidden="true"></i> Sebelum
+                    </button>
+                    <span aria-live="polite">Halaman {safePastPage + 1} / {pastPageCount}</span>
+                    <button type="button" disabled={safePastPage >= pastPageCount - 1} onClick={() => setPastPage(safePastPage + 1)}>
+                      Seterusnya <i className="fa-solid fa-chevron-right" aria-hidden="true"></i>
+                    </button>
+                  </nav>
+                )}
               </section>
             </div>
 

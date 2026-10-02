@@ -2237,7 +2237,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const compsEndedLast = [...competitionsForCms].sort((a, b) =>
     (getCompetitionPhase(a) === 'ended' ? 1 : 0) - (getCompetitionPhase(b) === 'ended' ? 1 : 0),
   );
-  const resultsCompsLiveFirst = resultsCompetitionOptions(competitionsForCms);
+  // Keputusan & Live: started (live/ended) competitions, newest first.
+  const resultsCompsLatestFirst = sortCompetitionsLatestFirst(resultsCompetitionOptions(competitionsForCms));
   const competitionFilterOptions = sortCompetitionsLatestFirst(competitionsForCms);
   const compOptionLabel = (c: Competition) => {
     const phaseLabel = {
@@ -3032,7 +3033,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             };
             // Sources to duplicate a full prize table FROM: any other
             // competition that already has prizes set up.
-            const duplicateSources = competitionsForCms.filter(c => (c.id || '') !== prizesCompId && (c.prizes || []).length > 0);
+            const duplicateSources = sortCompetitionsLatestFirst(competitionsForCms.filter(c => (c.id || '') !== prizesCompId && (c.prizes || []).length > 0));
             const duplicateFromCompetition = (srcId: string) => {
               const src = competitionsForCms.find(c => (c.id || '') === srcId);
               if (!src) return;
@@ -3058,7 +3059,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       value={prizesCompId}
                       onChange={e => setPrizesCompId(e.target.value)}
                     >
-                      {competitionsForCms.map(c => (
+                      {competitionFilterOptions.map(c => (
                         <option key={c.id || c.name} value={c.id || ''}>
                           {compOptionLabel(c)}
                         </option>
@@ -3793,7 +3794,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         setTopRecordSelectionKey(null);
                       }}
                     >
-                      {resultsCompsLiveFirst.map(c => (
+                      {resultsCompsLatestFirst.map(c => (
                         <option key={c.id || c.name} value={c.id || ''} style={{ color: getCompetitionPhase(c) === 'ended' ? '#9aa3ad' : undefined }}>
                           {compOptionLabel(c)}
                         </option>

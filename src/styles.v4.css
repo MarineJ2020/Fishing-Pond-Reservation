@@ -374,6 +374,10 @@
 .kl-past-event strong { display: block; font-weight: 900; }
 .kl-past-event small { display: block; margin-top: 4px; color: var(--muted); }
 .kl-past-event i { color: var(--red); }
+.kl-past-pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px 16px; font-size: .82rem; color: var(--muted); }
+.kl-past-pager button { border: 1px solid var(--line); background: #fff; color: var(--navy); border-radius: 999px; padding: 8px 14px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.kl-past-pager button:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+.kl-past-pager button:disabled { opacity: .4; cursor: default; }
 .kl-winner-table { padding: 0; border-radius: 24px; background: #fff; overflow: hidden; box-shadow: 0 18px 55px rgba(17,42,65,.08); border: 1px solid rgba(17,42,65,.08); }
 .kl-selected-head { padding: 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, var(--navy), #153956); color: #fff; }
 .kl-selected-head h3 { margin: 6px 0 8px; font-family: var(--font-heading); font-size: 40px; line-height: .9; font-style: italic; text-transform: uppercase; }
