@@ -145,7 +145,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const reloadDB = useCallback(async () => {
     try {
       const uid = auth.currentUser?.uid;
-      const remoteDb = await loadAppDB();
+      // reloadDB runs right after edits (CMS, receipts), so bypass the CDN-cached pond list.
+      const remoteDb = await loadAppDB(undefined, { fresh: true });
       if (auth.currentUser?.uid === uid) applyLoadedDB(remoteDb);
     } catch (err) {
       console.error('reloadDB failed:', err);

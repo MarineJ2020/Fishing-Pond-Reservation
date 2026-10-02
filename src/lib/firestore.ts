@@ -479,8 +479,23 @@ export const getOrCreateDefaultCompetition = async (
 // of reading the `seats` collection (~480 docs per pond) on every page load —
 // syncPondSeats keeps those docs at exactly that count and price. Pass seatDocs
 // only where real seat doc ids are required.
+type PondDocLike = { id: string; data: () => DocumentData };
+
+// Public pond docs from the CDN-cached /publicPonds route, shaped like
+// snapshots; falls back to a direct Firestore read if the route fails.
+const getPublicPondDocs = async (): Promise<PondDocLike[]> => {
+  try {
+    const result = await bookingRequest('/publicPonds');
+    if (!Array.isArray(result?.ponds)) throw new Error('Invalid ponds response.');
+    return result.ponds.map((pond: { id: string; data: DocumentData }) => ({ id: pond.id, data: () => pond.data }));
+  } catch (error) {
+    console.warn('Falling back to direct pond read:', error);
+    return (await getDocs(collection(db, 'ponds'))).docs;
+  }
+};
+
 export const getPondsWithSeats = async (
-  preFetched?: { pondDocs: QueryDocumentSnapshot<DocumentData>[]; seatDocs?: QueryDocumentSnapshot<DocumentData>[] }
+  preFetched?: { pondDocs: PondDocLike[]; seatDocs?: QueryDocumentSnapshot<DocumentData>[] }
 ): Promise<Pond[]> => {
   const pondDocs = preFetched?.pondDocs ?? (await getDocs(collection(db, 'ponds'))).docs;
   const seatDocs = preFetched?.seatDocs ?? [];
@@ -649,7 +664,8 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
   };
 };
 
-export const loadAppDB = async (onCoreLoaded?: (core: DB) => void): Promise<DB> => {
+// `fresh` skips the CDN-cached pond list (used after CMS edits via reloadDB).
+export const loadAppDB = async (onCoreLoaded?: (core: DB) => void, opts: { fresh?: boolean } = {}): Promise<DB> => {
   try {
     const availabilityPromise = withTimeout(
       bookingRequest('/bookingAvailability'),
@@ -664,14 +680,14 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void): Promise<DB> 
         console.error('Failed to load availability:', error);
         return { availability: [], availabilityError: true };
       });
-    const [pondSnapshot, competitionSnapshot, bookingDocs, settings] = await Promise.all([
-      getDocs(collection(db, 'ponds')),
+    const [pondDocs, competitionSnapshot, bookingDocs, settings] = await Promise.all([
+      opts.fresh ? getDocs(collection(db, 'ponds')).then((snap) => snap.docs) : getPublicPondDocs(),
       getDocs(collection(db, 'competitions')),
       getVisibleBookingDocs(),
       getSettings(),
     ]);
 
-    const ponds = await getPondsWithSeats({ pondDocs: pondSnapshot.docs });
+    const ponds = await getPondsWithSeats({ pondDocs });
     const competitions = await getCompetitions(competitionSnapshot.docs);
     const activeComp = await getActiveCompetition(competitionSnapshot.docs);
     const competition = await getOrCreateDefaultCompetition({ active: activeComp });

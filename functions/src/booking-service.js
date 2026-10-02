@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib';
 import admin from 'firebase-admin';
 import { adminDb, verifyToken } from './auth-utils.js';
 import { bookingSelections, claimId, confirmed, fail, legacySeatIds, newBookingRef, occupiesSeats, ownsBooking, pondCatalog, receiptPath, receiptUpdate, refId, validateBookingWindow, validateSelections } from './booking-policy.js';
@@ -8,6 +9,19 @@ const text = (value, max = 200) => typeof value === 'string' ? value.trim().slic
 const OCCUPYING_STATUSES = ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE', 'pending', 'confirmed'];
 const AVAILABILITY_CACHE_MS = 15 * 1000;
 const AVAILABILITY_CACHE_CONTROL = 'public, max-age=5, s-maxage=10';
+// Pond docs carry a ~65 KB seatLayout each; the CDN serves them to crowds and
+// browsers always revalidate against it, so CMS edits show within a minute.
+const PONDS_CACHE_CONTROL = 'public, max-age=0, s-maxage=60';
+
+// Firestore values -> plain JSON the client's normalizers accept (ISO dates).
+const toPlain = (value) => {
+    if (value === null || typeof value !== 'object') return value;
+    if (typeof value.toDate === 'function') return value.toDate().toISOString();
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value.path === 'string' && value.firestore) return value.path;
+    if (Array.isArray(value)) return value.map(toPlain);
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, toPlain(item)]));
+};
 let availabilityCache = null;
 // Each pond has hundreds of seat docs (and a matching seatLayout), so never read
 // the whole seats collection or full pond docs when only a few ponds matter.
@@ -174,6 +188,24 @@ export function registerBookingRoutes(app) {
         availabilityCache = { createdAt: Date.now(), payload };
         return payload;
     }));
+    // Same documents (and default doc-id order) the client used to read directly.
+    // Gzipped here because Hosting does not compress function responses (~245 KB raw).
+    app.get('/publicPonds', async (req, res) => {
+        try {
+            const snapshot = await adminDb.collection('ponds').get();
+            const body = JSON.stringify({ ponds: snapshot.docs.map((snap) => ({ id: snap.id, data: toPlain(snap.data()) })) });
+            res.set('Cache-Control', PONDS_CACHE_CONTROL);
+            res.set('Vary', 'Accept-Encoding');
+            res.type('json');
+            if (!req.acceptsEncodings('gzip')) return res.send(body);
+            res.set('Content-Encoding', 'gzip');
+            return res.send(gzipSync(body));
+        } catch (error) {
+            console.error('Booking service:', error);
+            res.set('Cache-Control', 'no-store');
+            return res.status(500).json({ error: 'Tempahan tidak dapat diproses. Sila cuba lagi.' });
+        }
+    });
     app.post('/createBooking', verifyToken, handle(async (req) => {
         await validateReceipt(req.body.receiptUrl, req.user.uid);
         return createSecureBooking(adminDb, req.body, req.user);

@@ -64,11 +64,16 @@ missing or malformed (`vite.config.mjs`), to avoid deploying a blank site.
   function with a Firebase ID token; `src/lib/email.ts`, `users.ts` and
   `hooks/useAuth.ts` use `httpsCallable` functions. Some CMS actions in `api.ts`
   fall back to `*Direct` Firestore writes only when `VITE_FUNCTIONS_BASE_URL` is unset.
-- Root-level `lib/firebase` (outside `src/`) initialises the client Firebase SDK and
-  is imported by `src/`. **Vite resolves `lib/firebase.js` before `lib/firebase.ts`**,
-  so the stale `.js` copy is what ships (the `.ts` App Check / auth-persistence code is
-  not live). Edit both, or remove the `.js` deliberately. Other files in root `lib/`
+- Root-level `lib/firebase.ts` (outside `src/`) initialises the client Firebase SDK
+  (auth persistence fallback chain + popup resolver, App Check when
+  `VITE_RECAPTCHA_SITE_KEY` is set) and is imported by `src/`. Vite resolves `.js`
+  before `.ts`, so never add a `lib/firebase.js` copy. Other files in root `lib/`
   (emails, admin, auth-utils) are legacy.
+- Public page loads must stay cheap for event-day crowds (6000+ concurrent): seats are
+  derived from pond docs (never read the `seats` collection for visitors), and ponds
+  and seat availability come from CDN-cached `api` routes (`/api/publicPonds`,
+  `/api/bookingAvailability` via the Hosting `/api/**` rewrite). `loadAppDB(_, {fresh})`
+  bypasses the CDN after edits.
 - Scale weigh-in OCR: `src/lib/sevenSegmentOcr/` runs an ONNX model
   (`public/ocr-model/`) via onnxruntime-web WASM, single-threaded; Vite copies only
   the needed `ort-wasm-simd-threaded.*` blobs to `dist/ort/`. Tesseract is a fallback.
