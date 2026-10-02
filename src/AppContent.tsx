@@ -924,17 +924,17 @@ const AppContent: React.FC = () => {
     const padCD = (n: number) => n.toString().padStart(2, '0');
 
     const featuredName = featuredCompetition?.name || 'Acara akan diumumkan';
-    const featuredDate = featuredCompetition ? formatEventDate(featuredCompetition.startDate) : 'Akan diumumkan';
-    const featuredTime = featuredCompetition ? formatEventTime(featuredCompetition.startDate, featuredCompetition.endDate) : 'Akan diumumkan';
-    const featuredPondsCount = featuredCompetition ? (featuredCompetition.activePondIds?.length || totalPonds || 0) : 'Akan diumumkan';
+    const featuredDate = featuredCompetition ? formatEventDate(featuredCompetition.startDate) : '-';
+    const featuredTime = featuredCompetition ? formatEventTime(featuredCompetition.startDate, featuredCompetition.endDate) : '-';
+    const featuredPondsCount = featuredCompetition ? (featuredCompetition.activePondIds?.length || totalPonds || 0) : '-';
     const samplePrice = featuredCompetition?.pricePerPeg ?? db.ponds[0]?.seats[0]?.price;
-    const featuredFee = featuredCompetition ? (samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami') : 'Akan diumumkan';
+    const featuredFee = featuredCompetition ? (samplePrice ? `RM${samplePrice} / Joran` : 'Hubungi kami') : '-';
     const featuredPrize = (featuredCompetition?.prizes?.[0] as any);
     const featuredPrizeText = featuredCompetition
       ? (featuredCompetition.prizeHighlight?.trim()
         || featuredPrize?.prize
         || (featuredPrize?.amount ? `RM${featuredPrize.amount}` : 'Cabutan bertuah & hadiah lumayan'))
-      : 'Akan diumumkan';
+      : '-';
     const isCountdownReady = !!featuredCompetition && featuredCountdown.status !== 'idle';
     const showLive = featuredCountdown.status === 'live';
     const showEnded = featuredCountdown.status === 'ended';
@@ -1050,9 +1050,7 @@ const AppContent: React.FC = () => {
                       <div><small>Yuran</small><strong>{featuredFee}</strong></div>
                       <div><small>Hadiah</small><strong>{featuredPrizeText}</strong></div>
                     </div>
-                    {!featuredCompetition && (
-                      <p className="kks-booking-notice">Jadual pertandingan baharu belum diterbitkan. Sila semak semula kemudian atau hubungi pihak kolam.</p>
-                    )}
+                    {featuredCompetition && (
                     <div className="kks-event-actions">
                       <button
                         className="btn btn-navy"
@@ -1064,8 +1062,9 @@ const AppContent: React.FC = () => {
                       >
                         Tempah Pancang
                       </button>
-                      <button className="btn btn-light" type="button" disabled={!featuredCompetition} onClick={() => handleNavigation('rules')}>Syarat Acara</button>
+                      <button className="btn btn-light" type="button" onClick={() => handleNavigation('rules')}>Syarat Acara</button>
                     </div>
+                    )}
                   </div>
                 </article>
 
