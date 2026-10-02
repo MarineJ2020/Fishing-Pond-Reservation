@@ -251,6 +251,7 @@ app.post('/acceptBookingReceipt', verifyToken, requireBookingManager, async (req
 // the whole booking — the user can re-upload while under the receipt cap.
 app.post('/rejectBookingReceipt', verifyToken, requireBookingManager, async (req, res) => {
     const { bookingId, receiptIndex } = req.body;
+    const reason = typeof req.body.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
     if (!bookingId || receiptIndex == null) {
         return res.status(400).json({ error: 'bookingId and receiptIndex are required.' });
     }
@@ -268,7 +269,10 @@ app.post('/rejectBookingReceipt', verifyToken, requireBookingManager, async (req
             return res.status(400).json({ error: 'Invalid receiptIndex.' });
         }
 
-        receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'rejected' };
+        receipts[receiptIndex] = {
+            ...receipts[receiptIndex], status: 'rejected',
+            ...(reason ? { rejectReason: reason } : {}), rejectedBy: req.user.uid, rejectedAt: new Date(),
+        };
         const paidAmount = sumAccepted(receipts);
         const totalAmount = Number(booking.totalAmount) || 0;
         const statusUpper = (booking.status || '').toUpperCase();
@@ -548,6 +552,38 @@ app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to update event result.' });
+    }
+});
+
+// Per-booking activity history for the CMS. auditLog is admin-readable only in
+// rules, so staff read the booking's entries through here. Older entries are
+// linked by entityId; newer ones (incl. weigh-ins) also carry bookingId.
+app.post('/bookingActivity', verifyToken, requireStaff, async (req, res) => {
+    const bookingId = typeof req.body.bookingId === 'string' ? req.body.bookingId : '';
+    if (!bookingId || bookingId.includes('/')) return res.status(400).json({ error: 'bookingId is required.' });
+    try {
+        const log = adminDb.collection('auditLog');
+        const [byEntity, byBooking] = await Promise.all([
+            log.where('entityId', '==', bookingId).limit(200).get(),
+            log.where('bookingId', '==', bookingId).limit(200).get(),
+        ]);
+        const entries = new Map();
+        [...byEntity.docs, ...byBooking.docs].forEach((snap) => {
+            const data = snap.data();
+            entries.set(snap.id, {
+                id: snap.id,
+                action: data.action || '',
+                actionLabel: data.actionLabel || data.action || '',
+                details: data.details || '',
+                reason: data.reason || '',
+                actorName: data.actorName || data.actorEmail || '',
+                at: data.createdAt?.toDate?.().toISOString() || '',
+            });
+        });
+        return res.json({ entries: [...entries.values()] });
+    } catch (error) {
+        console.error('bookingActivity failed:', error);
+        return res.status(500).json({ error: 'Log aktiviti tidak dapat dimuatkan.' });
     }
 });
 

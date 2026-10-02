@@ -1,7 +1,33 @@
-import React, { useRef, useState } from 'react';
-import { Booking } from '../../types';
+import React, { useEffect, useRef, useState } from 'react';
+import { Booking, BookingActivityEntry } from '../../types';
 import { formatDate } from '../../utils';
 import { receiptBankReference } from '../../utils/booking';
+import { getBookingActivity } from '../../lib/api';
+
+type TimelineRow = { key: string; at: string; label: string; actor?: string; details?: string; reason?: string };
+
+// Server audit entries plus what the booking doc itself records (creation,
+// receipt uploads, staff remarks), newest first.
+const buildTimeline = (booking: Booking, entries: BookingActivityEntry[]): TimelineRow[] => {
+  const rows: TimelineRow[] = entries.map((e) => ({
+    key: e.id, at: e.at, label: e.actionLabel, actor: e.actorName, details: e.details, reason: e.reason,
+  }));
+  if (booking.createdAt) {
+    rows.push({
+      key: 'created', at: booking.createdAt, label: 'Tempahan dihantar',
+      actor: booking.createdByStaff ? `Staf (bagi pihak ${booking.userName})` : booking.userName,
+    });
+  }
+  (booking.receipts || []).forEach((r, i) => {
+    if (i > 0 && r.submittedAt) {
+      rows.push({ key: `receipt-${i}`, at: r.submittedAt, label: `Resit #${i + 1} dihantar`, actor: booking.userName, details: `RM ${r.amount}` });
+    }
+  });
+  (booking.staffRemarks || []).forEach((r, i) => {
+    rows.push({ key: `remark-${i}`, at: r.at, label: 'Catatan ditambah', actor: r.byName || 'Staf', details: r.text });
+  });
+  return rows.filter((row) => row.at).sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+};
 
 interface ReceiptReviewModalProps {
   /** null closes the modal. */
@@ -11,7 +37,7 @@ interface ReceiptReviewModalProps {
   hasConflict: boolean;
   onViewReceipt: (url: string) => void;
   onApprove: (bookingId: string, receiptIndex: number) => void;
-  onReject: (bookingId: string, receiptIndex: number) => void;
+  onReject: (bookingId: string, receiptIndex: number, reason: string) => void;
   onApproveManual: (booking: Booking, file: File, amount: number) => void;
   onAddRemark: (bookingId: string, text: string) => void;
   onClose: () => void;
@@ -27,7 +53,22 @@ interface ReceiptReviewModalProps {
 const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving, hasConflict, onViewReceipt, onApprove, onReject, onApproveManual, onAddRemark, onClose }) => {
   const [manualMode, setManualMode] = useState(false);
   const [remarkText, setRemarkText] = useState('');
+  const [rejectMode, setRejectMode] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [activity, setActivity] = useState<BookingActivityEntry[]>([]);
+  const [activityState, setActivityState] = useState<'idle' | 'loading' | 'error'>('idle');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Refetch whenever the booking object changes (after approve/reject/remark).
+  useEffect(() => {
+    if (!booking) return;
+    let active = true;
+    setActivityState('loading');
+    getBookingActivity(booking.id)
+      .then((entries) => { if (active) { setActivity(entries); setActivityState('idle'); } })
+      .catch(() => { if (active) setActivityState('error'); });
+    return () => { active = false; };
+  }, [booking]);
 
   if (!booking) return null;
 
@@ -45,7 +86,15 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
   const remarks = booking.staffRemarks || [];
   const canRecordManualPayment = booking.status === 'pending' || (booking.balanceDue ?? 0) > 0;
 
-  const handleClose = () => { setManualMode(false); setRemarkText(''); onClose(); };
+  const timeline = buildTimeline(booking, activity);
+
+  const handleClose = () => { setManualMode(false); setRemarkText(''); setRejectMode(false); setRejectReason(''); onClose(); };
+  const handleConfirmReject = () => {
+    if (!rejectReason.trim()) return;
+    onReject(booking.id, pendingIndex, rejectReason.trim());
+    setRejectMode(false);
+    setRejectReason('');
+  };
   const handleAddRemark = () => {
     if (!remarkText.trim()) return;
     onAddRemark(booking.id, remarkText);
@@ -95,10 +144,30 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
                 No. Rujukan Bank: <strong style={{ fontFamily: 'monospace' }}>{receiptBankReference(booking, reviewableReceipt, pendingIndex) || '-'}</strong>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button className="btn btn-green" disabled={saving} onClick={() => onApprove(booking.id, pendingIndex)}>✓ Sahkan</button>
-                <button className="btn btn-red" disabled={saving} onClick={() => onReject(booking.id, pendingIndex)}>✕ Tolak</button>
-              </div>
+              {!rejectMode ? (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-green" disabled={saving} onClick={() => onApprove(booking.id, pendingIndex)}>✓ Sahkan</button>
+                  <button className="btn btn-red" disabled={saving} onClick={() => setRejectMode(true)}>✕ Tolak</button>
+                </div>
+              ) : (
+                <div>
+                  <label className="form-label" htmlFor="reject-reason">Sebab ditolak *</label>
+                  <textarea
+                    id="reject-reason"
+                    className="form-input"
+                    style={{ width: '100%', minHeight: 60, marginBottom: 8 }}
+                    placeholder="Cth: Jumlah tidak sepadan, resit tidak jelas"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    maxLength={500}
+                    autoFocus
+                  />
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn btn-red" disabled={saving || !rejectReason.trim()} onClick={handleConfirmReject}>Sahkan Tolak</button>
+                    <button className="btn btn-ghost" disabled={saving} onClick={() => { setRejectMode(false); setRejectReason(''); }}>Batal</button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '14px' }}>Tiada resit menunggu semakan untuk tempahan ini.</div>
@@ -157,6 +226,30 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
               />
               <button className="btn btn-sm" disabled={!remarkText.trim()} onClick={handleAddRemark}>+ Catatan</button>
             </div>
+          </div>
+
+          <div style={{ marginTop: '18px', paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+              Log Aktiviti {activityState === 'loading' && '· memuatkan...'}
+            </div>
+            {activityState === 'error' && (
+              <div style={{ fontSize: '0.78rem', color: '#b45309', marginBottom: 8 }}>Log aktiviti staf tidak dapat dimuatkan. Rekod di bawah mungkin tidak lengkap.</div>
+            )}
+            {timeline.length === 0 ? (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Tiada aktiviti direkodkan.</div>
+            ) : (
+              <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '220px', overflowY: 'auto' }}>
+                {timeline.map((row) => (
+                  <li key={row.key} style={{ fontSize: '0.8rem', borderLeft: '3px solid var(--border)', padding: '2px 0 2px 10px' }}>
+                    <div><strong>{row.label}</strong>{row.details ? ` · ${row.details}` : ''}</div>
+                    {row.reason && <div style={{ color: 'var(--red, #b91c1c)' }}>Sebab: {row.reason}</div>}
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      {row.actor || 'Sistem'} · {formatDate(row.at, { time: true })}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
         </div>
       </div>

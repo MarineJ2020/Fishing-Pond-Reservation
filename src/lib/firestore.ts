@@ -287,6 +287,7 @@ const buildBooking = (
         status: (r?.status || 'pending') as 'pending' | 'accepted' | 'rejected',
         submittedAt: normalizeTimestamp(r?.submittedAt) || new Date().toISOString(),
         bankReference: r?.bankReference || '',
+        ...(r?.rejectReason ? { rejectReason: String(r.rejectReason) } : {}),
       }))
     : (data.receiptUrl
         ? [{
@@ -1418,7 +1419,11 @@ export const savePrizeClaimStatus = async (claim: {
 // an action must never block the action itself from succeeding.
 export const logAuditEvent = async (entry: Omit<AuditEntry, 'id' | 'createdAt'>): Promise<void> => {
   try {
-    await addDoc(collection(db, 'auditLog'), { ...entry, createdAt: serverTimestamp() });
+    // bookingId lets the per-booking activity log find this entry (see /bookingActivity).
+    const bookingId = entry.bookingId || (entry.entityType === 'booking' ? entry.entityId : undefined);
+    // Firestore rejects undefined field values.
+    const clean = Object.fromEntries(Object.entries({ ...entry, bookingId }).filter(([, value]) => value !== undefined));
+    await addDoc(collection(db, 'auditLog'), { ...clean, createdAt: serverTimestamp() });
   } catch (err) {
     console.error('Failed to log audit event:', err);
   }
@@ -1471,8 +1476,11 @@ const deriveReceiptsFromBooking = (booking: any): any[] => {
       amount: Number(r?.amount) || 0,
       status: (r?.status || 'pending') as 'pending' | 'accepted' | 'rejected',
       submittedAt: r?.submittedAt ?? new Date().toISOString(),
-      // Per-receipt bank reference must survive every rewrite of the array.
+      // Per-receipt bank reference and rejection audit must survive every rewrite of the array.
       ...(r?.bankReference ? { bankReference: String(r.bankReference) } : {}),
+      ...(r?.rejectReason ? { rejectReason: String(r.rejectReason) } : {}),
+      ...(r?.rejectedBy ? { rejectedBy: r.rejectedBy } : {}),
+      ...(r?.rejectedAt ? { rejectedAt: r.rejectedAt } : {}),
     }));
   }
   if (booking?.receiptUrl) {
@@ -1641,7 +1649,7 @@ export const addStaffRemark = async (bookingId: string, text: string, byName?: s
   return entry;
 };
 
-export const rejectBookingReceiptDirect = async (bookingId: string, receiptIndex: number) => {
+export const rejectBookingReceiptDirect = async (bookingId: string, receiptIndex: number, reason = '') => {
   const bookingRef = doc(db, 'bookings', bookingId);
   const snap = await getDoc(bookingRef);
   if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
@@ -1649,7 +1657,12 @@ export const rejectBookingReceiptDirect = async (bookingId: string, receiptIndex
   const receipts = deriveReceiptsFromBooking(booking);
   if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Indeks resit tidak sah. / Invalid receipt index.');
 
-  receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'rejected' };
+  const trimmedReason = reason.trim().slice(0, 500);
+  receipts[receiptIndex] = {
+    ...receipts[receiptIndex], status: 'rejected',
+    ...(trimmedReason ? { rejectReason: trimmedReason } : {}),
+    rejectedBy: auth.currentUser?.uid || null, rejectedAt: new Date().toISOString(),
+  };
   const paidAmount = sumAcceptedReceipts(receipts);
   const totalAmount = Number(booking.totalAmount) || 0;
   const statusUpper = (booking.status || '').toUpperCase();

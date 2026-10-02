@@ -40,6 +40,8 @@ export interface BookingReceipt {
    * `bankReference`; read them with `receiptBankReference()`.
    */
   bankReference?: string;
+  /** Staff-entered reason when status === 'rejected'. */
+  rejectReason?: string;
 }
 
 export interface BookingPondSelection {
@@ -190,8 +192,24 @@ export interface AuditEntry {
   actorName?: string;
   /** Optional short free-text summary. */
   details?: string;
+  /** Staff-entered reason (reject / cancel). */
+  reason?: string;
+  /** Booking this entry belongs to; defaults to entityId for booking entries. */
+  bookingId?: string;
   /** ISO, normalized on read from serverTimestamp. */
   createdAt: string;
+}
+
+/** One row of a booking's activity history (CMS "Log Aktiviti"). */
+export interface BookingActivityEntry {
+  id: string;
+  action: string;
+  actionLabel: string;
+  details?: string;
+  reason?: string;
+  actorName?: string;
+  /** ISO time. */
+  at: string;
 }
 
 export interface Prize {

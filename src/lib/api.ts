@@ -6,6 +6,7 @@ import {
 } from './firestore';
 import { auth } from '../../lib/firebase';
 import { bookingRequest } from './bookingApi';
+import type { BookingActivityEntry } from '../types';
 
 const baseUrl = (import.meta.env.VITE_FUNCTIONS_BASE_URL || '').replace(/\/$/, '');
 
@@ -42,6 +43,10 @@ export const acquireSeatLock = async (payload: { seatId: string; competitionId: 
 export const createBooking = async (payload: any) => {
   return bookingRequest('/createBooking', payload);
 };
+export const getBookingActivity = async (bookingId: string): Promise<BookingActivityEntry[]> => {
+  const result = await bookingRequest('/bookingActivity', { bookingId });
+  return Array.isArray(result?.entries) ? result.entries : [];
+};
 export const submitBookingReceipt = async (payload: { bookingId: string; receiptUrl: string; amount: number; bankReference?: string }) => {
   return bookingRequest('/submitBookingReceipt', payload);
 };
@@ -51,8 +56,8 @@ export const acceptBookingReceipt = async (payload: { bookingId: string; receipt
   if (!baseUrl) return acceptBookingReceiptDirect(payload.bookingId, payload.receiptIndex);
   return postJson('/acceptBookingReceipt', payload);
 };
-export const rejectBookingReceipt = async (payload: { bookingId: string; receiptIndex: number }) => {
-  if (!baseUrl) return rejectBookingReceiptDirect(payload.bookingId, payload.receiptIndex);
+export const rejectBookingReceipt = async (payload: { bookingId: string; receiptIndex: number; reason?: string }) => {
+  if (!baseUrl) return rejectBookingReceiptDirect(payload.bookingId, payload.receiptIndex, payload.reason);
   return postJson('/rejectBookingReceipt', payload);
 };
 export const approveBooking = async (payload: { bookingId: string }) => postJson('/approveBooking', payload);

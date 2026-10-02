@@ -47,6 +47,7 @@ import {
 } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta, sortCompetitionsLatestFirst } from '../utils/competition';
 import { formatWeight } from '../utils/weight';
+import { buildDashboardStats, DashboardFilter, DashboardRange } from '../utils/dashboard';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { prizeRange, formatDate } from '../utils';
@@ -208,6 +209,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [bookingSearch, setBookingSearch] = useState('');
   const [allStatus, setAllStatus] = useState<'all' | 'confirmed' | 'cancelled'>('all');
   const [allCompFilter, setAllCompFilter] = useState('');
+  const [dashFilter, setDashFilter] = useState<DashboardFilter>({ competitionId: '', range: 'all' });
   const [allPondFilter, setAllPondFilter] = useState('');
   const [allSortField, setAllSortField] = useState<'createdAt' | 'userName' | 'totalAmount'>('createdAt');
   const [allSortOrder, setAllSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -226,6 +228,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Force-cancel-a-confirmed-booking flow: typed confirmation guard.
   const [forceCancelTarget, setForceCancelTarget] = useState<Booking | null>(null);
   const [forceCancelText, setForceCancelText] = useState('');
+  const [forceCancelReason, setForceCancelReason] = useState('');
   const [checkinResult, setCheckinResult] = useState<any>(null);
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [checkinCompetitionId, setCheckinCompetitionId] = useState('');
@@ -920,14 +923,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
-  const handleRejectReceipt = async (bookingId: string, receiptIndex: number) => {
+  const handleRejectReceipt = async (bookingId: string, receiptIndex: number, reason: string) => {
     setSaving(true);
     try {
-      await rejectBookingReceipt({ bookingId, receiptIndex });
+      await rejectBookingReceipt({ bookingId, receiptIndex, reason });
       await refetchCurrentBookingList();
       await logAuditEvent({
         action: 'booking.receipt_reject', actionLabel: 'Tolak Resit', entityType: 'booking',
         entityId: bookingId, entityLabel: bookingById.get(bookingId)?.bookingRef || bookingId,
+        details: `Resit #${receiptIndex + 1}`, reason,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
       setReviewTarget(null);
@@ -950,10 +954,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       await logAuditEvent({
         action: 'booking.force_cancel', actionLabel: 'Batal Paksa Tempahan', entityType: 'booking',
         entityId: forceCancelTarget.id, entityLabel: forceCancelTarget.bookingRef || forceCancelTarget.id,
+        reason: forceCancelReason.trim(),
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
       setForceCancelTarget(null);
       setForceCancelText('');
+      setForceCancelReason('');
     } catch (err) {
       console.error('Failed to force-cancel booking:', err);
       window.alert(`Gagal membatalkan tempahan / Failed to cancel booking: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
@@ -1939,6 +1945,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       await logAuditEvent({
         action: 'score.delete', actionLabel: 'Padam Rekod Keputusan', entityType: 'score',
         entityId: id, entityLabel: entry ? `${entry.anglerName} · ${entry.pondName} peg ${entry.seatNum} · ${entry.weight}kg` : id,
+        bookingId: entry?.bookingId || undefined,
+        details: entry ? `${entry.weight} kg` : undefined,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
     } catch (err) { console.error(err); }
@@ -2094,7 +2102,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const sb = scan.scannedBooking;
       savedAnglerName = sb.anglerName;
       nextScanBooking = lookupBookingFullForScan(sb.bookingId, sb.pondId);
-      await saveScoreEntry({
+      const scoreId = await saveScoreEntry({
         competitionId: sb.competitionId || resultsCompId,
         bookingId: sb.bookingId,
         anglerName: sb.anglerName,
@@ -2109,6 +2117,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         scanMethod: scan.method,
         capturedBy: user?.uid || user?.email || 'unknown',
       });
+      logAuditEvent({
+        action: 'score.create', actionLabel: 'Rekod Timbangan', entityType: 'score',
+        entityId: scoreId, bookingId: sb.bookingId || undefined,
+        entityLabel: `${sb.anglerName} · peg ${formatSeat(sb.pondCode, sb.seatNum)}`,
+        details: `${formatWeight(scan.weight, settings.ocrDecimalPlaces)} kg (${scan.userEdited ? 'disunting staf' : scan.method})`,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      }).catch((err) => console.error('Failed to log weigh-in:', err));
       setScoreEntries(await getScoresForCompetition(resultsCompId));
     } catch (err) {
       console.error('Failed to save scanned weight:', err);
@@ -2202,7 +2217,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const pendingCount = effectiveBookings.filter(b => b.status === 'pending').length;
-  const confirmedCount = effectiveBookings.filter(b => b.status === 'confirmed').length;
 
   const hasConflict = (b: Booking) => {
     const selections = b.pondSelections?.length ? b.pondSelections : [{ pondId: b.pondId, seats: b.seats ?? [] }];
@@ -2210,7 +2224,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       (seatNum) => (seatConflictMap.get(`${b.competitionId || ''}-${selection.pondId}-${seatNum}`) ?? []).length > 1,
     ));
   };
-  const totalRevenue = effectiveBookings.filter(b => b.status === 'confirmed').reduce((s, b) => s + b.amount, 0);
   const competitionsForCms = compList.length ? compList : (comp.name ? [comp] : []);
   const dashboardCompetitions = competitionsForCms
     .filter((competition) => {
@@ -2234,6 +2247,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }[getCompetitionPhase(c)];
     return `${c.name} (${phaseLabel})`;
   };
+  const dashStats = page === 'dashboard' ? buildDashboardStats(effectiveBookings, competitionsForCms, dashFilter) : null;
+  const dashMaxRevenue = Math.max(1, ...(dashStats?.byCompetition.map((row) => row.revenue) || [0]));
+  const formatRM = (value: number) => `RM ${value.toLocaleString('ms-MY', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   // Rekod Timbangan: default to the live competition, or (since an
   // upcoming one has no weigh-ins yet) the most recently *ended* one instead.
   useEffect(() => {
@@ -2663,13 +2679,82 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           {page === 'instructions' && (
             <AdminInstructions onNavigate={guardedSetPage} />
           )}
-          {page === 'dashboard' && (
+          {page === 'dashboard' && dashStats && (
             <div className="page active">
+              <div className="card" style={{ marginBottom: '1rem' }}>
+                <div className="card-body" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end' }}>
+                  <div className="field" style={{ minWidth: 220, flex: '1 1 220px' }}>
+                    <label htmlFor="dash-comp">Pertandingan</label>
+                    <select id="dash-comp" className="form-input" value={dashFilter.competitionId} onChange={(e) => setDashFilter((f) => ({ ...f, competitionId: e.target.value }))}>
+                      <option value="">Semua pertandingan</option>
+                      {competitionFilterOptions.map((c) => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}
+                    </select>
+                  </div>
+                  <div className="field" style={{ minWidth: 170, flex: '0 1 200px' }}>
+                    <label htmlFor="dash-range">Tempoh tempahan diterima</label>
+                    <select id="dash-range" className="form-input" value={dashFilter.range} onChange={(e) => setDashFilter((f) => ({ ...f, range: e.target.value as DashboardRange }))}>
+                      <option value="all">Semua masa</option>
+                      <option value="today">Hari ini</option>
+                      <option value="7d">7 hari lepas</option>
+                      <option value="30d">30 hari lepas</option>
+                      <option value="90d">90 hari lepas</option>
+                      <option value="custom">Pilih tarikh...</option>
+                    </select>
+                  </div>
+                  {dashFilter.range === 'custom' && (
+                    <>
+                      <div className="field">
+                        <label htmlFor="dash-from">Dari</label>
+                        <input id="dash-from" type="date" className="form-input" value={dashFilter.from || ''} max={dashFilter.to || undefined} onChange={(e) => setDashFilter((f) => ({ ...f, from: e.target.value }))} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="dash-to">Hingga</label>
+                        <input id="dash-to" type="date" className="form-input" value={dashFilter.to || ''} min={dashFilter.from || undefined} onChange={(e) => setDashFilter((f) => ({ ...f, to: e.target.value }))} />
+                      </div>
+                    </>
+                  )}
+                  {(dashFilter.competitionId || dashFilter.range !== 'all') && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setDashFilter({ competitionId: '', range: 'all' })}>Set semula</button>
+                  )}
+                </div>
+              </div>
               <div className="stats-grid">
-                <div className="stat-card stat-accent"><div className="stat-label">Jumlah Tempahan</div><div className="stat-value">{bookings.length}</div><div className="stat-change">Keseluruhan</div></div>
-                <div className="stat-card stat-accent"><div className="stat-label">Menunggu Kelulusan</div><div className="stat-value">{pendingCount}</div><div className="stat-change">Perlu tindakan</div></div>
-                <div className="stat-card stat-accent"><div className="stat-label">Disahkan</div><div className="stat-value">{confirmedCount}</div><div className="stat-change">Diluluskan</div></div>
-                <div className="stat-card stat-accent"><div className="stat-label">Jumlah Hasil</div><div className="stat-value">RM {totalRevenue}</div><div className="stat-change">Keseluruhan</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Jumlah Tempahan</div><div className="stat-value">{dashStats.total}</div><div className="stat-change">Termasuk dibatalkan ({dashStats.cancelled})</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Menunggu Kelulusan</div><div className="stat-value">{dashStats.pending}</div><div className="stat-change">Nilai {formatRM(dashStats.pendingValue)}</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Disahkan</div><div className="stat-value">{dashStats.confirmed}</div><div className="stat-change">Diluluskan</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Jumlah Hasil</div><div className="stat-value">{formatRM(dashStats.revenue)}</div><div className="stat-change">Disahkan sahaja · tidak termasuk dibatalkan</div></div>
+              </div>
+              <div className="card" style={{ marginBottom: '1rem' }}>
+                <div className="card-header"><div className="card-title">Tempahan & Hasil Mengikut Pertandingan</div></div>
+                <div className="card-body">
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Pertandingan</th><th>Tempahan</th><th>Disahkan</th><th>Menunggu</th><th>Dibatalkan</th><th>Pancang</th><th>Hasil</th></tr></thead>
+                      <tbody>
+                        {dashStats.byCompetition.map((row) => (
+                          <tr key={row.competitionId || 'none'}>
+                            <td className="td-name">
+                              {row.name}
+                              {row.startDate && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{formatDate(row.startDate)}</div>}
+                            </td>
+                            <td>{row.total}</td>
+                            <td>{row.confirmed}</td>
+                            <td>{row.pending}</td>
+                            <td>{row.cancelled}</td>
+                            <td>{row.pegs}</td>
+                            <td style={{ minWidth: 140 }}>
+                              <div style={{ fontWeight: 700 }}>{formatRM(row.revenue)}</div>
+                              <div aria-hidden="true" style={{ height: 6, borderRadius: 3, background: 'var(--border)', marginTop: 4 }}>
+                                <div style={{ height: '100%', borderRadius: 3, width: `${(row.revenue / dashMaxRevenue) * 100}%`, background: 'var(--accent, #2563eb)' }} />
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {dashStats.byCompetition.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Tiada tempahan dalam tempoh ini</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
               <div className="two-col">
                 <div className="card">
@@ -2677,14 +2762,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="card-body">
                     <div className="table-wrap">
                       <table>
-                        <thead><tr><th>Ref</th><th>Pertandingan</th><th>Nama</th><th>Jumlah</th><th>Status</th></tr></thead>
+                        <thead><tr><th>Diterima</th><th>Ref</th><th>Pertandingan</th><th>Nama</th><th>Jumlah</th><th>Status</th></tr></thead>
                         <tbody>
-                          {bookings.slice(0, 5).map(b => (
+                          {dashStats.recent.map(b => (
                             <tr key={b.id}>
+                              <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{formatDate(b.createdAt, { time: true })}</td>
                               <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
                               <td>{b.competitionName || comp.name || '-'}</td>
                               <td className="td-name">{b.userName}</td>
-                              <td>RM {b.amount}</td>
+                              <td>RM {b.totalAmount || b.amount}</td>
                               <td>
                                 <span className={`badge badge-${b.status === 'confirmed' ? 'approved' : b.status}`}>
                                   {b.status === 'confirmed' ? 'Disahkan' : b.status === 'rejected' ? 'Dibatalkan' : 'Menunggu Semakan'}
@@ -2692,7 +2778,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               </td>
                             </tr>
                           ))}
-                          {bookings.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Tiada tempahan</td></tr>}
+                          {dashStats.recent.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Tiada tempahan</td></tr>}
                         </tbody>
                       </table>
                     </div>
@@ -5487,11 +5573,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
       {/* Force-cancel typed confirmation (second gate) */}
       {forceCancelTarget && createPortal(
-        <div className="modal-overlay open" style={{ zIndex: 1210 }} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); }}>
+        <div className="modal-overlay open" style={{ zIndex: 1210 }} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); setForceCancelReason(''); }}>
           <div className="modal" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Pengesahan Akhir / Final Confirmation</div>
-              <button className="modal-close" onClick={() => { setForceCancelTarget(null); setForceCancelText(''); }}>×</button>
+              <button className="modal-close" onClick={() => { setForceCancelTarget(null); setForceCancelText(''); setForceCancelReason(''); }}>×</button>
             </div>
             <div className="modal-body">
               <p style={{ color: 'var(--text-muted)', marginBottom: '12px', fontSize: '0.85rem' }}>
@@ -5500,19 +5586,29 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <br /><br />
                 <em>To cancel this confirmed booking, type <strong style={{ color: 'var(--red)' }}>DELETE BOOKING</strong> below. This cannot be undone easily.</em>
               </p>
+              <label className="form-label" htmlFor="force-cancel-reason">Sebab pembatalan / Reason *</label>
+              <textarea
+                id="force-cancel-reason"
+                className="form-input"
+                style={{ width: '100%', marginBottom: '12px', minHeight: 64 }}
+                placeholder="Cth: Pelanggan minta batal, bayaran dipulangkan"
+                value={forceCancelReason}
+                onChange={(e) => setForceCancelReason(e.target.value)}
+                maxLength={500}
+                autoFocus
+              />
               <input
                 className="form-input"
                 style={{ width: '100%', marginBottom: '14px' }}
                 placeholder="DELETE BOOKING"
                 value={forceCancelText}
                 onChange={(e) => setForceCancelText(e.target.value)}
-                autoFocus
               />
               <div className="form-actions">
-                <button className="btn btn-ghost" disabled={saving} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); }}>Batal / Cancel</button>
+                <button className="btn btn-ghost" disabled={saving} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); setForceCancelReason(''); }}>Batal / Cancel</button>
                 <button
                   className="btn btn-danger"
-                  disabled={saving || forceCancelText !== 'DELETE BOOKING'}
+                  disabled={saving || forceCancelText !== 'DELETE BOOKING' || !forceCancelReason.trim()}
                   onClick={handleForceCancel}
                 >
                   {saving ? 'Membatalkan… / Cancelling…' : 'Batalkan Tempahan / Cancel Booking'}
