@@ -392,6 +392,19 @@
 .kl-special-head { padding: 14px 22px; border-top: 1px solid var(--line); background: #f7f9fb; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
 .kl-winner-summary.kl-special { grid-template-columns: repeat(2, 1fr); }
 .kl-winner-summary.kl-special small i { color: var(--red); margin-right: 4px; }
+.kl-special-details { border-top: 1px solid var(--line); background: #fff; }
+.kl-special-details > summary { cursor: pointer; padding: 14px 22px; color: var(--red); font-size: 13px; font-weight: 800; list-style: none; }
+.kl-special-details > summary::-webkit-details-marker { display: none; }
+.kl-special-details > summary::before { content: "\25B8"; display: inline-block; margin-right: 8px; transition: transform .15s; }
+.kl-special-details[open] > summary::before { transform: rotate(90deg); }
+.kl-special-rule { margin: 0 22px 10px; color: var(--muted); font-size: 12px; }
+.kl-special-row { display: grid; grid-template-columns: 32px 1fr auto; gap: 12px; align-items: start; padding: 12px 22px; border-top: 1px solid var(--line); }
+.kl-special-row.is-winner { background: #fff7f7; }
+.kl-special-rank { color: var(--muted); font-weight: 900; }
+.kl-special-row strong { display: block; color: var(--navy); font-size: 14px; }
+.kl-special-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.kl-special-times { white-space: pre-wrap; word-break: break-word; }
+.kl-special-row em { color: var(--red); font-size: 11px; font-style: normal; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
 .kl-table-head, .kl-winner-row { display: grid; grid-template-columns: 70px 1fr 110px 120px; gap: 16px; align-items: center; padding: 16px 22px; }
 .kl-table-head { background: #f7f9fb; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
 .kl-winner-row { border-bottom: 1px solid var(--line); }

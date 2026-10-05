@@ -3992,7 +3992,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const topRecordRunnerRows = topRecordRows.filter((row) => !topRecordWinners.some((winner) => winner.key === row.key));
             const selectedTopRecord = topRecordRows.find((row) => row.key === topRecordSelectionKey) || null;
             const topRecordDetailRows = selectedTopRecord
-              ? [...selectedTopRecord.records].sort((a, b) => scoreRankTime(b) - scoreRankTime(a))
+              ? [...selectedTopRecord.records].sort((a, b) => scoreRankTime(a) - scoreRankTime(b))
               : [];
             const selectedResultsComp = competitionsForCms.find((competition) => competition.id === resultsCompId) || comp;
             const exportResultsRows = () => {
@@ -4010,6 +4010,26 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 })?.prize || '',
                 entry.photoUrl || '',
               ]);
+              const seatOf = (pondId: number, seatNum: number) => formatSeat(ponds.find((pond) => pond.id === pondId)?.code, seatNum);
+              const shared = (count: number) => (count > 1 ? ` (dikongsi ${count})` : '');
+              if (scoreCompetition?.fastestPrize || scoreCompetition?.mostPrize) {
+                rows.push([], ['HADIAH KHAS']);
+                if (scoreCompetition?.fastestPrize) {
+                  if (!fastestWinners.length) rows.push(['Hadiah Terpantas', '', 'Tiada rekod', '', '', '', scoreCompetition.fastestPrize, '']);
+                  fastestWinners.forEach((entry) => rows.push([
+                    'Hadiah Terpantas', csvDateTime(entry.capturedAt), entry.anglerName, entry.pondName, seatOf(entry.pondId, entry.seatNum),
+                    formatWeight(entry.weight, settings.ocrDecimalPlaces), `${scoreCompetition.fastestPrize}${shared(fastestWinners.length)}`, entry.photoUrl || '',
+                  ]));
+                }
+                if (scoreCompetition?.mostPrize) {
+                  if (!topRecordWinners.length) rows.push(['Hadiah Terbanyak', '', 'Tiada rekod', '', '', '', scoreCompetition.mostPrize, '']);
+                  topRecordWinners.forEach((row) => rows.push([
+                    'Hadiah Terbanyak', csvDateTime(row.records[row.records.length - 1]?.capturedAt), row.anglerName, row.pondName, seatOf(row.pondId, row.seatNum),
+                    `${row.records.length} rekod`, `${scoreCompetition.mostPrize}${shared(topRecordWinners.length)}`,
+                    `Masa rekod: ${row.records.map((record) => csvDateTime(record.capturedAt)).join(' | ')}`,
+                  ]));
+                }
+              }
               const filename = `kedudukan-${csvFileSlug(selectedResultsComp?.name || 'pertandingan')}-${new Date().toISOString().slice(0, 10)}.csv`;
               downloadCsv(filename, headers, rows);
             };
@@ -4071,7 +4091,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="card-header">
                     <div>
                       <div className="card-title">{scoreCompetition?.fastestPrize || scoreCompetition?.mostPrize ? 'Hadiah Khas & Ringkasan Rekod' : 'Ringkasan Rekod'}</div>
-                      <div className="cms-top-record-sub">Terpantas: rekod pertama. Terbanyak: paling banyak rekod; jika sama, siapa capai dahulu. Masa dibanding ikut minit — jika sama minit, hadiah dikongsi.</div>
+                      <div className="cms-top-record-sub">Terpantas: rekod pertama. Terbanyak: paling banyak rekod; jika sama, siapa capai dahulu. Masa dibanding ikut minit — jika sama minit, hadiah dikongsi. Klik nama peserta Terbanyak untuk lihat senarai rekod &amp; masa.</div>
                     </div>
                   </div>
                   <div className="card-body">
@@ -4141,7 +4161,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
                             {topRecordRunnerRows.length > 0 && (
                               <div className="cms-top-record-runners" aria-label="Peserta rekod terbanyak lain">
-                                {topRecordRunnerRows.slice(0, 4).map((row, index) => (
+                                {topRecordRunnerRows.slice(0, Math.max(4, topRecordRunnerRows.filter((row) => row.records.length === topRecordWinners[0]?.records.length).length + 2)).map((row, index) => (
                                   <button
                                     type="button"
                                     key={row.key}
@@ -4173,6 +4193,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           <table>
                             <thead>
                               <tr>
+                                <th>#</th>
                                 <th>Waktu</th>
                                 <th>Kolam</th>
                                 <th>No. Pancang</th>
@@ -4181,9 +4202,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               </tr>
                             </thead>
                             <tbody>
-                              {topRecordDetailRows.map((entry) => (
-                                <tr key={entry.id || `${entry.capturedAt}-${entry.weight}`}>
-                                  <td style={{ whiteSpace: 'nowrap' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}</td>
+                              {topRecordDetailRows.map((entry, index) => (
+                                <tr key={entry.id || `${entry.capturedAt}-${entry.weight}`} style={index === topRecordDetailRows.length - 1 ? { fontWeight: 700 } : undefined}>
+                                  <td>{index + 1}</td>
+                                  <td style={{ whiteSpace: 'nowrap' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}{index === topRecordDetailRows.length - 1 ? ` · capai ${topRecordDetailRows.length} rekod` : ''}</td>
                                   <td>{entry.pondName}</td>
                                   <td>{formatSeat(ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum)}</td>
                                   <td style={{ textAlign: 'right' }}><span className="w-cell">{formatWeight(entry.weight, settings.ocrDecimalPlaces)}</span> kg</td>
