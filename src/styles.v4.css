@@ -404,17 +404,20 @@
 .kl-special-row small { display: block; margin: 3px 0 0; color: var(--muted); font-size: 12px; font-weight: 500; text-transform: none; letter-spacing: normal; }
 .kl-special-times { white-space: pre-wrap; word-break: break-word; }
 .kl-special-row em { color: var(--red); font-size: 11px; font-style: normal; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
-.kl-table-head, .kl-winner-row { display: grid; grid-template-columns: 70px 1fr 110px 120px; gap: 16px; align-items: center; padding: 16px 22px; }
+.kl-table-head, .kl-winner-row { display: grid; grid-template-columns: 88px minmax(0, 1fr) 130px 100px 110px; gap: 14px; align-items: center; padding: 10px 22px; }
+.kl-table-head { padding-top: 14px; padding-bottom: 14px; }
 .kl-table-head { background: #f7f9fb; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
 .kl-winner-row { border-bottom: 1px solid var(--line); }
 .kl-winner-row:last-child { border-bottom: 0; }
-.kl-winner-row strong { font-weight: 900; }
+.kl-winner-row strong { font-weight: 700; }
 .kl-winner-row span { color: var(--muted); font-size: 13px; }
-.kl-winner-entry > strong { display: flex; align-items: baseline; gap: 8px; color: var(--navy); font-family: var(--font-heading); font-size: 24px; line-height: 1; }
-.kl-winner-entry > strong small { color: var(--red); font-family: inherit; font-size: 10px; font-weight: 900; text-transform: uppercase; }
-.kl-winner-entry > span { display: block; margin-top: 5px; }
+.kl-winner-entry > strong { display: flex; align-items: baseline; gap: 8px; color: var(--navy); font-family: var(--font-heading); font-size: 20px; font-weight: 700; line-height: 1; }
+.kl-winner-entry > strong small { color: var(--red); font-family: inherit; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.kl-winner-entry > span { display: block; margin-top: 3px; }
+.kl-winner-pond { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kl-winner-pond i { margin-right: 4px; color: var(--red); }
 .kl-winner-entry > span b { color: var(--navy); }
-.kl-winner-row .kl-winner-rank { width: 42px; height: 42px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; background: var(--navy); color: #fff; font-family: var(--font-heading); font-size: 22px; font-weight: 900; }
+.kl-winner-row .kl-winner-rank { width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; background: var(--navy); color: #fff; font-family: var(--font-heading); font-size: 17px; font-weight: 700; }
 .kl-winner-row.is-champion .kl-winner-rank { background: var(--red); }
 .kl-no-data { text-align: center; padding: 48px 24px; color: var(--muted); font-size: 14px; }
 
@@ -447,8 +450,11 @@
   .kl-selected-badge { margin-top: 14px; }
   .kl-winner-summary, .kl-winner-summary.kl-special { grid-template-columns: 1fr; }
   .kl-table-head { display: none; }
-  .kl-winner-row { grid-template-columns: 48px 1fr; gap: 12px; }
-  .kl-winner-row div:nth-child(3), .kl-winner-row div:nth-child(4) { grid-column: 2; }
-  .kl-winner-row div:nth-child(3)::before { content: "Berat: "; color: var(--muted); font-weight: 800; }
-  .kl-winner-row div:nth-child(4)::before { content: "Hadiah: "; color: var(--muted); font-weight: 800; }
+  /* Phone: peg + peserta, then pond / berat / hadiah on one line that wraps only if needed. */
+  .kl-winner-row { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; padding: 10px 14px 10px 60px; }
+  .kl-winner-row > div:first-child { position: absolute; left: 14px; top: 10px; }
+  .kl-winner-row > div:nth-child(2) { flex: 0 0 100%; }
+  .kl-winner-row > div:nth-child(n+3) { flex: 0 0 auto; font-size: 12px; white-space: nowrap; }
+  .kl-winner-row > div:nth-child(4)::before { content: "Berat "; color: var(--muted); font-weight: 600; }
+  .kl-winner-row > div:nth-child(5)::before { content: "Hadiah "; color: var(--muted); font-weight: 600; }
 }

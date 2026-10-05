@@ -620,7 +620,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               )}
 
               <div className="kl-table-head">
-                <div>Kedudukan</div><div>No. Pancang</div><div>Berat</div><div>Hadiah</div>
+                <div>Kedudukan</div><div>No. Pancang</div><div>Kolam</div><div>Berat</div><div>Hadiah</div>
               </div>
               {pastLoading ? (
                 <div className="kl-no-data">Memuatkan keputusan…</div>
@@ -635,9 +635,9 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                     <div><span className="kl-winner-rank">{p2(rank)}</span></div>
                     <div className="kl-winner-entry">
                       <strong><small>No. Pancang</small>{seatLabel}</strong>
-                      <span><i className="fa-solid fa-water"></i> {pondName || 'Nama kolam tidak tersedia'}</span>
                       <span>Peserta: <b>{e.name}</b></span>
                     </div>
+                    <div className="kl-winner-pond"><i className="fa-solid fa-water"></i> {pondName || '—'}</div>
                     <div>{formatWeight(e.weight, decimalPlaces)}kg</div>
                     <div>{prize || '—'}</div>
                   </div>
