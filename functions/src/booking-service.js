@@ -61,6 +61,33 @@ const validateReceipt = async (url, uid) => {
     if (!token || !String(metadata.metadata?.firebaseStorageDownloadTokens || '').split(',').includes(token)) fail('Pautan resit tidak sah.');
 };
 
+// Cloudflare Turnstile bot check for customer bookings. Active only once the
+// TURNSTILE_SECRET secret exists; staff bookings are exempt (the transaction
+// still rejects non-staff who claim staff mode). If Cloudflare itself can't be
+// reached we let the booking through rather than block a whole event day.
+const verifyTurnstile = async (req) => {
+    const secret = process.env.TURNSTILE_SECRET;
+    if (!secret || req.body?.createdByStaff === true) return;
+    const token = typeof req.body?.turnstileToken === 'string' ? req.body.turnstileToken : '';
+    if (!token || token.length > 2048) fail('Pengesahan keselamatan diperlukan. Sila muat semula halaman dan cuba lagi. / Security check required, please reload and try again.', 403);
+    let result;
+    try {
+        const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+            method: 'POST',
+            body: new URLSearchParams({ secret, response: token }),
+            signal: AbortSignal.timeout(5000),
+        });
+        result = await response.json();
+    } catch (error) {
+        console.warn('Turnstile verify unavailable, allowing booking:', error?.message || error);
+        return;
+    }
+    if (!result?.success) {
+        console.warn('Turnstile rejected booking:', result?.['error-codes']);
+        fail('Pengesahan keselamatan gagal. Sila cuba lagi. / Security check failed, please try again.', 403);
+    }
+};
+
 export async function createSecureBooking(db, payload, user) {
     if (!validId(payload.competitionId)) fail('Pertandingan tidak sah.');
     const bookingDoc = db.collection('bookings').doc();
@@ -225,6 +252,7 @@ export function registerBookingRoutes(app) {
         }
     });
     app.post('/createBooking', verifyToken, handle(async (req) => {
+        await verifyTurnstile(req);
         await validateReceipt(req.body.receiptUrl, req.user.uid);
         return createSecureBooking(adminDb, req.body, req.user);
     }));

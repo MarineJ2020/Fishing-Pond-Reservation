@@ -4,6 +4,7 @@ import { DB, User, Pond, Booking, BookingPondSelection, Settings } from '../type
 import { emptyDB, setDB } from '../data';
 import { loadAppDB, subscribeSettings } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
+import { getTurnstileToken } from '../lib/turnstile';
 import { uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel } from '../utils/competition';
@@ -343,7 +344,9 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
 
     onStage?.('save');
-    const result = await createBookingApi(payload);
+    // Fetched last: tokens are single-use and expire after 5 minutes.
+    const turnstileToken = isStaff ? '' : await getTurnstileToken();
+    const result = await createBookingApi(turnstileToken ? { ...payload, turnstileToken } : payload);
     if (!result?.bookingId) return null;
 
     const booking: Booking = {
