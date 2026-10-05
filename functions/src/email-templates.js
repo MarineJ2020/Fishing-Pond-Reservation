@@ -253,14 +253,42 @@ export const renderReceiptRejectedEmail = ({ bookingId, booking, competition, re
 };
 
 // Staff force-cancelled an already-confirmed booking; its pegs are released.
-export const renderBookingCancelledEmail = ({ bookingId, booking, competition, reason, appUrl }) => {
+// cancelType (set by CMS > Batal Paksa) decides what we say about the money.
+const moneyText = (value) => `RM ${Number(value || 0).toFixed(2)}`;
+const cancelMoneyCopy = (booking, rulesPdfUrl) => {
+    if (booking.cancelType === 'no_show_forfeit') {
+        const rules = rulesPdfUrl ? ` Rujuk Syarat & Peraturan: ${rulesPdfUrl}` : '';
+        return {
+            title: 'Tempahan Dibatalkan (Tidak Hadir)',
+            text: `Tempahan ini dibatalkan kerana anda tidak hadir pada hari pertandingan, dan peg telah dilepaskan kepada peserta lain. Mengikut syarat & peraturan pertandingan, bayaran yang telah dibuat tidak dikembalikan.${rules}`,
+            html: `<p>Tempahan ini dibatalkan kerana anda <strong>tidak hadir</strong> pada hari pertandingan, dan peg telah dilepaskan kepada peserta lain.</p>
+            <p>Mengikut syarat &amp; peraturan pertandingan, <strong>bayaran yang telah dibuat tidak dikembalikan</strong>.${rulesPdfUrl ? ` <a href="${escapeHtml(rulesPdfUrl)}" style="color:${BRAND_NAVY};">Lihat Syarat &amp; Peraturan</a>.` : ''}</p>`,
+        };
+    }
+    if (booking.cancelType === 'refund') {
+        const amount = moneyText(booking.refundAmount);
+        return {
+            title: 'Tempahan Dibatalkan',
+            text: `Bayaran balik sebanyak ${amount} akan diproses ke akaun anda. Kami akan menghantar e-mel apabila bayaran balik telah dibuat.`,
+            html: `<p>Bayaran balik sebanyak <strong style="color:${BRAND_RED};">${amount}</strong> akan diproses ke akaun anda. Kami akan menghantar e-mel apabila bayaran balik telah dibuat.</p>`,
+        };
+    }
+    return {
+        title: 'Tempahan Dibatalkan',
+        text: 'Untuk sebarang pertanyaan, termasuk bayaran yang telah dibuat, sila hubungi kami.',
+        html: '<p>Untuk sebarang pertanyaan, termasuk bayaran yang telah dibuat, sila balas e-mel ini atau hubungi kami.</p>',
+    };
+};
+
+export const renderBookingCancelledEmail = ({ bookingId, booking, competition, reason, appUrl, rulesPdfUrl = '' }) => {
     const bookingRef = subjectText(booking.bookingRef, bookingId);
     const reasonText = String(reason || '').trim() || 'Tiada sebab dinyatakan. Sila hubungi kami untuk maklumat lanjut.';
     const bookingUrl = `${appUrl}/bookings/${encodeURIComponent(bookingId)}`;
+    const money = cancelMoneyCopy(booking, rulesPdfUrl);
     return {
-        subject: `Tempahan Dibatalkan - ${bookingRef}`,
-        text: `Tempahan ${bookingRef} telah dibatalkan oleh pihak kami.\nSebab: ${reasonText}\n${selectionText(booking, competition)}\nUntuk sebarang pertanyaan, termasuk bayaran yang telah dibuat, sila hubungi kami.`,
-        html: layout('Tempahan Dibatalkan', `
+        subject: `${money.title} - ${bookingRef}`,
+        text: `Tempahan ${bookingRef} telah dibatalkan oleh pihak kami.\nSebab: ${reasonText}\n${selectionText(booking, competition)}\n${money.text}`,
+        html: layout(money.title, `
             <p>Salam sejahtera,</p>
             <p>Dimaklumkan bahawa tempahan anda yang telah disahkan sebelum ini telah <strong style="color:${BRAND_RED};">dibatalkan</strong> oleh pihak kami. QR peg untuk tempahan ini tidak lagi sah.</p>
             <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
@@ -269,7 +297,28 @@ export const renderBookingCancelledEmail = ({ bookingId, booking, competition, r
               <div style="font-weight:700;">${escapeHtml(reasonText)}</div>
             </div>
             <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
-            <p>Untuk sebarang pertanyaan, termasuk bayaran yang telah dibuat, sila balas e-mel ini atau hubungi kami.</p>
+            ${money.html}
+            <p style="font-size:12px;color:#666;">Butiran tempahan: <a href="${escapeHtml(bookingUrl)}" style="color:${BRAND_NAVY};">${escapeHtml(bookingUrl)}</a></p>`),
+    };
+};
+
+// Staff recorded the refund for a "Batal – bayaran dikembalikan" booking.
+export const renderBookingRefundedEmail = ({ bookingId, booking, competition, appUrl }) => {
+    const bookingRef = subjectText(booking.bookingRef, bookingId);
+    const amount = moneyText(booking.refundAmount);
+    const reference = String(booking.refundReference || '').trim();
+    const bookingUrl = `${appUrl}/bookings/${encodeURIComponent(bookingId)}`;
+    return {
+        subject: `Bayaran Balik Dibuat - ${bookingRef}`,
+        text: `Bayaran balik ${amount} untuk tempahan ${bookingRef} telah dibuat.${reference ? `\nRujukan: ${reference}` : ''}\n${selectionText(booking, competition)}\nSila semak akaun bank anda. Hubungi kami jika belum diterima dalam 3 hari bekerja.`,
+        html: layout('Bayaran Balik Dibuat', `
+            <p>Salam sejahtera,</p>
+            <p>Bayaran balik untuk tempahan anda yang dibatalkan telah <strong style="color:${BRAND_RED};">dibuat</strong>.</p>
+            <p><strong>No. Rujukan Tempahan:</strong> ${escapeHtml(bookingRef)}</p>
+            <p><strong>Jumlah Dikembalikan:</strong> <span style="color:${BRAND_RED};">${amount}</span></p>
+            ${reference ? `<p><strong>Rujukan Pindahan:</strong> ${escapeHtml(reference)}</p>` : ''}
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
+            <p>Sila semak akaun bank anda. Hubungi kami jika bayaran belum diterima dalam 3 hari bekerja.</p>
             <p style="font-size:12px;color:#666;">Butiran tempahan: <a href="${escapeHtml(bookingUrl)}" style="color:${BRAND_NAVY};">${escapeHtml(bookingUrl)}</a></p>`),
     };
 };

@@ -98,6 +98,19 @@ export interface Booking {
   createdByName?: string;
   /** Staff-entered reason when a confirmed booking was force-cancelled. */
   cancelReason?: string;
+  /** What happened to the money on a force-cancel (see utils/cancellation.ts). */
+  cancelType?: 'no_show_forfeit' | 'refund' | 'no_payment';
+  cancelledAt?: string;
+  /** No-show: amount kept (still counted as revenue). */
+  forfeitedAmount?: number;
+  /** Refund cancellations: 'pending' until staff record the refund. */
+  refundStatus?: 'pending' | 'refunded';
+  refundAmount?: number;
+  refundedAt?: string;
+  refundedByName?: string;
+  /** Bank transfer reference / note for the refund. */
+  refundReference?: string;
+  refundProofUrl?: string;
   checkedIn?: boolean;
   /** Seat numbers that have individually checked in (subset of `seats`). */
   checkedInSeats?: number[];

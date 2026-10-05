@@ -8,9 +8,11 @@ import {
     newlyRejectedReceipts,
     queueBalanceReminderMail,
     queueBookingCancelledMail,
+    queueBookingRefundedMail,
     queueBookingLifecycleMail,
     queueReceiptRejectedMail,
     shouldQueueBookingCancelledEmail,
+    shouldQueueBookingRefundedEmail,
     queuePasswordResetMail,
     queueVerificationMail,
     queueWelcomeMail,
@@ -1049,6 +1051,20 @@ export const queueBookingCancelledEmail = regional.firestore
         const result = await queueBookingCancelledMail({ bookingId: context.params.bookingId, booking: after });
         if (!result.created && result.reason === 'missing-recipient') {
             console.warn(`No email recipient for cancelled booking ${context.params.bookingId}.`);
+        }
+        return null;
+    });
+
+// Staff recorded the refund for a cancelled booking (CMS > Rekod Bayaran Balik).
+export const queueBookingRefundedEmail = regional.firestore
+    .document('bookings/{bookingId}')
+    .onUpdate(async (change, context) => {
+        const before = change.before.data() || {};
+        const after = change.after.data() || {};
+        if (!shouldQueueBookingRefundedEmail(before, after)) return null;
+        const result = await queueBookingRefundedMail({ bookingId: context.params.bookingId, booking: after });
+        if (!result.created && result.reason === 'missing-recipient') {
+            console.warn(`No email recipient for refunded booking ${context.params.bookingId}.`);
         }
         return null;
     });

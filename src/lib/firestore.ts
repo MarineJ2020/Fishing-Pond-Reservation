@@ -341,6 +341,15 @@ const buildBooking = (
     createdByUid: data.createdByUid || undefined,
     createdByName: data.createdByName || undefined,
     cancelReason: data.cancelReason || undefined,
+    cancelType: ['no_show_forfeit', 'refund', 'no_payment'].includes(data.cancelType) ? data.cancelType : undefined,
+    cancelledAt: normalizeTimestamp(data.cancelledAt) || undefined,
+    forfeitedAmount: typeof data.forfeitedAmount === 'number' ? data.forfeitedAmount : undefined,
+    refundStatus: data.refundStatus === 'refunded' ? 'refunded' : data.refundStatus === 'pending' ? 'pending' : undefined,
+    refundAmount: typeof data.refundAmount === 'number' ? data.refundAmount : undefined,
+    refundedAt: normalizeTimestamp(data.refundedAt) || undefined,
+    refundedByName: data.refundedByName || undefined,
+    refundReference: data.refundReference || undefined,
+    refundProofUrl: data.refundProofUrl || undefined,
     checkedIn: data.checkedIn === true,
     checkedInSeats: Array.isArray(data.checkedInSeats)
       ? data.checkedInSeats.map((seat: any) => Number(seat)).filter(Number.isFinite)

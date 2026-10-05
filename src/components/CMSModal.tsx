@@ -7,6 +7,7 @@ import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEnt
 import { gs } from '../data';
 import PondEditor from './PondEditor';
 import { fastestRecords, mostRecordRanking } from '../utils/specialPrizes';
+import { CANCEL_TYPE_OPTIONS, bookingPaidAmount, cancelMoneyLabel, isRefundPending, type CancelType } from '../utils/cancellation';
 import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
 import {
   createPond as createPondFirestore,
@@ -260,6 +261,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [forceCancelTarget, setForceCancelTarget] = useState<Booking | null>(null);
   const [forceCancelText, setForceCancelText] = useState('');
   const [forceCancelReason, setForceCancelReason] = useState('');
+  const [forceCancelType, setForceCancelType] = useState<CancelType | ''>('');
+  const [forceCancelRefund, setForceCancelRefund] = useState('');
+  // Record a refund for a "Batal – bayaran dikembalikan" booking.
+  const [refundTarget, setRefundTarget] = useState<Booking | null>(null);
+  const [refundAmountInput, setRefundAmountInput] = useState('');
+  const [refundReferenceInput, setRefundReferenceInput] = useState('');
+  const [refundProofFile, setRefundProofFile] = useState<File | null>(null);
   const [checkinResult, setCheckinResult] = useState<any>(null);
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [checkinCompetitionId, setCheckinCompetitionId] = useState('');
@@ -1096,24 +1104,94 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       // Reason is stored on the booking so the cancellation email (server
       // trigger) and the customer's booking page can show it.
+      const paid = bookingPaidAmount(forceCancelTarget);
+      const refundAmount = Math.round((parseFloat(forceCancelRefund) || 0) * 100) / 100;
+      if (forceCancelType === 'refund' && (refundAmount <= 0 || refundAmount > paid)) {
+        window.alert(`Jumlah bayaran balik mesti antara RM 0.01 dan RM ${paid.toFixed(2)}.`);
+        setSaving(false);
+        return;
+      }
+      // Money outcome rides on the same write so the cancellation email (server
+      // trigger), dashboard revenue and the customer's page all agree.
       await updateBookingStatusFirestore(forceCancelTarget.id, 'rejected', {
         cancelReason: forceCancelReason.trim().slice(0, 500),
+        cancelType: forceCancelType,
         cancelledBy: user?.uid || null,
         cancelledAt: new Date().toISOString(),
+        ...(forceCancelType === 'no_show_forfeit' ? { forfeitedAmount: paid } : {}),
+        ...(forceCancelType === 'refund' ? { refundStatus: 'pending', refundAmount } : {}),
       });
       await refetchCurrentBookingList(forceCancelTarget.id);
       await logAuditEvent({
         action: 'booking.force_cancel', actionLabel: 'Batal Paksa Tempahan', entityType: 'booking',
         entityId: forceCancelTarget.id, entityLabel: forceCancelTarget.bookingRef || forceCancelTarget.id,
         reason: forceCancelReason.trim(),
+        details: CANCEL_TYPE_OPTIONS.find((option) => option.value === forceCancelType)?.label
+          + (forceCancelType === 'refund' ? ` · RM ${refundAmount.toFixed(2)}` : forceCancelType === 'no_show_forfeit' ? ` · RM ${paid.toFixed(2)}` : ''),
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
-      setForceCancelTarget(null);
-      setForceCancelText('');
-      setForceCancelReason('');
+      closeForceCancel();
     } catch (err) {
       console.error('Failed to force-cancel booking:', err);
       window.alert(`Gagal membatalkan tempahan / Failed to cancel booking: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
+    }
+    setSaving(false);
+  };
+
+  const closeForceCancel = () => {
+    setForceCancelTarget(null);
+    setForceCancelText('');
+    setForceCancelReason('');
+    setForceCancelType('');
+    setForceCancelRefund('');
+  };
+
+  const openRefund = (booking: Booking) => {
+    setRefundTarget(booking);
+    setRefundAmountInput(String(booking.refundAmount ?? bookingPaidAmount(booking)));
+    setRefundReferenceInput('');
+    setRefundProofFile(null);
+  };
+
+  // Mark a pending refund as paid back. Proof is optional; it is stored under the
+  // staff member's own receipt folder (storage.rules allow staff to read it).
+  const handleRecordRefund = async () => {
+    if (!refundTarget) return;
+    const amount = Math.round((parseFloat(refundAmountInput) || 0) * 100) / 100;
+    const paid = bookingPaidAmount(refundTarget);
+    if (amount <= 0 || amount > paid) { window.alert(`Jumlah bayaran balik mesti antara RM 0.01 dan RM ${paid.toFixed(2)}.`); return; }
+    if (!refundReferenceInput.trim()) { window.alert('Sila masukkan rujukan pindahan bank / nota bayaran balik.'); return; }
+    setSaving(true);
+    try {
+      let proofUrl = '';
+      if (refundProofFile) {
+        proofUrl = /\.pdf$/i.test(refundProofFile.name) || refundProofFile.type === 'application/pdf'
+          ? await uploadPdfToFirebaseStorage(refundProofFile, receiptUploadFolder(), refundProofFile.name)
+          : await (async () => {
+              const webp = await compressBlobToWebp(refundProofFile, refundProofFile.name);
+              return uploadImageToFirebaseStorage(webp, receiptUploadFolder(), webp.name);
+            })();
+      }
+      await updateBookingStatusFirestore(refundTarget.id, 'rejected', {
+        refundStatus: 'refunded',
+        refundAmount: amount,
+        refundReference: refundReferenceInput.trim().slice(0, 200),
+        refundedAt: new Date().toISOString(),
+        refundedBy: user?.uid || null,
+        refundedByName: user?.name || user?.email || null,
+        ...(proofUrl ? { refundProofUrl: proofUrl } : {}),
+      });
+      await refetchCurrentBookingList(refundTarget.id);
+      await logAuditEvent({
+        action: 'booking.refund_record', actionLabel: 'Rekod Bayaran Balik', entityType: 'booking',
+        entityId: refundTarget.id, entityLabel: refundTarget.bookingRef || refundTarget.id,
+        details: `RM ${amount.toFixed(2)} · ${refundReferenceInput.trim()}`,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+      setRefundTarget(null);
+    } catch (err) {
+      console.error('Failed to record refund:', err);
+      window.alert(`Gagal merekod bayaran balik: ${err instanceof Error ? err.message : 'Ralat tidak diketahui.'}`);
     }
     setSaving(false);
   };
@@ -2465,6 +2543,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     return `${c.name} (${phaseLabel})`;
   };
   const dashStats = page === 'dashboard' ? buildDashboardStats(effectiveBookings, competitionsForCms, dashFilter) : null;
+  // Pending refunds ignore the dashboard date filter: money owed stays visible until paid.
+  const pendingRefunds = page === 'dashboard'
+    ? effectiveBookings.filter(isRefundPending).sort((a, b) => (Date.parse(a.cancelledAt || '') || 0) - (Date.parse(b.cancelledAt || '') || 0))
+    : [];
   const dashMaxRevenue = Math.max(1, ...(dashStats?.byCompetition.map((row) => row.revenue) || [0]));
   const formatRM = (value: number) => `RM ${value.toLocaleString('ms-MY', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   // Rekod Timbangan: default to the live competition, or (since an
@@ -2942,8 +3024,32 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="stat-card stat-accent"><div className="stat-label">Jumlah Tempahan</div><div className="stat-value">{dashStats.total}</div><div className="stat-change">Termasuk dibatalkan ({dashStats.cancelled})</div></div>
                 <div className="stat-card stat-accent"><div className="stat-label">Menunggu Kelulusan</div><div className="stat-value">{dashStats.pending}</div><div className="stat-change">Nilai {formatRM(dashStats.pendingValue)}</div></div>
                 <div className="stat-card stat-accent"><div className="stat-label">Disahkan</div><div className="stat-value">{dashStats.confirmed}</div><div className="stat-change">Diluluskan</div></div>
-                <div className="stat-card stat-accent"><div className="stat-label">Jumlah Hasil</div><div className="stat-value">{formatRM(dashStats.revenue)}</div><div className="stat-change">Disahkan sahaja · tidak termasuk dibatalkan</div></div>
+                <div className="stat-card stat-accent"><div className="stat-label">Jumlah Hasil</div><div className="stat-value">{formatRM(dashStats.revenue)}</div><div className="stat-change">{dashStats.keptFromCancelled > 0 ? `Termasuk ${formatRM(dashStats.keptFromCancelled)} bayaran hangus / tidak dikembalikan` : 'Disahkan · tolak bayaran balik'}</div></div>
               </div>
+              {pendingRefunds.length > 0 && (
+                <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--red)' }}>
+                  <div className="card-header">
+                    <div>
+                      <div className="card-title">Bayaran Balik Tertunggak ({pendingRefunds.length})</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Jumlah {formatRM(pendingRefunds.reduce((sum, b) => sum + (Number(b.refundAmount) || 0), 0))} · semua tarikh</div>
+                    </div>
+                  </div>
+                  <div className="card-body"><div className="table-wrap"><table>
+                    <thead><tr><th>Tempahan</th><th>Pelanggan</th><th>Dibatalkan</th><th>Jumlah</th><th></th></tr></thead>
+                    <tbody>
+                      {pendingRefunds.map((b) => (
+                        <tr key={b.id}>
+                          <td className="td-name">{b.bookingRef || b.id.slice(0, 8)}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{b.competitionName || ''}</div></td>
+                          <td>{b.userName}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{b.bookingPhone || b.userPhone || b.userEmail || ''}</div></td>
+                          <td>{formatDate(b.cancelledAt || b.updatedAt || '') || '-'}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{b.cancelReason || ''}</div></td>
+                          <td style={{ fontWeight: 700 }}>{formatRM(Number(b.refundAmount) || 0)}</td>
+                          <td>{isBookingManager ? <button className="btn btn-sm btn-primary" disabled={saving} onClick={() => openRefund(b)}>Rekod Bayaran Balik</button> : <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Staf kaunter / admin</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table></div></div>
+                </div>
+              )}
               <div className="card" style={{ marginBottom: '1rem' }}>
                 <div className="card-header"><div className="card-title">Tempahan & Hasil Mengikut Pertandingan</div></div>
                 <div className="card-body">
@@ -3742,6 +3848,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {b.status === 'rejected'
                             ? <span className="badge badge-rejected">Dibatalkan</span>
                             : <span className="badge badge-approved">Disahkan</span>}
+                          {cancelMoneyLabel(b) && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>{cancelMoneyLabel(b)}</div>}
+                          {isRefundPending(b) && isBookingManager && <button className="btn btn-sm btn-ghost" style={{ marginTop: 4 }} disabled={saving} onClick={() => openRefund(b)}>Rekod Bayaran Balik</button>}
                         </td>
                         <td>
                           <div className="action-cell">
@@ -5956,11 +6064,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
       {/* Force-cancel typed confirmation (second gate) */}
       {forceCancelTarget && createPortal(
-        <div className="modal-overlay open" style={{ zIndex: 1210 }} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); setForceCancelReason(''); }}>
+        <div className="modal-overlay open" style={{ zIndex: 1210 }} onClick={closeForceCancel}>
           <div className="modal" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Pengesahan Akhir / Final Confirmation</div>
-              <button className="modal-close" onClick={() => { setForceCancelTarget(null); setForceCancelText(''); setForceCancelReason(''); }}>×</button>
+              <button className="modal-close" onClick={closeForceCancel}>×</button>
             </div>
             <div className="modal-body">
               <p style={{ color: 'var(--text-muted)', marginBottom: '12px', fontSize: '0.85rem' }}>
@@ -5969,12 +6077,41 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <br /><br />
                 <em>To cancel this confirmed booking, type <strong style={{ color: 'var(--red)' }}>DELETE BOOKING</strong> below. This cannot be undone easily.</em>
               </p>
+              <div className="form-label">Jenis pembatalan / Type *</div>
+              <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+                {CANCEL_TYPE_OPTIONS.map((option) => (
+                  <label key={option.value} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${forceCancelType === option.value ? 'var(--red)' : 'var(--border)'}`, background: forceCancelType === option.value ? 'rgba(231,25,45,0.05)' : 'transparent' }}>
+                    <input type="radio" name="force-cancel-type" checked={forceCancelType === option.value} style={{ marginTop: 3 }}
+                      onChange={() => {
+                        setForceCancelType(option.value);
+                        if (option.value === 'refund' && !forceCancelRefund) setForceCancelRefund(bookingPaidAmount(forceCancelTarget).toFixed(2));
+                        if (option.value === 'no_show_forfeit' && !forceCancelReason.trim()) setForceCancelReason('Tidak hadir pada hari pertandingan');
+                      }} />
+                    <span>
+                      <strong style={{ fontSize: '0.86rem' }}>{option.label}</strong>
+                      <span style={{ display: 'block', fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 2 }}>{option.hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {forceCancelType === 'no_show_forfeit' && (
+                <div style={{ fontSize: '0.8rem', marginBottom: 12, color: 'var(--text-muted)' }}>
+                  Bayaran <strong>RM {bookingPaidAmount(forceCancelTarget).toFixed(2)}</strong> akan direkod sebagai hangus dan kekal dalam Jumlah Hasil.
+                </div>
+              )}
+              {forceCancelType === 'refund' && (
+                <div style={{ marginBottom: 12 }}>
+                  <label className="form-label" htmlFor="force-cancel-refund">Jumlah bayaran balik (RM) — dibayar RM {bookingPaidAmount(forceCancelTarget).toFixed(2)}</label>
+                  <input id="force-cancel-refund" className="form-input" type="number" min="0.01" step="0.01" max={bookingPaidAmount(forceCancelTarget)}
+                    value={forceCancelRefund} onChange={(e) => setForceCancelRefund(e.target.value)} />
+                </div>
+              )}
               <label className="form-label" htmlFor="force-cancel-reason">Sebab pembatalan / Reason *</label>
               <textarea
                 id="force-cancel-reason"
                 className="form-input"
                 style={{ width: '100%', marginBottom: '12px', minHeight: 64 }}
-                placeholder="Cth: Pelanggan minta batal, bayaran dipulangkan"
+                placeholder="Cth: Tidak hadir pada hari pertandingan / Pelanggan minta batal"
                 value={forceCancelReason}
                 onChange={(e) => setForceCancelReason(e.target.value)}
                 maxLength={500}
@@ -5988,14 +6125,46 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 onChange={(e) => setForceCancelText(e.target.value)}
               />
               <div className="form-actions">
-                <button className="btn btn-ghost" disabled={saving} onClick={() => { setForceCancelTarget(null); setForceCancelText(''); setForceCancelReason(''); }}>Batal / Cancel</button>
+                <button className="btn btn-ghost" disabled={saving} onClick={closeForceCancel}>Batal / Cancel</button>
                 <button
                   className="btn btn-danger"
-                  disabled={saving || forceCancelText !== 'DELETE BOOKING' || !forceCancelReason.trim()}
+                  disabled={saving || !forceCancelType || forceCancelText !== 'DELETE BOOKING' || !forceCancelReason.trim()}
                   onClick={handleForceCancel}
                 >
                   {saving ? 'Membatalkan… / Cancelling…' : 'Batalkan Tempahan / Cancel Booking'}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {refundTarget && createPortal(
+        <div className="modal-overlay open" style={{ zIndex: 1210 }} onClick={() => !saving && setRefundTarget(null)}>
+          <div className="modal" style={{ maxWidth: '460px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Rekod Bayaran Balik</div>
+              <button className="modal-close" disabled={saving} onClick={() => setRefundTarget(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--text-muted)', marginBottom: 12, fontSize: '0.85rem' }}>
+                <strong>{refundTarget.bookingRef || refundTarget.id.slice(0, 10)}</strong> · {refundTarget.userName} · dibayar RM {bookingPaidAmount(refundTarget).toFixed(2)}
+                {refundTarget.cancelReason ? <><br />Sebab batal: {refundTarget.cancelReason}</> : null}
+              </p>
+              <label className="form-label" htmlFor="refund-amount">Jumlah dikembalikan (RM) *</label>
+              <input id="refund-amount" className="form-input" type="number" min="0.01" step="0.01" max={bookingPaidAmount(refundTarget)} style={{ width: '100%', marginBottom: 12 }}
+                value={refundAmountInput} onChange={(e) => setRefundAmountInput(e.target.value)} />
+              <label className="form-label" htmlFor="refund-ref">Rujukan pindahan / nota *</label>
+              <input id="refund-ref" className="form-input" style={{ width: '100%', marginBottom: 12 }} maxLength={200} placeholder="Cth: DuitNow 1234567, 06/10/2026"
+                value={refundReferenceInput} onChange={(e) => setRefundReferenceInput(e.target.value)} />
+              <label className="form-label" htmlFor="refund-proof">Bukti pindahan (pilihan) — gambar atau PDF</label>
+              <input id="refund-proof" type="file" accept="image/*,application/pdf" style={{ marginBottom: 14 }}
+                onChange={(e) => setRefundProofFile(e.target.files?.[0] || null)} />
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 14 }}>Pelanggan akan menerima e-mel bahawa bayaran balik telah dibuat.</div>
+              <div className="form-actions">
+                <button className="btn btn-ghost" disabled={saving} onClick={() => setRefundTarget(null)}>Batal</button>
+                <button className="btn btn-primary" disabled={saving} onClick={handleRecordRefund}>{saving ? 'Menyimpan…' : 'Simpan Bayaran Balik'}</button>
               </div>
             </div>
           </div>

@@ -4,6 +4,7 @@ import {
     bookingSelectionsForTest,
     renderBookingApprovedEmail,
     renderBookingCancelledEmail,
+    renderBookingRefundedEmail,
     renderBookingReceivedEmail,
     renderPasswordResetEmail,
     renderReceiptRejectedEmail,
@@ -111,4 +112,29 @@ test('booking summary shows booking time, competition schedule and pegs in Malay
     assert.match(mail.text, /Kolam & No\. Pancang: Bella: B-7, B-8; Aisyah: A-3/);
     // Missing competition doc degrades to '-' rather than failing the email.
     assert.match(renderBookingReceivedEmail({ booking }).html, /Tarikh &amp; Masa Pertandingan<\/td>\s*<td[^>]*>-<\/td>/);
+});
+
+test('cancellation email explains the money outcome for each cancel type', () => {
+    const base = { bookingRef: 'KKS-NS1', pondName: 'Bella', pondCode: 'B', seatNumbers: [3] };
+    const noShow = renderBookingCancelledEmail({ bookingId: 'b1', booking: { ...base, cancelType: 'no_show_forfeit' }, reason: 'Tidak hadir', appUrl: 'https://x.my', rulesPdfUrl: 'https://cdn.x/rules.pdf' });
+    assert.equal(noShow.subject, 'Tempahan Dibatalkan (Tidak Hadir) - KKS-NS1');
+    assert.match(noShow.html, /tidak dikembalikan/);
+    assert.match(noShow.html, /https:\/\/cdn\.x\/rules\.pdf/);
+    assert.doesNotMatch(noShow.html, /termasuk bayaran yang telah dibuat/);
+
+    const refund = renderBookingCancelledEmail({ bookingId: 'b1', booking: { ...base, cancelType: 'refund', refundAmount: 80 }, reason: 'Kolam ditutup', appUrl: 'https://x.my' });
+    assert.match(refund.html, /RM 80\.00/);
+    assert.match(refund.text, /Bayaran balik sebanyak RM 80\.00/);
+
+    const legacy = renderBookingCancelledEmail({ bookingId: 'b1', booking: base, reason: 'x', appUrl: 'https://x.my' });
+    assert.match(legacy.html, /termasuk bayaran yang telah dibuat/);
+});
+
+test('refund email shows amount and escaped transfer reference', () => {
+    const booking = { bookingRef: 'KKS-RF1', pondName: 'Bella', pondCode: 'B', seatNumbers: [3], refundAmount: 50, refundReference: 'DuitNow <123>' };
+    const mail = renderBookingRefundedEmail({ bookingId: 'b2', booking, appUrl: 'https://x.my' });
+    assert.equal(mail.subject, 'Bayaran Balik Dibuat - KKS-RF1');
+    assert.match(mail.html, /RM 50\.00/);
+    assert.match(mail.html, /DuitNow &lt;123&gt;/);
+    assert.doesNotMatch(mail.html, /<123>/);
 });

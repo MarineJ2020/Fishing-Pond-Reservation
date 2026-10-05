@@ -146,9 +146,18 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
           </div>
         </div>
       </div>
-      {booking.status === 'rejected' && booking.cancelReason && (
+      {booking.status === 'rejected' && (booking.cancelReason || booking.cancelType) && (
         <div role="note" style={{ fontSize: '.82rem', color: 'var(--red)', background: 'rgba(231,25,45,0.06)', borderRadius: '10px', padding: '10px 12px' }}>
-          <strong>Sebab dibatalkan / Reason:</strong> {booking.cancelReason}
+          {booking.cancelReason && <div><strong>Sebab dibatalkan / Reason:</strong> {booking.cancelReason}</div>}
+          {booking.cancelType === 'no_show_forfeit' && (
+            <div style={{ marginTop: booking.cancelReason ? 6 : 0 }}>Tempahan dibatalkan kerana tidak hadir. Mengikut syarat pertandingan, bayaran tidak dikembalikan. / Cancelled for no-show; payment is not refundable.</div>
+          )}
+          {booking.cancelType === 'refund' && booking.refundStatus !== 'refunded' && (
+            <div style={{ marginTop: booking.cancelReason ? 6 : 0 }}>Bayaran balik <strong>RM {(Number(booking.refundAmount) || 0).toFixed(2)}</strong> sedang diproses. Anda akan menerima e-mel apabila selesai. / Refund in progress.</div>
+          )}
+          {booking.cancelType === 'refund' && booking.refundStatus === 'refunded' && (
+            <div style={{ marginTop: booking.cancelReason ? 6 : 0, color: 'var(--green, #15803d)' }}>Bayaran balik <strong>RM {(Number(booking.refundAmount) || 0).toFixed(2)}</strong> telah dibuat{booking.refundedAt ? ` pada ${formatDate(booking.refundedAt)}` : ''}{booking.refundReference ? ` (rujukan: ${booking.refundReference})` : ''}. / Refunded.</div>
+          )}
         </div>
       )}
 

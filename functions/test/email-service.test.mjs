@@ -4,6 +4,7 @@ import {
     initialBookingEmailKind,
     newlyRejectedReceipts,
     shouldQueueBookingCancelledEmail,
+    shouldQueueBookingRefundedEmail,
     resolveBookingRecipient,
     safeMailLogEntry,
     shouldQueueBookingApprovedEmail,
@@ -88,4 +89,13 @@ test('cancellation mail fires only when a confirmed booking is force-cancelled',
     assert.equal(shouldQueueBookingCancelledEmail({ status: 'PENDING_APPROVAL' }, { status: 'REJECTED' }), false);
     assert.equal(shouldQueueBookingCancelledEmail({ status: 'REJECTED' }, { status: 'REJECTED' }), false);
     assert.equal(shouldQueueBookingCancelledEmail({ status: 'APPROVED' }, { status: 'APPROVED' }), false);
+});
+
+test('refund mail fires once, when staff record the refund on a refund cancellation', () => {
+    const pending = { status: 'REJECTED', cancelType: 'refund', refundStatus: 'pending' };
+    const refunded = { ...pending, refundStatus: 'refunded' };
+    assert.equal(shouldQueueBookingRefundedEmail(pending, refunded), true);
+    assert.equal(shouldQueueBookingRefundedEmail(refunded, refunded), false);
+    assert.equal(shouldQueueBookingRefundedEmail(pending, pending), false);
+    assert.equal(shouldQueueBookingRefundedEmail({ status: 'REJECTED', cancelType: 'no_show_forfeit' }, { status: 'REJECTED', cancelType: 'no_show_forfeit', refundStatus: 'refunded' }), false);
 });

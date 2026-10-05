@@ -1,4 +1,5 @@
 import type { Booking, Competition } from '../types';
+import { cancelledKeptAmount, isRefundPending } from './cancellation';
 
 export type DashboardRange = 'all' | 'today' | '7d' | '30d' | '90d' | 'custom';
 
@@ -29,8 +30,13 @@ export interface DashboardStats {
   confirmed: number;
   pending: number;
   cancelled: number;
-  /** Money collected on confirmed bookings; cancelled (rejected) bookings never count. */
+  /** Money collected on confirmed bookings, plus money kept from cancellations (no-show forfeits, partial refunds). */
   revenue: number;
+  /** Part of `revenue` kept from cancelled bookings. */
+  keptFromCancelled: number;
+  /** Refund cancellations still waiting for staff to pay back. */
+  refundPending: number;
+  refundPendingValue: number;
   /** Value of bookings still awaiting approval. */
   pendingValue: number;
   recent: Booking[];
@@ -96,7 +102,7 @@ export function buildDashboardStats(
 
   const competitionById = new Map(competitions.filter((c) => c.id).map((c) => [c.id as string, c]));
   const summaries = new Map<string, CompetitionSummary>();
-  const stats: DashboardStats = { total: 0, confirmed: 0, pending: 0, cancelled: 0, revenue: 0, pendingValue: 0, recent: [], byCompetition: [] };
+  const stats: DashboardStats = { total: 0, confirmed: 0, pending: 0, cancelled: 0, revenue: 0, keptFromCancelled: 0, refundPending: 0, refundPendingValue: 0, pendingValue: 0, recent: [], byCompetition: [] };
 
   filtered.forEach((booking) => {
     const key = booking.competitionId || '';
@@ -121,8 +127,16 @@ export function buildDashboardStats(
       stats.pending += 1;
       stats.pendingValue += Number(booking.totalAmount ?? booking.amount) || 0;
     } else {
+      const kept = cancelledKeptAmount(booking);
       summary.cancelled += 1;
+      summary.revenue += kept;
       stats.cancelled += 1;
+      stats.revenue += kept;
+      stats.keptFromCancelled += kept;
+      if (isRefundPending(booking)) {
+        stats.refundPending += 1;
+        stats.refundPendingValue += Number(booking.refundAmount) || 0;
+      }
     }
     summaries.set(key, summary);
   });

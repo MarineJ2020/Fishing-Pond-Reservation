@@ -3,6 +3,7 @@ import {
     renderBalanceReminderEmail,
     renderBookingApprovedEmail,
     renderBookingCancelledEmail,
+    renderBookingRefundedEmail,
     renderBookingReceivedEmail,
     renderPasswordResetEmail,
     renderReceiptRejectedEmail,
@@ -189,15 +190,49 @@ export const queueReceiptRejectedMail = async ({ bookingId, before, after, recei
 export const shouldQueueBookingCancelledEmail = (before = {}, after = {}) =>
     isConfirmedStatus(before.status) && String(after.status || '').toUpperCase() === 'REJECTED';
 
+// One small read so the no-show email can link the published rules PDF.
+const loadRulesPdfUrl = async () => {
+    try {
+        const snap = await adminDb.doc('settings/global').get();
+        const url = snap.exists ? String(snap.data()?.rulesPdfUrl || '') : '';
+        return /^https:\/\//.test(url) ? url : '';
+    } catch {
+        return '';
+    }
+};
+
 export const queueBookingCancelledMail = async ({ bookingId, booking }) => {
-    const [recipient, competition] = await Promise.all([resolveBookingRecipient(booking), loadBookingCompetition(booking)]);
+    const [recipient, competition, rulesPdfUrl] = await Promise.all([
+        resolveBookingRecipient(booking),
+        loadBookingCompetition(booking),
+        booking.cancelType === 'no_show_forfeit' ? loadRulesPdfUrl() : Promise.resolve(''),
+    ]);
     const eventMs = timestampMs(booking.cancelledAt) || timestampMs(booking.updatedAt) || Date.now();
     return createMailJob({
         id: `booking_cancelled_${bookingId}_${eventMs}`,
         to: recipient,
         kind: 'booking_cancelled',
         bookingId,
-        message: renderBookingCancelledEmail({ bookingId, booking, competition, reason: booking.cancelReason, appUrl: APP_URL }),
+        message: renderBookingCancelledEmail({ bookingId, booking, competition, reason: booking.cancelReason, appUrl: APP_URL, rulesPdfUrl }),
+    });
+};
+
+// Staff recorded the refund on a cancelled booking (refundStatus pending -> refunded).
+export const shouldQueueBookingRefundedEmail = (before = {}, after = {}) =>
+    String(after.status || '').toUpperCase() === 'REJECTED'
+    && after.cancelType === 'refund'
+    && before.refundStatus !== 'refunded'
+    && after.refundStatus === 'refunded';
+
+export const queueBookingRefundedMail = async ({ bookingId, booking }) => {
+    const [recipient, competition] = await Promise.all([resolveBookingRecipient(booking), loadBookingCompetition(booking)]);
+    const eventMs = timestampMs(booking.refundedAt) || timestampMs(booking.updatedAt) || Date.now();
+    return createMailJob({
+        id: `booking_refunded_${bookingId}_${eventMs}`,
+        to: recipient,
+        kind: 'booking_refunded',
+        bookingId,
+        message: renderBookingRefundedEmail({ bookingId, booking, competition, appUrl: APP_URL }),
     });
 };
 
