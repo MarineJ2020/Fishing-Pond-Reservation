@@ -141,6 +141,8 @@ const normalizeCompetition = (data: any): Competition => ({
   activePondIds: Array.isArray(data.activePondIds) ? data.activePondIds.map((id: any) => id?.toString?.() || '').filter(Boolean) : [],
   pondSeats: data.pondSeats && typeof data.pondSeats === 'object' ? data.pondSeats : undefined,
   pricePerPeg: typeof data.pricePerPeg === 'number' ? data.pricePerPeg : undefined,
+  fastestPrize: typeof data.fastestPrize === 'string' ? data.fastestPrize : null,
+  mostPrize: typeof data.mostPrize === 'string' ? data.mostPrize : null,
   maxPegsPerBooking: typeof data.maxPegsPerBooking === 'number' ? data.maxPegsPerBooking : undefined,
   maxPendingBookingsPerUser: typeof data.maxPendingBookingsPerUser === 'number' ? data.maxPendingBookingsPerUser : undefined,
   bookingOpenAt: normalizeTimestamp(data.bookingOpenAt) || undefined,
@@ -1133,6 +1135,8 @@ export const updateCompetition = async (competitionId: string, updates: Partial<
   if (typeof updates.maxPegsPerBooking !== 'undefined') payload.maxPegsPerBooking = updates.maxPegsPerBooking;
   if (typeof updates.maxPendingBookingsPerUser !== 'undefined') payload.maxPendingBookingsPerUser = updates.maxPendingBookingsPerUser;
   if (typeof updates.prizes !== 'undefined') payload.prizes = updates.prizes;
+  if (typeof updates.fastestPrize !== 'undefined') payload.fastestPrize = updates.fastestPrize?.trim() || null;
+  if (typeof updates.mostPrize !== 'undefined') payload.mostPrize = updates.mostPrize?.trim() || null;
   if (typeof updates.activePondIds !== 'undefined') payload.activePondIds = updates.activePondIds;
   if (typeof updates.pondSeats !== 'undefined') payload.pondSeats = updates.pondSeats;
   if (typeof updates.bookingOpenAt !== 'undefined') payload.bookingOpenAt = updates.bookingOpenAt || null;

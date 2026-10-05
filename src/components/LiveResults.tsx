@@ -465,15 +465,29 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 </div>
               </div>
               <div className="kl-prize-list">
-                {displayComp.prizes?.length ? displayComp.prizes.map((prize, i) => (
-                  <div key={i} className="kl-prize-item">
-                    <div className="kl-prize-place">
-                      <i className={`fa-solid fa-${i === 0 ? 'trophy' : i === 1 ? 'medal' : i === 2 ? 'award' : 'gift'}`}></i>
-                      {prize.label || `Tempat ${prize.rank}`}
+                {displayComp.prizes?.length || displayComp.fastestPrize || displayComp.mostPrize ? <>
+                  {(displayComp.prizes || []).map((prize, i) => (
+                    <div key={i} className="kl-prize-item">
+                      <div className="kl-prize-place">
+                        <i className={`fa-solid fa-${i === 0 ? 'trophy' : i === 1 ? 'medal' : i === 2 ? 'award' : 'gift'}`}></i>
+                        {prize.label || `Tempat ${prize.rank}`}
+                      </div>
+                      <div className="kl-prize-amount">{prize.prize}</div>
                     </div>
-                    <div className="kl-prize-amount">{prize.prize}</div>
-                  </div>
-                )) : (
+                  ))}
+                  {displayComp.fastestPrize && (
+                    <div className="kl-prize-item">
+                      <div className="kl-prize-place"><i className="fa-solid fa-bolt"></i>Hadiah Terpantas</div>
+                      <div className="kl-prize-amount">{displayComp.fastestPrize}</div>
+                    </div>
+                  )}
+                  {displayComp.mostPrize && (
+                    <div className="kl-prize-item">
+                      <div className="kl-prize-place"><i className="fa-solid fa-fish"></i>Hadiah Terbanyak</div>
+                      <div className="kl-prize-amount">{displayComp.mostPrize}</div>
+                    </div>
+                  )}
+                </> : (
                   <div className="kl-no-data" style={{ padding: '24px' }}>Hadiah belum ditetapkan.</div>
                 )}
               </div>

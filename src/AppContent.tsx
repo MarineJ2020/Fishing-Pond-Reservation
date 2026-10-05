@@ -651,11 +651,13 @@ const AppContent: React.FC = () => {
   // submission is enforced by the server transaction and competition-specific claims.
 
   const totalRegistered = db.availability.length;
-  const totalPrizePool = selectedCompetition?.prizes?.reduce((sum: number, prize: any) => {
-    const raw = (prize?.prize || prize?.amount || '').toString();
-    const n = parseFloat(raw.replace(/[^0-9.]/g, ''));
+  const totalPrizePool = [
+    ...(selectedCompetition?.prizes || []).map((prize: any) => prize?.prize || prize?.amount),
+    selectedCompetition?.fastestPrize, selectedCompetition?.mostPrize,
+  ].reduce((sum: number, value: any) => {
+    const n = parseFloat((value || '').toString().replace(/[^0-9.]/g, ''));
     return sum + (Number.isFinite(n) ? n : 0);
-  }, 0) || 0;
+  }, 0);
 
   const selectCompetition = (competitionId?: string) => {
     if (!competitionId) return;

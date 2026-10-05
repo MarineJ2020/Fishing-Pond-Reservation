@@ -241,6 +241,10 @@ export interface Competition {
   activePondIds?: string[];
   pondSeats?: Record<string, number>;
   pricePerPeg?: number;
+  /** Optional "Hadiah Terpantas" (first record) prize text. null/absent = not offered. */
+  fastestPrize?: string | null;
+  /** Optional "Hadiah Terbanyak" (most records) prize text. null/absent = not offered. */
+  mostPrize?: string | null;
   /** Customer bookings: max pegs in one booking (server default 20). */
   maxPegsPerBooking?: number;
   /** Customer bookings: max PENDING_APPROVAL bookings one user may hold (server default 10). */

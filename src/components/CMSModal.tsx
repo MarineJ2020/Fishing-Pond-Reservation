@@ -884,13 +884,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(true);
     try {
       if (!compEdit.id) { setSaving(false); return; }
+      // Ticked special prize with no amount would silently save as "not offered".
+      const blankSpecial = [compEdit.fastestPrize != null && !compEdit.fastestPrize.trim() ? 'Terpantas' : '', compEdit.mostPrize != null && !compEdit.mostPrize.trim() ? 'Terbanyak' : ''].filter(Boolean);
+      if (blankSpecial.length) { window.alert(`Sila isi jumlah Hadiah ${blankSpecial.join(' & ')} atau nyahtanda kotaknya.`); setSaving(false); return; }
       // Normalise prize ranges before persisting: keep `rank` in sync with
       // `rankFrom` (back-compat) and ensure from<=to.
       const normalizedPrizes = (compEdit.prizes || []).map((p: Prize) => {
         const [from, to] = prizeRange(p);
         return { ...p, rank: from, rankFrom: from, rankTo: to };
       });
-      const updatedComp = { ...compEdit, prizes: normalizedPrizes };
+      const updatedComp = { ...compEdit, prizes: normalizedPrizes, fastestPrize: compEdit.fastestPrize?.trim() || null, mostPrize: compEdit.mostPrize?.trim() || null };
       await updateCompetitionFirestore(compEdit.id, updatedComp as any);
       setCompEdit(updatedComp);
       setCompList((list) => list.map((competition) => competition.id === updatedComp.id ? { ...competition, ...updatedComp } : competition));
@@ -2700,7 +2703,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const settingsDirty = JSON.stringify(settingsEdit) !== JSON.stringify(settings);
   const prizeSource = competitionsForCms.find(c => c.id === prizesCompId);
   const prizesDirty = page === 'prizes' && prizesEditMode && !!prizeSource
-    && JSON.stringify(prizeSource.prizes || []) !== JSON.stringify(compEdit.prizes || []);
+    && (JSON.stringify(prizeSource.prizes || []) !== JSON.stringify(compEdit.prizes || [])
+      || (prizeSource.fastestPrize ?? null) !== (compEdit.fastestPrize ?? null)
+      || (prizeSource.mostPrize ?? null) !== (compEdit.mostPrize ?? null));
   const pageDirty =
     ((page === 'contact-settings' || page === 'landing-content' || page === 'seo') && settingsDirty)
     || prizesDirty;
@@ -3219,11 +3224,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             };
             // Sources to duplicate a full prize table FROM: any other
             // competition that already has prizes set up.
-            const duplicateSources = sortCompetitionsLatestFirst(competitionsForCms.filter(c => (c.id || '') !== prizesCompId && (c.prizes || []).length > 0));
+            const duplicateSources = sortCompetitionsLatestFirst(competitionsForCms.filter(c => (c.id || '') !== prizesCompId && ((c.prizes || []).length > 0 || !!c.fastestPrize || !!c.mostPrize)));
             const duplicateFromCompetition = (srcId: string) => {
               const src = competitionsForCms.find(c => (c.id || '') === srcId);
               if (!src) return;
-              setPrizes((src.prizes || []).map(p => ({ ...p })));
+              setCompEdit({ ...compEdit, prizes: (src.prizes || []).map(p => ({ ...p })), fastestPrize: src.fastestPrize ?? null, mostPrize: src.mostPrize ?? null });
             };
             return (
             <div className="page active">
@@ -3338,6 +3343,53 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     {prizes.length === 0 && (
                       <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Tiada hadiah ditambah untuk pertandingan ini</div>
                     )}
+                  </div>
+                  {prizesEditMode && (
+                    <div className="form-actions" style={{ marginTop: '1rem' }}>
+                      <button className="btn btn-primary" disabled={saving} onClick={handlePrizeSave}>
+                        {saving ? 'Menyimpan...' : 'Simpan'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Optional special prizes — not every competition offers these. */}
+              <div className="card" style={{ marginBottom: '16px' }}>
+                <div className="card-header">
+                  <div>
+                    <div className="card-title">Hadiah Khas (Pilihan)</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Tandakan hanya jika pertandingan ini ada hadiah Terpantas atau Terbanyak. {prizesEditMode ? '' : 'Tekan Edit di atas untuk ubah.'}</div>
+                  </div>
+                </div>
+                <div className="card-body">
+                  <div className="cms-prize-list">
+                    {([
+                      { key: 'fastestPrize', label: 'Hadiah Terpantas', hint: 'Rekod timbangan pertama dalam pertandingan', placeholder: 'cth: RM 300' },
+                      { key: 'mostPrize', label: 'Hadiah Terbanyak', hint: 'Peserta paling cepat capai jumlah rekod terbanyak', placeholder: 'cth: RM 500' },
+                    ] as const).map(({ key, label, hint, placeholder }) => {
+                      const value = compEdit[key];
+                      const enabled = value != null;
+                      return (
+                        <div key={key} className="cms-prize-row" style={{ alignItems: 'center' }}>
+                          {prizesEditMode ? (
+                            <>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, minWidth: 190 }}>
+                                <input type="checkbox" checked={enabled} onChange={e => setCompEdit({ ...compEdit, [key]: e.target.checked ? '' : null })} />
+                                {label}
+                              </label>
+                              <input className="form-input" style={{ flex: 1 }} value={value || ''} disabled={!enabled} placeholder={enabled ? placeholder : 'Tiada hadiah ini'}
+                                onChange={e => setCompEdit({ ...compEdit, [key]: e.target.value })} />
+                            </>
+                          ) : (
+                            <div className="cms-prize-meta">
+                              <strong>{label}</strong>
+                              <span className="subtext">{enabled ? (value || '-') : 'Tiada'} · {hint}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                   {prizesEditMode && (
                     <div className="form-actions" style={{ marginTop: '1rem' }}>
@@ -3882,6 +3934,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             </div>
           )}
           {page === 'results' && (() => {
+            const scoreCompetition = competitionsForCms.find((competition) => competition.id === resultsCompId);
             const scorePondOptions = Array.from(new Set(scoreEntries.map((entry) => entry.pondName).filter(Boolean))).sort();
             const pegQ = scorePegFilter.trim().toLowerCase();
             const nameQ = scoreNameFilter.trim().toLowerCase();
@@ -4018,7 +4071,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="card-body">
                     <div className="cms-record-summary-grid">
                       <div className="cms-fastest-record-panel">
-                        <div className="cms-record-panel-label">Rekod Terpantas</div>
+                        <div className="cms-record-panel-label">Rekod Terpantas{scoreCompetition?.fastestPrize ? ` · Hadiah ${scoreCompetition.fastestPrize}` : ''}</div>
                         {fastestRecord ? (
                           <div className="cms-fastest-record-body">
                             <span className="cms-top-record-medal">1st</span>
@@ -4037,7 +4090,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </div>
 
                       <div className="cms-most-record-panel">
-                        <div className="cms-record-panel-label">Rekod Terbanyak</div>
+                        <div className="cms-record-panel-label">Rekod Terbanyak{scoreCompetition?.mostPrize ? ` · Hadiah ${scoreCompetition.mostPrize}` : ''}</div>
                         {topRecordWinners.length ? (
                           <>
                             <div className="cms-top-record-winners">
