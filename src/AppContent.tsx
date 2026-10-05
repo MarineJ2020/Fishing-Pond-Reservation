@@ -31,7 +31,7 @@ import { formatSeat, pondDisplayName } from './utils/seatLabel';
 import { countOutstanding, outstandingBalance } from './utils/booking';
 import { trackEvent } from './utils/analytics';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindowState } from './utils/competition';
-import { normalizePdfUrl } from './utils/pdfStorage';
+import { isAllowedReceiptFile, normalizePdfUrl, RECEIPT_TYPE_ERROR } from './utils/pdfStorage';
 import { isStaffRole } from './utils/roles';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
@@ -427,7 +427,9 @@ const AppContent: React.FC = () => {
     try {
       booking = await submitBooking(pond, setSubmitStage);
     } catch (err: any) {
-      setBookingError(err?.message || 'Ralat semasa menghantar tempahan. Sila cuba lagi.');
+      setBookingError(String(err?.code || '').startsWith('storage/')
+        ? 'Resit gagal dimuat naik. Sila guna gambar (JPG/PNG) atau PDF sahaja dan cuba lagi. / Receipt upload failed — use an image or PDF and try again.'
+        : err?.message || 'Ralat semasa menghantar tempahan. Sila cuba lagi.');
       setBookingSubmitting(false);
       return;
     }
@@ -446,6 +448,10 @@ const AppContent: React.FC = () => {
   };
 
   const handleReceiptChange = (file: File) => {
+    if (!isAllowedReceiptFile(file)) {
+      addToast(RECEIPT_TYPE_ERROR, 'error');
+      return;
+    }
     const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     const MAX_PDF = 10 * 1024 * 1024; // 10 MB
     const MAX_IMG = 15 * 1024 * 1024; // 15 MB (raw; images are compressed after)

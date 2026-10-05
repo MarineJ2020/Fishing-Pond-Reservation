@@ -9,6 +9,15 @@ export const isPdfFile = (file: Blob | File): boolean => {
   return file instanceof File ? /\.pdf$/i.test(file.name) : false;
 };
 
+// Receipts must be an image or PDF — storage.rules rejects anything else
+// (e.g. an Excel file picked from a phone's file browser).
+export const isAllowedReceiptFile = (file: File): boolean =>
+  isPdfFile(file) || (file.type || '').toLowerCase().startsWith('image/')
+  || (!file.type && /\.(jpe?g|png|webp|heic|heif|gif)$/i.test(file.name));
+
+export const RECEIPT_TYPE_ERROR =
+  'Hanya gambar (JPG/PNG) atau PDF dibenarkan untuk resit. / Only image (JPG/PNG) or PDF receipts are allowed.';
+
 const sanitizeName = (name: string): string => {
   const trimmed = name.trim().replace(/\s+/g, '-');
   const safe = trimmed.replace(/[^a-zA-Z0-9._-]/g, '_');

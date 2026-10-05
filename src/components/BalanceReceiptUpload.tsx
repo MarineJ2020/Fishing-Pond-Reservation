@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { useUI } from '../context/UIContext';
 import { compressImageToDataUrl, uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
-import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
+import { isAllowedReceiptFile, isPdfFile, RECEIPT_TYPE_ERROR, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { submitBookingReceipt } from '../lib/api';
 
 interface Props {
@@ -44,6 +44,11 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
 
   const handleFile = async (file: File) => {
     if (!file) return;
+    if (!isAllowedReceiptFile(file)) {
+      addToast(RECEIPT_TYPE_ERROR, 'error');
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
     if (!referenceOk) {
       addToast('Sila masukkan No. Rujukan Bank dahulu.', 'error');
       return;

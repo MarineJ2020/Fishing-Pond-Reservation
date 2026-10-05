@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { useUI } from '../context/UIContext';
 import { compressImageToDataUrl, uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
-import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
+import { isAllowedReceiptFile, isPdfFile, RECEIPT_TYPE_ERROR, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
 import { replaceBookingReceipt } from '../lib/api';
 
 interface Props {
@@ -28,6 +28,11 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, receiptStat
 
   const handleFile = async (file: File) => {
     if (!file) return;
+    if (!isAllowedReceiptFile(file)) {
+      addToast(RECEIPT_TYPE_ERROR, 'error');
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
     setBusy(true);
     try {
       const receiptUrl = isPdfFile(file)
