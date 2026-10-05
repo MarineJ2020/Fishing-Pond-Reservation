@@ -627,6 +627,37 @@ export interface BookingsPageResult {
  * primary lens — see firestore.indexes.json for the small, fixed set of
  * composite indexes this function actually needs.
  */
+// Same lookup-map setup getBookings() uses — ponds/seats are bounded by
+// physical infrastructure, not booking volume, so fetching them in full
+// here isn't a scalability concern.
+const buildBookingsFromDocs = async (docs: any[], competitions: Competition[] = []): Promise<Booking[]> => {
+  const ponds = await getPondsWithSeats();
+  const pondMap = new Map<string, Pond>();
+  ponds.forEach((pond) => {
+    pondMap.set(pond.id.toString(), pond);
+    if (pond._docId) pondMap.set(pond._docId, pond);
+  });
+  const seatSnapshot = await getLegacySeatDocs(docs);
+  const seatMap = new Map<string, number>();
+  seatSnapshot.forEach((seatSnap) => {
+    const data = seatSnap.data();
+    if (data.seatNumber) {
+      seatMap.set(seatSnap.id, data.seatNumber);
+      seatMap.set(seatSnap.ref.path, data.seatNumber);
+    }
+  });
+  const competitionMap = new Map<string, Competition>();
+  competitions.forEach((c) => { if (c.id) competitionMap.set(c.id, c); });
+  return docs.map((d) => buildBooking(d, seatMap, pondMap, competitionMap));
+};
+
+/** One booking, built like the CMS lists. null when the doc no longer exists. */
+export const getBookingById = async (bookingId: string, competitions: Competition[] = []): Promise<Booking | null> => {
+  const snap = await getDoc(doc(db, 'bookings', bookingId));
+  if (!snap.exists()) return null;
+  return (await buildBookingsFromDocs([snap], competitions))[0] || null;
+};
+
 export const getBookingsPage = async (opts: BookingsPageOptions): Promise<BookingsPageResult> => {
   const pageSize = opts.pageSize ?? 50;
   const sortField = opts.sortField ?? 'createdAt';
@@ -642,28 +673,7 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
   const hasMore = snap.docs.length > pageSize;
   const pageDocs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
 
-  // Same lookup-map setup getBookings() uses — ponds/seats are bounded by
-  // physical infrastructure, not booking volume, so fetching them in full
-  // here isn't a scalability concern.
-  const ponds = await getPondsWithSeats();
-  const pondMap = new Map<string, Pond>();
-  ponds.forEach((pond) => {
-    pondMap.set(pond.id.toString(), pond);
-    if (pond._docId) pondMap.set(pond._docId, pond);
-  });
-  const seatSnapshot = await getLegacySeatDocs(pageDocs);
-  const seatMap = new Map<string, number>();
-  seatSnapshot.forEach((seatSnap) => {
-    const data = seatSnap.data();
-    if (data.seatNumber) {
-      seatMap.set(seatSnap.id, data.seatNumber);
-      seatMap.set(seatSnap.ref.path, data.seatNumber);
-    }
-  });
-  const competitionMap = new Map<string, Competition>();
-  (opts.competitions || []).forEach((c) => { if (c.id) competitionMap.set(c.id, c); });
-
-  const items = pageDocs.map((d) => buildBooking(d, seatMap, pondMap, competitionMap));
+  const items = await buildBookingsFromDocs(pageDocs, opts.competitions);
   return {
     items,
     firstDoc: pageDocs[0] || null,

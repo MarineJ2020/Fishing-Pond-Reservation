@@ -88,7 +88,8 @@ const AppContent: React.FC = () => {
     setBankReference,
     submitBooking,
     updateDB,
-    reloadDB
+    reloadDB,
+    refreshBooking
   } = useBooking();
   const { addToast, setAuthModalOpen, authModalOpen } = useUI();
   const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToProfile, goToConfirmed, goToBookingDetail, goToCMS } = useNavigation();
@@ -1963,6 +1964,7 @@ const AppContent: React.FC = () => {
               }
             }}
             reloadDB={reloadDB}
+            refreshBooking={refreshBooking}
           />
         );
       }

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, ReactNode, useCallback, use
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { DB, User, Pond, Booking, BookingPondSelection, Settings } from '../types';
 import { emptyDB, setDB } from '../data';
-import { loadAppDB, subscribeSettings } from '../lib/firestore';
+import { getBookingById, loadAppDB, subscribeSettings } from '../lib/firestore';
 import { createBooking as createBookingApi } from '../lib/api';
 import { getTurnstileToken } from '../lib/turnstile';
 import { uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
@@ -53,6 +53,8 @@ interface BookingContextType {
   clearBooking: () => void;
   updateDB: (newDb: DB) => void;
   reloadDB: () => Promise<void>;
+  /** Re-read one booking and patch it into db.bookings (cheap CMS refresh after an edit). */
+  refreshBooking: (bookingId: string) => Promise<void>;
   calculateTotal: () => number;
 }
 
@@ -142,6 +144,23 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const updateDB = useCallback((newDb: DB) => {
     applyLoadedDB(newDb);
   }, [applyLoadedDB]);
+
+  const refreshBooking = useCallback(async (bookingId: string) => {
+    try {
+      const fresh = await getBookingById(bookingId, db.competitions);
+      setDbState((current) => {
+        const rest = current.bookings.filter((booking) => booking.id !== bookingId);
+        if (!fresh) return { ...current, bookings: rest };
+        const index = current.bookings.findIndex((booking) => booking.id === bookingId);
+        if (index < 0) return { ...current, bookings: [fresh, ...rest] };
+        const bookings = [...current.bookings];
+        bookings[index] = fresh;
+        return { ...current, bookings };
+      });
+    } catch (err) {
+      console.error('refreshBooking failed:', err);
+    }
+  }, [db.competitions]);
 
   const reloadDB = useCallback(async () => {
     try {
@@ -434,6 +453,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         clearBooking,
         updateDB,
         reloadDB,
+        refreshBooking,
         calculateTotal,
       }}
     >

@@ -166,9 +166,10 @@ interface CMSModalProps {
   bookings: Booking[];
   onUpdateData: (updates: { ponds?: Pond[]; comp?: Competition }) => void;
   reloadDB: () => Promise<void>;
+  refreshBooking?: (bookingId: string) => Promise<void>;
 }
 
-const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB }) => {
+const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, user, ponds, comp, competitions = [], settings, bookings, onUpdateData, reloadDB, refreshBooking }) => {
   const isAdmin = isAdminRole(user?.role);
   const isBookingManager = isBookingManagerRole(user?.role);
   const isStaff = isStaffRole(user?.role);
@@ -1022,7 +1023,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(true);
     try {
       await acceptBookingReceipt({ bookingId, receiptIndex });
-      await refetchCurrentBookingList();
+      await refetchCurrentBookingList(bookingId);
       await logAuditEvent({
         action: 'booking.receipt_accept', actionLabel: 'Sahkan Resit', entityType: 'booking',
         entityId: bookingId, entityLabel: target?.bookingRef || bookingId,
@@ -1040,7 +1041,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(true);
     try {
       await rejectBookingReceipt({ bookingId, receiptIndex, reason });
-      await refetchCurrentBookingList();
+      await refetchCurrentBookingList(bookingId);
       await logAuditEvent({
         action: 'booking.receipt_reject', actionLabel: 'Tolak Resit', entityType: 'booking',
         entityId: bookingId, entityLabel: bookingById.get(bookingId)?.bookingRef || bookingId,
@@ -1069,7 +1070,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         cancelledBy: user?.uid || null,
         cancelledAt: new Date().toISOString(),
       });
-      await refetchCurrentBookingList();
+      await refetchCurrentBookingList(forceCancelTarget.id);
       await logAuditEvent({
         action: 'booking.force_cancel', actionLabel: 'Batal Paksa Tempahan', entityType: 'booking',
         entityId: forceCancelTarget.id, entityLabel: forceCancelTarget.bookingRef || forceCancelTarget.id,
@@ -1381,9 +1382,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Refetch whichever list is currently on-screen after a mutation — the
   // OTHER list (if the booking just moved between them) picks up the change
   // naturally next time the admin navigates to it (see the filter/page effects).
-  const refetchCurrentBookingList = async () => {
-    if (page === 'approvals') await fetchKelulusanPage(kelulusanCursors[kelulusanPage] ?? null, kelulusanPage);
-    else if (page === 'all-bookings') await fetchAllTempahanPage(allCursors[allPage] ?? null, allPage);
+  // Refreshes the visible paginated table and patches the changed booking into
+  // the full list the Dashboard counts come from (one doc read, not all bookings).
+  const refetchCurrentBookingList = async (bookingId?: string) => {
+    await Promise.all([
+      page === 'approvals' ? fetchKelulusanPage(kelulusanCursors[kelulusanPage] ?? null, kelulusanPage)
+        : page === 'all-bookings' ? fetchAllTempahanPage(allCursors[allPage] ?? null, allPage)
+        : Promise.resolve(),
+      bookingId && refreshBooking ? refreshBooking(bookingId) : Promise.resolve(),
+    ]);
   };
 
   const handleReviewApproveManual = async (booking: Booking, file: File, amount: number) => {
@@ -1392,7 +1399,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const webp = await compressBlobToWebp(file, file.name);
       const proofUrl = await uploadImageToFirebaseStorage(webp, receiptUploadFolder(), webp.name);
       await approveDepositWithProofDirect(booking.id, proofUrl, amount);
-      await refetchCurrentBookingList();
+      await refetchCurrentBookingList(booking.id);
       await logAuditEvent({
         action: 'booking.deposit_manual_approve', actionLabel: 'Sahkan Bayaran + Bukti', entityType: 'booking',
         entityId: booking.id, entityLabel: booking.bookingRef || booking.id,
