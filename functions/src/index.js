@@ -602,7 +602,7 @@ app.post('/bookingActivity', verifyToken, requireStaff, async (req, res) => {
 
 // Browser requests reach Express; each write route verifies Firebase Auth itself.
 // High cap: booking-open rushes hit createBooking at once (1 request per gen1 instance).
-export const api = browserFacingWith({ invoker: 'public', maxInstances: 100 }).https.onRequest(app);
+export const api = browserFacingWith({ invoker: 'public', maxInstances: 100, secrets: ['TURNSTILE_SECRET'] }).https.onRequest(app);
 
 // Re-read current state so delayed trigger delivery cannot release a reused peg.
 export const releaseBookingSeatClaims = regional.firestore.document('bookings/{bookingId}')
