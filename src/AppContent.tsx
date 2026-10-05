@@ -275,6 +275,18 @@ const AppContent: React.FC = () => {
   const activePond = selectedPond
     ? bookablePonds.find((p) => p.id === selectedPond) ?? null
     : null;
+  // Mirrors the server's per-booking peg cap so customers learn it before submitting.
+  const maxPegsPerBooking = selectedCompetition?.maxPegsPerBooking ?? 20;
+  const handleToggleSeat = (num: number) => {
+    const adding = !selectedSeats.includes(num);
+    const total = Object.values(selectedPondSeats).reduce((sum, seats) => sum + seats.length, 0);
+    if (adding && !isStaffRole(user?.role) && total >= maxPegsPerBooking) {
+      addToast(`Maksimum ${maxPegsPerBooking} No Pancang bagi setiap tempahan. / Max ${maxPegsPerBooking} pegs per booking.`, 'error');
+      return;
+    }
+    toggleSeat(num);
+  };
+
   const selectedPancangs = useMemo(() => Object.entries(selectedPondSeats).flatMap(([pondIdRaw, seats]) => {
     const pond = db.ponds.find((candidate) => candidate.id === Number(pondIdRaw));
     if (!pond) return [];
@@ -1592,7 +1604,7 @@ const AppContent: React.FC = () => {
                     </div>
                   )}
                   <div className="bk-seat-modal-body">
-                    <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={toggleSeat} useLegacyView={true} />
+                    <SeatMap pond={bookedPond} selectedSeats={selectedSeats} onToggleSeat={handleToggleSeat} useLegacyView={true} />
                   </div>
                   <div className="bk-seat-modal-foot">
                     <div className="bk-current-selection">

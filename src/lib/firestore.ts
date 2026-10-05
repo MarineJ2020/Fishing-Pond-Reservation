@@ -141,6 +141,8 @@ const normalizeCompetition = (data: any): Competition => ({
   activePondIds: Array.isArray(data.activePondIds) ? data.activePondIds.map((id: any) => id?.toString?.() || '').filter(Boolean) : [],
   pondSeats: data.pondSeats && typeof data.pondSeats === 'object' ? data.pondSeats : undefined,
   pricePerPeg: typeof data.pricePerPeg === 'number' ? data.pricePerPeg : undefined,
+  maxPegsPerBooking: typeof data.maxPegsPerBooking === 'number' ? data.maxPegsPerBooking : undefined,
+  maxPendingBookingsPerUser: typeof data.maxPendingBookingsPerUser === 'number' ? data.maxPendingBookingsPerUser : undefined,
   bookingOpenAt: normalizeTimestamp(data.bookingOpenAt) || undefined,
   bookingCloseAt: normalizeTimestamp(data.bookingCloseAt) || undefined,
   // Treat any explicit closed/inactive marker as INACTIVE; everything else (incl. legacy
@@ -435,6 +437,8 @@ export const createCompetition = async (data: Partial<Competition>) => {
     topN: data.topN || 20,
     prizes: data.prizes || [],
     pricePerPeg: typeof data.pricePerPeg === 'number' ? data.pricePerPeg : 100,
+    maxPegsPerBooking: typeof data.maxPegsPerBooking === 'number' ? data.maxPegsPerBooking : 20,
+    maxPendingBookingsPerUser: typeof data.maxPendingBookingsPerUser === 'number' ? data.maxPendingBookingsPerUser : 10,
     activePondIds: data.activePondIds || [],
     pondSeats: data.pondSeats || {},
     bookingOpenAt: data.bookingOpenAt || null,
@@ -1116,6 +1120,8 @@ export const updateCompetition = async (competitionId: string, updates: Partial<
   if (typeof updates.endDate !== 'undefined') payload.endDate = updates.endDate;
   if (typeof updates.topN !== 'undefined') payload.topN = updates.topN;
   if (typeof updates.pricePerPeg !== 'undefined') payload.pricePerPeg = updates.pricePerPeg;
+  if (typeof updates.maxPegsPerBooking !== 'undefined') payload.maxPegsPerBooking = updates.maxPegsPerBooking;
+  if (typeof updates.maxPendingBookingsPerUser !== 'undefined') payload.maxPendingBookingsPerUser = updates.maxPendingBookingsPerUser;
   if (typeof updates.prizes !== 'undefined') payload.prizes = updates.prizes;
   if (typeof updates.activePondIds !== 'undefined') payload.activePondIds = updates.activePondIds;
   if (typeof updates.pondSeats !== 'undefined') payload.pondSeats = updates.pondSeats;

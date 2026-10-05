@@ -241,6 +241,10 @@ export interface Competition {
   activePondIds?: string[];
   pondSeats?: Record<string, number>;
   pricePerPeg?: number;
+  /** Customer bookings: max pegs in one booking (server default 20). */
+  maxPegsPerBooking?: number;
+  /** Customer bookings: max PENDING_APPROVAL bookings one user may hold (server default 10). */
+  maxPendingBookingsPerUser?: number;
   /** Booking window opens (ISO). When unset, booking is open until the event ends. */
   bookingOpenAt?: string;
   /** Booking window closes (ISO, inclusive). When unset, booking stays open until the event ends. */

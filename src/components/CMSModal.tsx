@@ -2687,6 +2687,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     name: c.name || '', prizeHighlight: c.prizeHighlight || '', startDate: c.startDate || '', endDate: c.endDate || '',
     bookingOpenAt: c.bookingOpenAt || '', bookingCloseAt: c.bookingCloseAt || '', topN: c.topN || 0,
     pricePerPeg: c.pricePerPeg ?? null,
+    maxPegsPerBooking: c.maxPegsPerBooking ?? null, maxPendingBookingsPerUser: c.maxPendingBookingsPerUser ?? null,
     prizes: c.prizes || [], activePondIds: [...(c.activePondIds || [])].sort(), pondSeats: c.pondSeats || {},
   }) : '';
   const settingsDirty = JSON.stringify(settingsEdit) !== JSON.stringify(settings);
@@ -5481,6 +5482,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <label className="form-label">Harga Pancang (RM)</label>
                     <input className="form-input" type="number" min="1" step="1" value={compEdit.pricePerPeg ?? 100} onChange={(e) => setCompEdit({ ...compEdit, pricePerPeg: Math.max(0, parseInt(e.target.value) || 0) })} />
                     <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Semua kolam dalam pertandingan ini berkongsi harga pancang yang sama.</div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Maks. Pancang Setiap Tempahan</label>
+                    <input className="form-input" type="number" min="1" step="1" value={compEdit.maxPegsPerBooking ?? 20} onChange={(e) => setCompEdit({ ...compEdit, maxPegsPerBooking: Math.max(1, parseInt(e.target.value) || 1) })} />
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Had pancang bagi satu tempahan pelanggan. Tempahan oleh petugas tidak terhad.</div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Maks. Tempahan Belum Disahkan / Pengguna</label>
+                    <input className="form-input" type="number" min="1" step="1" value={compEdit.maxPendingBookingsPerUser ?? 10} onChange={(e) => setCompEdit({ ...compEdit, maxPendingBookingsPerUser: Math.max(1, parseInt(e.target.value) || 1) })} />
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Menghalang satu akaun daripada menahan banyak pancang dengan resit palsu.</div>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Jumlah Kedudukan Dipaparkan</label>

@@ -163,6 +163,15 @@ test('legacy reservations still block duplicate pegs without changing old bookin
     await assert.rejects(createSecureBooking(adminDb, { ...payload, createdByStaff: true }, user), { status: 403 });
 });
 
+test('customer bookings respect per-competition peg and pending-booking limits; staff bookings do not', async () => {
+    await adminDb.collection('competitions').doc('limits').set({ name: 'Limited event', eventDate: new Date(Date.now() + 60000), endDate: new Date(Date.now() + 3600000), pricePerPeg: 10, maxPegsPerBooking: 2, maxPendingBookingsPerUser: 1 });
+    const limited = { ...payload, competitionId: 'limits', paymentType: 'full' };
+    await assert.rejects(createSecureBooking(adminDb, { ...limited, pondSelections: [{ pondId: 1, seats: [1, 2, 3] }] }, user), /Maksimum 2/);
+    await createSecureBooking(adminDb, { ...limited, pondSelections: [{ pondId: 1, seats: [1] }] }, user);
+    await assert.rejects(createSecureBooking(adminDb, { ...limited, pondSelections: [{ pondId: 1, seats: [2] }] }, user), { status: 429 });
+    await createSecureBooking(adminDb, { ...limited, pondSelections: [{ pondId: 1, seats: [2, 3] }] }, { ...user, uid: 'other', email: 'other@example.com' });
+});
+
 test('customer receipt transactions preserve approvals, reject foreign owners and serialize concurrent submissions', async () => {
     const bookingId = 'receipt-flow';
     const ref = adminDb.collection('bookings').doc(bookingId);

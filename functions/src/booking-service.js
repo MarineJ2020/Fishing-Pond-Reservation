@@ -7,6 +7,11 @@ import { BOOKING_MANAGER_ROLES, STAFF_ROLES, normalizeRole } from './role-policy
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 150 && !value.includes('/');
 const text = (value, max = 200) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const OCCUPYING_STATUSES = ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE', 'pending', 'confirmed'];
+const PENDING_STATUSES = new Set(['PENDING_APPROVAL', 'pending']);
+// Anti-hoarding defaults for customer bookings; admins override per competition in CMS.
+export const DEFAULT_MAX_PEGS_PER_BOOKING = 20;
+export const DEFAULT_MAX_PENDING_PER_USER = 10;
+const limitOf = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);
 const AVAILABILITY_CACHE_MS = 15 * 1000;
 const AVAILABILITY_CACHE_CONTROL = 'public, max-age=5, s-maxage=10';
 // Pond docs carry a ~65 KB seatLayout each; the CDN serves them to crowds and
@@ -80,10 +85,21 @@ export async function createSecureBooking(db, payload, user) {
         const fullById = new Map(fullPonds.filter((snap) => snap.exists).map((snap) => [snap.id, snap]));
         const ponds = pondCatalog(pondIndex.map((snap) => fullById.get(snap.id) || snap), seatDocs);
         const { selections, amount, totalAmount } = validateSelections(payload, competition, ponds);
+        const maxPegs = limitOf(competition.maxPegsPerBooking, DEFAULT_MAX_PEGS_PER_BOOKING);
+        const pegCount = selections.reduce((sum, group) => sum + group.seats.length, 0);
+        if (!staffMode && pegCount > maxPegs) fail(`Maksimum ${maxPegs} No Pancang bagi setiap tempahan.`);
 
         // Query both historical encodings inside the transaction. No backfill is required.
         const legacyStrings = await tx.get(db.collection('bookings').where('competitionId', '==', payload.competitionId).where('status', 'in', OCCUPYING_STATUSES));
         const legacyRefs = await tx.get(db.collection('bookings').where('competitionId', '==', compRef).where('status', 'in', OCCUPYING_STATUSES));
+        if (!staffMode) {
+            // Counted from the occupying bookings already read above, so no extra reads.
+            const maxPending = limitOf(competition.maxPendingBookingsPerUser, DEFAULT_MAX_PENDING_PER_USER);
+            const mine = new Set([...legacyStrings.docs, ...legacyRefs.docs]
+                .filter((snap) => snap.data().userId === user.uid && PENDING_STATUSES.has(snap.data().status))
+                .map((snap) => snap.id));
+            if (mine.size >= maxPending) fail(`Anda mempunyai ${mine.size} tempahan yang belum disahkan untuk pertandingan ini. Sila tunggu pengesahan sebelum membuat tempahan baru. / You have reached the limit of ${maxPending} pending bookings.`, 429);
+        }
         const occupied = new Set();
         [...legacyStrings.docs, ...legacyRefs.docs].forEach((snap) => {
             if (!occupiesSeats(snap.data())) return;
