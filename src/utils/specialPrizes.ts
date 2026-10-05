@@ -2,6 +2,8 @@ import type { ScoreEntry } from '../types';
 
 // Winner rules for the optional Hadiah Terpantas / Hadiah Terbanyak, shared by
 // CMS > Keputusan and the public past-results card so both always agree.
+// Times are compared to the minute — the precision staff and players see — so
+// anything recorded in the same minute counts as a tie and the prize is shared.
 
 /** Capture time in ms; records without a usable time sort last. */
 export const recordTime = (entry: ScoreEntry): number => {
@@ -10,9 +12,31 @@ export const recordTime = (entry: ScoreEntry): number => {
   return Number.isFinite(ms) && ms > 0 ? ms : Number.MAX_SAFE_INTEGER;
 };
 
-/** Terpantas: the first weigh-in recorded in the competition. */
-export const fastestRecord = (entries: ScoreEntry[]): ScoreEntry | null =>
-  [...entries].sort((a, b) => recordTime(a) - recordTime(b))[0] || null;
+const UNKNOWN = Number.MAX_SAFE_INTEGER;
+/** Minute bucket used for tie decisions. */
+const recordMinute = (ms: number): number => (ms === UNKNOWN ? UNKNOWN : Math.floor(ms / 60000));
+
+const anglerKey = (entry: ScoreEntry): string =>
+  `${entry.bookingId || (entry.anglerName || '').trim().toLowerCase()}:${entry.pondId}:${entry.seatNum}`;
+
+/**
+ * Terpantas: the earliest weigh-in. Every angler whose first fish was recorded
+ * in that same minute shares the prize (one entry per angler, oldest first).
+ */
+export const fastestRecords = (entries: ScoreEntry[]): ScoreEntry[] => {
+  const sorted = [...entries].sort((a, b) => recordTime(a) - recordTime(b));
+  if (!sorted.length) return [];
+  const minute = recordMinute(recordTime(sorted[0]));
+  if (minute === UNKNOWN) return [sorted[0]];
+  const seen = new Set<string>();
+  return sorted.filter((entry) => {
+    if (recordMinute(recordTime(entry)) !== minute) return false;
+    const key = anglerKey(entry);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 export interface RecordCountRow {
   key: string;
@@ -28,14 +52,13 @@ export interface RecordCountRow {
 }
 
 /**
- * Terbanyak: most weigh-ins per angler/peg; ties go to whoever reached that
- * count first. `winners` holds more than one row only on an exact tie, in which
- * case the prize is shared.
+ * Terbanyak: most weigh-ins per angler/peg. On equal counts, whoever reached
+ * that count first wins; anglers who reached it in the same minute share.
  */
 export const mostRecordRanking = (entries: ScoreEntry[]): { rows: RecordCountRow[]; winners: RecordCountRow[] } => {
   const byAngler = new Map<string, ScoreEntry[]>();
   entries.forEach((entry) => {
-    const key = `${entry.bookingId || (entry.anglerName || '').trim().toLowerCase()}:${entry.pondId}:${entry.seatNum}`;
+    const key = anglerKey(entry);
     byAngler.set(key, [...(byAngler.get(key) || []), entry]);
   });
   const rows: RecordCountRow[] = Array.from(byAngler.entries(), ([key, list]) => {
@@ -51,8 +74,12 @@ export const mostRecordRanking = (entries: ScoreEntry[]): { rows: RecordCountRow
       reachedAt: recordTime(last),
       firstAt: recordTime(records[0]),
     };
-  }).sort((a, b) => (b.records.length - a.records.length) || (a.reachedAt - b.reachedAt) || (a.firstAt - b.firstAt) || a.seatNum - b.seatNum);
+  }).sort((a, b) => (b.records.length - a.records.length)
+    || (recordMinute(a.reachedAt) - recordMinute(b.reachedAt))
+    || (a.reachedAt - b.reachedAt) || (a.firstAt - b.firstAt) || a.seatNum - b.seatNum);
   const leader = rows[0];
-  const winners = leader ? rows.filter((row) => row.records.length === leader.records.length && row.reachedAt === leader.reachedAt) : [];
+  const winners = leader
+    ? rows.filter((row) => row.records.length === leader.records.length && recordMinute(row.reachedAt) === recordMinute(leader.reachedAt))
+    : [];
   return { rows, winners };
 };

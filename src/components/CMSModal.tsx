@@ -6,7 +6,7 @@ import { useSearchParams } from 'react-router-dom';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry, LandingSectionKey, PrizeClaim } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
-import { fastestRecord as fastestRecordOf, mostRecordRanking } from '../utils/specialPrizes';
+import { fastestRecords, mostRecordRanking } from '../utils/specialPrizes';
 import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
 import {
   createPond as createPondFirestore,
@@ -3987,7 +3987,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 && (!nameQ || entry.anglerName.toLowerCase().includes(nameQ))
                 && (!scorePondFilter || entry.pondName === scorePondFilter);
             });
-            const fastestRecord = fastestRecordOf(scoreEntries);
+            const fastestWinners = fastestRecords(scoreEntries);
             const { rows: topRecordRows, winners: topRecordWinners } = mostRecordRanking(scoreEntries);
             const topRecordRunnerRows = topRecordRows.filter((row) => !topRecordWinners.some((winner) => winner.key === row.key));
             const selectedTopRecord = topRecordRows.find((row) => row.key === topRecordSelectionKey) || null;
@@ -4070,33 +4070,42 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card cms-record-summary-card">
                   <div className="card-header">
                     <div>
-                      <div className="card-title">Ringkasan Rekod</div>
-                      <div className="cms-top-record-sub">Rekod terpantas dan peserta yang paling cepat capai jumlah rekod terbanyak.</div>
+                      <div className="card-title">{scoreCompetition?.fastestPrize || scoreCompetition?.mostPrize ? 'Hadiah Khas & Ringkasan Rekod' : 'Ringkasan Rekod'}</div>
+                      <div className="cms-top-record-sub">Terpantas: rekod pertama. Terbanyak: paling banyak rekod; jika sama, siapa capai dahulu. Masa dibanding ikut minit — jika sama minit, hadiah dikongsi.</div>
                     </div>
                   </div>
                   <div className="card-body">
                     <div className="cms-record-summary-grid">
                       <div className="cms-fastest-record-panel">
-                        <div className="cms-record-panel-label">Rekod Terpantas{scoreCompetition?.fastestPrize ? ` · Hadiah ${scoreCompetition.fastestPrize}` : ''}</div>
-                        {fastestRecord ? (
-                          <div className="cms-fastest-record-body">
-                            <span className="cms-top-record-medal">1st</span>
-                            <span className="cms-top-record-person">
-                              <strong>{fastestRecord.anglerName || 'Tanpa nama'}</strong>
-                              <small>{formatDate(fastestRecord.capturedAt, { time: true }) || '-'} · {fastestRecord.pondName} · No. Pancang {formatSeat(ponds.find((pond) => pond.id === fastestRecord.pondId)?.code, fastestRecord.seatNum)}</small>
-                            </span>
-                            <span className="cms-top-record-count">
-                              <strong>{formatWeight(fastestRecord.weight, settings.ocrDecimalPlaces)}</strong>
-                              <small>kg</small>
-                            </span>
-                          </div>
+                        <div className="cms-record-panel-label">Rekod Terpantas{scoreCompetition?.fastestPrize ? <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 999, background: 'var(--red, #e11d48)', color: '#fff', fontSize: '0.72rem', fontWeight: 800 }}>Hadiah {scoreCompetition?.fastestPrize}</span> : null}</div>
+                        {fastestWinners.length ? (
+                          <>
+                            {fastestWinners.map((fastestRecord) => (
+                              <div key={fastestRecord.id || `${fastestRecord.pondId}:${fastestRecord.seatNum}`} className="cms-fastest-record-body">
+                                <span className="cms-top-record-medal">1st</span>
+                                <span className="cms-top-record-person">
+                                  <strong>{fastestRecord.anglerName || 'Tanpa nama'}</strong>
+                                  <small>{formatDate(fastestRecord.capturedAt, { time: true }) || '-'} · {fastestRecord.pondName} · No. Pancang {formatSeat(ponds.find((pond) => pond.id === fastestRecord.pondId)?.code, fastestRecord.seatNum)}</small>
+                                </span>
+                                <span className="cms-top-record-count">
+                                  <strong>{formatWeight(fastestRecord.weight, settings.ocrDecimalPlaces)}</strong>
+                                  <small>kg</small>
+                                </span>
+                              </div>
+                            ))}
+                            {fastestWinners.length > 1 && (
+                              <div className="cms-shared-winner-note">
+                                Rekod pertama pada minit yang sama. Hadiah terpantas perlu dibahagi kepada {fastestWinners.length} pemenang.
+                              </div>
+                            )}
+                          </>
                         ) : (
                           <div className="cms-top-record-empty">Tiada rekod lagi.</div>
                         )}
                       </div>
 
                       <div className="cms-most-record-panel">
-                        <div className="cms-record-panel-label">Rekod Terbanyak{scoreCompetition?.mostPrize ? ` · Hadiah ${scoreCompetition.mostPrize}` : ''}</div>
+                        <div className="cms-record-panel-label">Rekod Terbanyak{scoreCompetition?.mostPrize ? <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 999, background: 'var(--red, #e11d48)', color: '#fff', fontSize: '0.72rem', fontWeight: 800 }}>Hadiah {scoreCompetition?.mostPrize}</span> : null}</div>
                         {topRecordWinners.length ? (
                           <>
                             <div className="cms-top-record-winners">
@@ -4126,7 +4135,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
                             {topRecordWinners.length > 1 && (
                               <div className="cms-shared-winner-note">
-                                Masa rekod terakhir sama. Hadiah rekod terbanyak perlu dibahagi kepada {topRecordWinners.length} pemenang.
+                                Capai jumlah rekod yang sama pada minit yang sama. Hadiah rekod terbanyak perlu dibahagi kepada {topRecordWinners.length} pemenang.
                               </div>
                             )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { fastestRecord, mostRecordRanking } from '../utils/specialPrizes';
+import { fastestRecords, mostRecordRanking } from '../utils/specialPrizes';
 import { Competition, Score, ScoreEntry, Pond, Booking, User, DB } from '../types';
 import { formatWeight } from '../utils/weight';
 import type { Settings } from '../types';
@@ -271,7 +271,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const pastChampion = pastWinners[0];
   // Same time source as CMS > Keputusan (getScoresForCompetition), so winners match.
   const pastTimedScores = pastScores.map(e => ({ ...e, capturedAt: (e as any).updatedAt || (e as any).createdAt || e.capturedAt }));
-  const pastFastest = selectedPastComp?.fastestPrize ? fastestRecord(pastTimedScores) : null;
+  const pastFastest = selectedPastComp?.fastestPrize ? fastestRecords(pastTimedScores) : [];
   const pastMost = selectedPastComp?.mostPrize ? mostRecordRanking(pastTimedScores).winners : [];
   const seatLabelOf = (pondId: number, seatNum: number) => {
     const code = ponds.find(pond => pond.id === pondId)?.code;
@@ -581,9 +581,9 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                   <div className="kl-winner-summary kl-special">
                     {selectedPastComp?.fastestPrize && (
                       <div className="kl-winner-summary-item">
-                        <small><i className="fa-solid fa-bolt"></i> Hadiah Terpantas · {selectedPastComp.fastestPrize}</small>
-                        <strong>{pastFastest ? seatLabelOf(pastFastest.pondId, pastFastest.seatNum) : '—'}</strong>
-                        {pastFastest && <span>Peserta: <b>{pastFastest.anglerName || 'Tanpa nama'}</b> · {formatWeight(pastFastest.weight, decimalPlaces)}kg{fmtTime(pastFastest.capturedAt) ? ` · ${fmtTime(pastFastest.capturedAt)}` : ''}</span>}
+                        <small><i className="fa-solid fa-bolt"></i> Hadiah Terpantas · {selectedPastComp.fastestPrize}{pastFastest.length > 1 ? ' (dikongsi)' : ''}</small>
+                        <strong>{pastFastest.length ? pastFastest.map(w => seatLabelOf(w.pondId, w.seatNum)).join(' & ') : '—'}</strong>
+                        {pastFastest.length > 0 && <span>Peserta: <b>{pastFastest.map(w => w.anglerName || 'Tanpa nama').join(' & ')}</b>{pastFastest.length === 1 ? ` · ${formatWeight(pastFastest[0].weight, decimalPlaces)}kg` : ''}{fmtTime(pastFastest[0].capturedAt) ? ` · ${fmtTime(pastFastest[0].capturedAt)}` : ''}</span>}
                       </div>
                     )}
                     {selectedPastComp?.mostPrize && (
