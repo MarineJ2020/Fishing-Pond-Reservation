@@ -369,6 +369,9 @@
 .kl-card-head { padding: 20px; border-bottom: 1px solid var(--line); }
 .kl-card-head h3 { margin: 4px 0 0; font-family: var(--font-heading); font-size: 30px; font-style: italic; text-transform: uppercase; }
 .kl-event-select { padding: 16px; display: grid; gap: 10px; }
+.kl-past-dropdown { display: none; position: relative; padding: 14px 16px 16px; }
+.kl-past-dropdown select { width: 100%; appearance: none; -webkit-appearance: none; padding: 13px 40px 13px 14px; border: 1px solid var(--red); border-radius: 14px; background: #fff; color: var(--navy); font: inherit; font-size: 14px; font-weight: 700; }
+.kl-past-dropdown i { position: absolute; right: 30px; top: 50%; transform: translateY(-50%); color: var(--red); pointer-events: none; }
 .kl-past-event { width: 100%; text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 16px; padding: 14px; color: var(--navy); cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 14px; transition: .2s; }
 .kl-past-event:hover, .kl-past-event.active { border-color: var(--red); box-shadow: 0 12px 28px rgba(231,25,45,.1); transform: translateY(-2px); }
 .kl-past-event strong { display: block; font-weight: 900; }
@@ -446,6 +449,9 @@
   .kl-past-head { display: block; }
   .kl-past-head p { margin-top: 10px; }
   .kl-past-left { grid-template-columns: 1fr; }
+  .kl-past-dropdown { display: block; }
+  .kl-past-left .kl-event-select, .kl-past-left .kl-past-pager { display: none; }
+  .kl-past-left .kl-card-head { padding: 16px 16px 0; border-bottom: 0; }
   .kl-selected-head { display: block; }
   .kl-selected-badge { margin-top: 14px; }
   .kl-winner-summary, .kl-winner-summary.kl-special { grid-template-columns: 1fr; }

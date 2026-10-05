@@ -515,7 +515,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             <div className="kl-eyebrow">Keputusan Event Lepas</div>
             <h2 className="kl-h2">Senarai <span>Pemenang</span></h2>
           </div>
-          <p>Pilih event di sebelah kiri untuk lihat keputusan penuh. Keputusan dikira automatik daripada berat akhir yang direkodkan.</p>
+          <p>Pilih event untuk lihat keputusan penuh. Keputusan dikira automatik daripada berat akhir yang direkodkan.</p>
         </div>
 
         <div className="kl-past-layout">
@@ -524,6 +524,19 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 <div className="kl-card-head">
                   <div className="kl-eyebrow">ACARA LEPAS</div>
                   <h3>PILIH ACARA LEPAS</h3>
+                </div>
+                {/* Phones: one dropdown instead of the long button list + pager. */}
+                <div className="kl-past-dropdown">
+                  <select
+                    aria-label="Pilih acara lepas"
+                    value={selectedPastId}
+                    onChange={(event) => setSelectedPastId(event.target.value)}
+                  >
+                    {endedComps.map(c => (
+                      <option key={c.id || c.name} value={c.id || ''}>{c.name} · {formatDate(c.startDate)}</option>
+                    ))}
+                  </select>
+                  <i className="fa-solid fa-chevron-down" aria-hidden="true"></i>
                 </div>
                 <div className="kl-event-select">
                   {pastPageComps.map(c => (
