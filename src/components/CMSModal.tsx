@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry, LandingSectionKey, PrizeClaim } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
+import { fastestRecord as fastestRecordOf, mostRecordRanking } from '../utils/specialPrizes';
 import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
 import {
   createPond as createPondFirestore,
@@ -3986,42 +3987,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 && (!nameQ || entry.anglerName.toLowerCase().includes(nameQ))
                 && (!scorePondFilter || entry.pondName === scorePondFilter);
             });
-            const scoreSortTime = (entry: ScoreEntry): number => {
-              const time = scoreRankTime(entry);
-              return time > 0 ? time : Number.MAX_SAFE_INTEGER;
-            };
-            const fastestRecord = [...scoreEntries].sort((a, b) => scoreSortTime(a) - scoreSortTime(b))[0] || null;
-            const topRecordRows = Array.from(scoreEntries.reduce((map, entry) => {
-              const key = `${entry.bookingId || entry.anglerName.trim().toLowerCase()}:${entry.pondId}:${entry.seatNum}`;
-              const current = map.get(key);
-              const records = [...(current?.records || []), entry].sort((a, b) => scoreSortTime(a) - scoreSortTime(b));
-              const reachedAt = records[records.length - 1] ? scoreSortTime(records[records.length - 1]) : Number.MAX_SAFE_INTEGER;
-              const firstAt = records[0] ? scoreSortTime(records[0]) : Number.MAX_SAFE_INTEGER;
-              map.set(key, {
-                key,
-                anglerName: entry.anglerName || 'Tanpa nama',
-                pondId: entry.pondId,
-                pondName: entry.pondName,
-                seatNum: entry.seatNum,
-                records,
-                reachedAt,
-                firstAt,
-              });
-              return map;
-            }, new Map<string, {
-              key: string;
-              anglerName: string;
-              pondId: number;
-              pondName: string;
-              seatNum: number;
-              records: ScoreEntry[];
-              reachedAt: number;
-              firstAt: number;
-            }>()).values()).sort((a, b) => (b.records.length - a.records.length) || (a.reachedAt - b.reachedAt) || (a.firstAt - b.firstAt) || a.seatNum - b.seatNum);
-            const topRecordLeader = topRecordRows[0] || null;
-            const topRecordWinners = topRecordLeader
-              ? topRecordRows.filter((row) => row.records.length === topRecordLeader.records.length && row.reachedAt === topRecordLeader.reachedAt)
-              : [];
+            const fastestRecord = fastestRecordOf(scoreEntries);
+            const { rows: topRecordRows, winners: topRecordWinners } = mostRecordRanking(scoreEntries);
             const topRecordRunnerRows = topRecordRows.filter((row) => !topRecordWinners.some((winner) => winner.key === row.key));
             const selectedTopRecord = topRecordRows.find((row) => row.key === topRecordSelectionKey) || null;
             const topRecordDetailRows = selectedTopRecord

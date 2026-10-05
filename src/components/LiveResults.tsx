@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { fastestRecord, mostRecordRanking } from '../utils/specialPrizes';
 import { Competition, Score, ScoreEntry, Pond, Booking, User, DB } from '../types';
 import { formatWeight } from '../utils/weight';
 import type { Settings } from '../types';
@@ -268,6 +269,14 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const pastChampWeight = pastLb[0]?.weight;
   const pastChampPrize = selectedPastComp ? getPrize(1, selectedPastComp.prizes) : '';
   const pastChampion = pastWinners[0];
+  // Same time source as CMS > Keputusan (getScoresForCompetition), so winners match.
+  const pastTimedScores = pastScores.map(e => ({ ...e, capturedAt: (e as any).updatedAt || (e as any).createdAt || e.capturedAt }));
+  const pastFastest = selectedPastComp?.fastestPrize ? fastestRecord(pastTimedScores) : null;
+  const pastMost = selectedPastComp?.mostPrize ? mostRecordRanking(pastTimedScores).winners : [];
+  const seatLabelOf = (pondId: number, seatNum: number) => {
+    const code = ponds.find(pond => pond.id === pondId)?.code;
+    return code ? formatSeat(code, seatNum) : `#${seatNum}`;
+  };
   const pastChampionPond = pastChampion ? ponds.find(pond => pond.id === pastChampion.pondId) : null;
   const pastChampionSeat = pastChampion
     ? pastChampionPond?.code ? formatSeat(pastChampionPond.code, pastChampion.peg) : `#${pastChampion.peg}`
@@ -591,6 +600,28 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 );
               }) : (
                 <div className="kl-no-data">Tiada rekod berat untuk event ini.</div>
+              )}
+
+              {!pastLoading && (selectedPastComp?.fastestPrize || selectedPastComp?.mostPrize) && (
+                <>
+                  <div className="kl-special-head">Hadiah Khas</div>
+                  <div className="kl-winner-summary kl-special">
+                    {selectedPastComp?.fastestPrize && (
+                      <div className="kl-winner-summary-item">
+                        <small><i className="fa-solid fa-bolt"></i> Hadiah Terpantas · {selectedPastComp.fastestPrize}</small>
+                        <strong>{pastFastest ? seatLabelOf(pastFastest.pondId, pastFastest.seatNum) : '—'}</strong>
+                        {pastFastest && <span>Peserta: <b>{pastFastest.anglerName || 'Tanpa nama'}</b> · {formatWeight(pastFastest.weight, decimalPlaces)}kg{fmtTime(pastFastest.capturedAt) ? ` · ${fmtTime(pastFastest.capturedAt)}` : ''}</span>}
+                      </div>
+                    )}
+                    {selectedPastComp?.mostPrize && (
+                      <div className="kl-winner-summary-item">
+                        <small><i className="fa-solid fa-fish"></i> Hadiah Terbanyak · {selectedPastComp.mostPrize}{pastMost.length > 1 ? ' (dikongsi)' : ''}</small>
+                        <strong>{pastMost.length ? pastMost.map(w => seatLabelOf(w.pondId, w.seatNum)).join(' & ') : '—'}</strong>
+                        {pastMost.length > 0 && <span>Peserta: <b>{pastMost.map(w => w.anglerName).join(' & ')}</b> · {pastMost[0].records.length} rekod</span>}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </section>
           </div>

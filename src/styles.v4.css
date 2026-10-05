@@ -389,6 +389,9 @@
 .kl-winner-summary-item strong { display: block; font-family: var(--font-heading); font-size: 28px; line-height: .9; }
 .kl-winner-summary-item > span { display: block; margin-top: 7px; color: var(--muted); font-size: 12px; }
 .kl-winner-summary-item > span b { color: var(--navy); }
+.kl-special-head { padding: 14px 22px; border-top: 1px solid var(--line); background: #f7f9fb; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
+.kl-winner-summary.kl-special { grid-template-columns: repeat(2, 1fr); }
+.kl-winner-summary.kl-special small i { color: var(--red); margin-right: 4px; }
 .kl-table-head, .kl-winner-row { display: grid; grid-template-columns: 70px 1fr 110px 120px; gap: 16px; align-items: center; padding: 16px 22px; }
 .kl-table-head { background: #f7f9fb; color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
 .kl-winner-row { border-bottom: 1px solid var(--line); }
@@ -430,7 +433,7 @@
   .kl-past-left { grid-template-columns: 1fr; }
   .kl-selected-head { display: block; }
   .kl-selected-badge { margin-top: 14px; }
-  .kl-winner-summary { grid-template-columns: 1fr; }
+  .kl-winner-summary, .kl-winner-summary.kl-special { grid-template-columns: 1fr; }
   .kl-table-head { display: none; }
   .kl-winner-row { grid-template-columns: 48px 1fr; gap: 12px; }
   .kl-winner-row div:nth-child(3), .kl-winner-row div:nth-child(4) { grid-column: 2; }
