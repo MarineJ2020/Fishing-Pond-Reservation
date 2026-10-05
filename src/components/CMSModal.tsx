@@ -408,6 +408,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const prizeScanStartedAtRef = useRef(0);
   const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
   const [prizesEditMode, setPrizesEditMode] = useState(false);
+  // Hadiah Khas (Terpantas/Terbanyak) edits independently of the prize-range list.
+  const [specialEditMode, setSpecialEditMode] = useState(false);
   const [pondMapUploading, setPondMapUploading] = useState(false);
   const [qrImgUploading, setQrImgUploading] = useState(false);
   const [rulesPdfUploading, setRulesPdfUploading] = useState(false);
@@ -671,10 +673,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   useEffect(() => {
     if (page !== 'prizes') return;
     const target = compList.find(c => c.id === prizesCompId) || compList[0];
-    if (target && !prizesEditMode) {
+    if (target && !prizesEditMode && !specialEditMode) {
       setCompEdit({ ...target });
     }
-  }, [prizesCompId, page, compList, prizesEditMode]);
+  }, [prizesCompId, page, compList, prizesEditMode, specialEditMode]);
 
   // Keep the prize selector on a real competition. Ended competitions remain
   // selectable so admins can audit/fix prize presets without the selector
@@ -880,22 +882,47 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setSaving(false);
   };
 
+  const handleSpecialPrizeSave = async () => {
+    if (!compEdit.id) return;
+    // A ticked prize with no amount would silently save as "not offered".
+    const blank = [compEdit.fastestPrize != null && !compEdit.fastestPrize.trim() ? 'Terpantas' : '', compEdit.mostPrize != null && !compEdit.mostPrize.trim() ? 'Terbanyak' : ''].filter(Boolean);
+    if (blank.length) { window.alert(`Sila isi jumlah Hadiah ${blank.join(' & ')} atau nyahtanda kotaknya.`); return; }
+    const special = { fastestPrize: compEdit.fastestPrize?.trim() || null, mostPrize: compEdit.mostPrize?.trim() || null };
+    setSaving(true);
+    try {
+      await updateCompetitionFirestore(compEdit.id, special as any);
+      setCompEdit((current) => ({ ...current, ...special }));
+      setCompList((list) => list.map((competition) => competition.id === compEdit.id ? { ...competition, ...special } : competition));
+      setSpecialEditMode(false);
+      await reloadDB();
+      await logAuditEvent({
+        action: 'prize.special_save', actionLabel: 'Kemaskini Hadiah Khas', entityType: 'prize',
+        entityId: compEdit.id, entityLabel: compEdit.name,
+        details: `Terpantas: ${special.fastestPrize || 'Tiada'} · Terbanyak: ${special.mostPrize || 'Tiada'}`,
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    } catch (err) {
+      console.error('Failed to save special prizes:', err);
+      window.alert('Gagal menyimpan Hadiah Khas.');
+    }
+    setSaving(false);
+  };
+
   const handlePrizeSave = async () => {
     setSaving(true);
     try {
       if (!compEdit.id) { setSaving(false); return; }
-      // Ticked special prize with no amount would silently save as "not offered".
-      const blankSpecial = [compEdit.fastestPrize != null && !compEdit.fastestPrize.trim() ? 'Terpantas' : '', compEdit.mostPrize != null && !compEdit.mostPrize.trim() ? 'Terbanyak' : ''].filter(Boolean);
-      if (blankSpecial.length) { window.alert(`Sila isi jumlah Hadiah ${blankSpecial.join(' & ')} atau nyahtanda kotaknya.`); setSaving(false); return; }
       // Normalise prize ranges before persisting: keep `rank` in sync with
       // `rankFrom` (back-compat) and ensure from<=to.
       const normalizedPrizes = (compEdit.prizes || []).map((p: Prize) => {
         const [from, to] = prizeRange(p);
         return { ...p, rank: from, rankFrom: from, rankTo: to };
       });
-      const updatedComp = { ...compEdit, prizes: normalizedPrizes, fastestPrize: compEdit.fastestPrize?.trim() || null, mostPrize: compEdit.mostPrize?.trim() || null };
+      // Special prizes have their own Edit/Simpan, so this save leaves them alone.
+      const { fastestPrize: _fastestPrize, mostPrize: _mostPrize, ...rest } = compEdit;
+      const updatedComp = { ...rest, prizes: normalizedPrizes };
       await updateCompetitionFirestore(compEdit.id, updatedComp as any);
-      setCompEdit(updatedComp);
+      setCompEdit((current) => ({ ...current, prizes: normalizedPrizes }));
       setCompList((list) => list.map((competition) => competition.id === updatedComp.id ? { ...competition, ...updatedComp } : competition));
       setPrizesEditMode(false);
       await reloadDB();
@@ -2702,10 +2729,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   }) : '';
   const settingsDirty = JSON.stringify(settingsEdit) !== JSON.stringify(settings);
   const prizeSource = competitionsForCms.find(c => c.id === prizesCompId);
-  const prizesDirty = page === 'prizes' && prizesEditMode && !!prizeSource
-    && (JSON.stringify(prizeSource.prizes || []) !== JSON.stringify(compEdit.prizes || [])
-      || (prizeSource.fastestPrize ?? null) !== (compEdit.fastestPrize ?? null)
-      || (prizeSource.mostPrize ?? null) !== (compEdit.mostPrize ?? null));
+  const prizesDirty = page === 'prizes' && !!prizeSource && (
+    (prizesEditMode && JSON.stringify(prizeSource.prizes || []) !== JSON.stringify(compEdit.prizes || []))
+    || (specialEditMode && ((prizeSource.fastestPrize ?? null) !== (compEdit.fastestPrize ?? null)
+      || (prizeSource.mostPrize ?? null) !== (compEdit.mostPrize ?? null))));
   const pageDirty =
     ((page === 'contact-settings' || page === 'landing-content' || page === 'seo') && settingsDirty)
     || prizesDirty;
@@ -3224,11 +3251,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             };
             // Sources to duplicate a full prize table FROM: any other
             // competition that already has prizes set up.
-            const duplicateSources = sortCompetitionsLatestFirst(competitionsForCms.filter(c => (c.id || '') !== prizesCompId && ((c.prizes || []).length > 0 || !!c.fastestPrize || !!c.mostPrize)));
+            const duplicateSources = sortCompetitionsLatestFirst(competitionsForCms.filter(c => (c.id || '') !== prizesCompId && (c.prizes || []).length > 0));
             const duplicateFromCompetition = (srcId: string) => {
               const src = competitionsForCms.find(c => (c.id || '') === srcId);
               if (!src) return;
-              setCompEdit({ ...compEdit, prizes: (src.prizes || []).map(p => ({ ...p })), fastestPrize: src.fastestPrize ?? null, mostPrize: src.mostPrize ?? null });
+              setPrizes((src.prizes || []).map(p => ({ ...p })));
             };
             return (
             <div className="page active">
@@ -3276,7 +3303,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       <button className="btn btn-sm btn-ghost" onClick={() => {
                         const target = compList.find(c => c.id === prizesCompId) || compList[0];
-                        if (target) setCompEdit({ ...target });
+                        if (target) setCompEdit((current) => ({ ...target, fastestPrize: current.fastestPrize ?? null, mostPrize: current.mostPrize ?? null }));
                         setPrizesEditMode(false);
                       }}>Batal</button>
                       <select
@@ -3359,8 +3386,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-header">
                   <div>
                     <div className="card-title">Hadiah Khas (Pilihan)</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Tandakan hanya jika pertandingan ini ada hadiah Terpantas atau Terbanyak. {prizesEditMode ? '' : 'Tekan Edit di atas untuk ubah.'}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Tandakan hanya jika pertandingan ini ada hadiah Terpantas atau Terbanyak.</div>
                   </div>
+                  {specialEditMode ? (
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => {
+                        const target = compList.find(c => c.id === prizesCompId) || compList[0];
+                        setCompEdit((current) => ({ ...current, fastestPrize: target?.fastestPrize ?? null, mostPrize: target?.mostPrize ?? null }));
+                        setSpecialEditMode(false);
+                      }}>Batal</button>
+                      <button className="btn btn-sm btn-primary" disabled={saving} onClick={handleSpecialPrizeSave}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
+                    </div>
+                  ) : (
+                    <button className="btn btn-sm btn-primary" onClick={() => setSpecialEditMode(true)}>Edit</button>
+                  )}
                 </div>
                 <div className="card-body">
                   <div className="cms-prize-list">
@@ -3372,7 +3411,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       const enabled = value != null;
                       return (
                         <div key={key} className="cms-prize-row" style={{ alignItems: 'center' }}>
-                          {prizesEditMode ? (
+                          {specialEditMode ? (
                             <>
                               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, minWidth: 190 }}>
                                 <input type="checkbox" checked={enabled} onChange={e => setCompEdit({ ...compEdit, [key]: e.target.checked ? '' : null })} />
@@ -3391,9 +3430,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       );
                     })}
                   </div>
-                  {prizesEditMode && (
+                  {specialEditMode && (
                     <div className="form-actions" style={{ marginTop: '1rem' }}>
-                      <button className="btn btn-primary" disabled={saving} onClick={handlePrizeSave}>
+                      <button className="btn btn-primary" disabled={saving} onClick={handleSpecialPrizeSave}>
                         {saving ? 'Menyimpan...' : 'Simpan'}
                       </button>
                     </div>
