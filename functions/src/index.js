@@ -20,7 +20,7 @@ import {
 import { buildCancelCheckInState, buildCheckInState } from './booking-seats.js';
 import { ADMIN_ROLES, ALLOWED_ROLES, normalizeRole, roleChangeBlockReason } from './role-policy.js';
 import { registerBookingRoutes, releaseClaims } from './booking-service.js';
-import { browserFacing, regional } from './regions.js';
+import { browserFacing, browserFacingWith, regional } from './regions.js';
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -601,7 +601,8 @@ app.post('/bookingActivity', verifyToken, requireStaff, async (req, res) => {
 });
 
 // Browser requests reach Express; each write route verifies Firebase Auth itself.
-export const api = browserFacing.runWith({ invoker: 'public' }).https.onRequest(app);
+// High cap: booking-open rushes hit createBooking at once (1 request per gen1 instance).
+export const api = browserFacingWith({ invoker: 'public', maxInstances: 100 }).https.onRequest(app);
 
 // Re-read current state so delayed trigger delivery cannot release a reused peg.
 export const releaseBookingSeatClaims = regional.firestore.document('bookings/{bookingId}')

@@ -12,4 +12,9 @@ export const REGION = 'asia-southeast1';
 const LEGACY_REGION = 'us-central1';
 
 export const regional = functions.region(REGION);
-export const browserFacing = functions.region(REGION, LEGACY_REGION);
+// maxInstances caps cost if someone floods a function (limits are per region).
+// Note runWith() mutates a shared builder, so per-function options use a fresh one.
+const DEFAULT_MAX_INSTANCES = 20;
+export const browserFacing = functions.region(REGION, LEGACY_REGION).runWith({ maxInstances: DEFAULT_MAX_INSTANCES });
+export const browserFacingWith = (options) => functions.region(REGION, LEGACY_REGION)
+    .runWith({ maxInstances: DEFAULT_MAX_INSTANCES, ...options });
