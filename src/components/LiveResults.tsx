@@ -274,8 +274,8 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const pastFastest = selectedPastComp?.fastestPrize ? fastestRecords(pastTimedScores) : [];
   const pastMostRanking = selectedPastComp?.mostPrize ? mostRecordRanking(pastTimedScores) : { rows: [], winners: [] };
   const pastMost = pastMostRanking.winners;
-  // Top contenders, so players with the same count can see why the winner won.
-  const pastMostRows = pastMostRanking.rows.slice(0, Math.max(10, pastMostRanking.rows.filter(r => r.records.length === pastMost[0]?.records.length).length));
+  // Everyone on the highest count, so tied players can see why the winner won.
+  const pastMostRows = pastMostRanking.rows.filter(r => r.records.length === pastMost[0]?.records.length);
   const seatLabelOf = (pondId: number, seatNum: number) => {
     const code = ponds.find(pond => pond.id === pondId)?.code;
     return code ? formatSeat(code, seatNum) : `#${seatNum}`;
@@ -594,29 +594,28 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                         <small><i className="fa-solid fa-fish"></i> Hadiah Terbanyak · {selectedPastComp.mostPrize}{pastMost.length > 1 ? ' (dikongsi)' : ''}</small>
                         <strong>{pastMost.length ? pastMost.map(w => seatLabelOf(w.pondId, w.seatNum)).join(' & ') : '—'}</strong>
                         {pastMost.length > 0 && <span>Peserta: <b>{pastMost.map(w => w.anglerName).join(' & ')}</b> · {pastMost[0].records.length} rekod</span>}
+                        {selectedPastComp?.mostPrize && pastMostRows.length > 0 && (
+                          <details className="kl-special-details">
+                            <summary>Lihat senarai rekod Terbanyak &amp; masa</summary>
+                            <p className="kl-special-rule">Pemenang ialah peserta dengan rekod paling banyak. Jika jumlah rekod sama, pemenang ialah yang capai jumlah itu dahulu (ikut minit). Jika sama minit, hadiah dikongsi.</p>
+                            {pastMostRows.map((row) => {
+                              const winner = pastMost.some(w => w.key === row.key);
+                              return (
+                                <div key={row.key} className={`kl-special-row${winner ? ' is-winner' : ''}`}>
+                                  <div>
+                                    <strong>{seatLabelOf(row.pondId, row.seatNum)} · {row.anglerName}</strong>
+                                    <small>{row.records.length} rekod{fmtTime(row.records[row.records.length - 1]?.capturedAt) ? ` · capai pada ${fmtTime(row.records[row.records.length - 1]?.capturedAt)}` : ''}</small>
+                                    <small className="kl-special-times">{row.records.map((r, n) => `${n + 1}) ${fmtTime(r.capturedAt) || '—'}`).join('   ')}</small>
+                                  </div>
+                                  {winner && <em>{pastMost.length > 1 ? 'Kongsi menang' : 'Pemenang'}</em>}
+                                </div>
+                              );
+                            })}
+                          </details>
+                        )}
                       </div>
                     )}
                   </div>
-                  {selectedPastComp?.mostPrize && pastMostRows.length > 0 && (
-                    <details className="kl-special-details">
-                      <summary>Lihat senarai rekod Terbanyak &amp; masa</summary>
-                      <p className="kl-special-rule">Pemenang ialah peserta dengan rekod paling banyak. Jika jumlah rekod sama, pemenang ialah yang capai jumlah itu dahulu (ikut minit). Jika sama minit, hadiah dikongsi.</p>
-                      {pastMostRows.map((row, i) => {
-                        const winner = pastMost.some(w => w.key === row.key);
-                        return (
-                          <div key={row.key} className={`kl-special-row${winner ? ' is-winner' : ''}`}>
-                            <span className="kl-special-rank">{i + 1}</span>
-                            <div>
-                              <strong>{seatLabelOf(row.pondId, row.seatNum)} · {row.anglerName}</strong>
-                              <small>{row.records.length} rekod{fmtTime(row.records[row.records.length - 1]?.capturedAt) ? ` · capai pada ${fmtTime(row.records[row.records.length - 1]?.capturedAt)}` : ''}</small>
-                              <small className="kl-special-times">{row.records.map((r, n) => `${n + 1}) ${fmtTime(r.capturedAt) || '—'}`).join('   ')}</small>
-                            </div>
-                            {winner && <em>{pastMost.length > 1 ? 'Kongsi menang' : 'Pemenang'}</em>}
-                          </div>
-                        );
-                      })}
-                    </details>
-                  )}
                 </>
               )}
 
