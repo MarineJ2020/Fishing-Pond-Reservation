@@ -737,8 +737,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     // hands back fresh comp/competitions references, so resetting unconditionally
     // would re-point compEdit (id included) at the active competition mid-edit —
     // a subsequent Save would then overwrite the wrong competition document.
-    if (!competitionEditorOpen) setCompEdit(comp);
-  }, [comp, competitions, competitionEditorOpen]);
+    // The prizes page keeps compEdit on its selected competition itself (see the
+    // prizesCompId sync above); re-seeding here would swap in the active one.
+    if (!competitionEditorOpen && page !== 'prizes') setCompEdit(comp);
+  }, [comp, competitions, competitionEditorOpen, page]);
 
   // Conflict detection: map "competitionId-pondId-seatNum" → booking IDs that claim it
   // (excluding rejected). Keyed by competition so the same pond+seat reused in a
