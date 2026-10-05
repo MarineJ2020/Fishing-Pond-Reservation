@@ -575,6 +575,28 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 <div className="kl-winner-summary-item"><small>Hadiah Utama</small><strong>{pastChampPrize || '—'}</strong></div>
               </div>
 
+              {!pastLoading && (selectedPastComp?.fastestPrize || selectedPastComp?.mostPrize) && (
+                <>
+                  <div className="kl-special-head">Hadiah Khas</div>
+                  <div className="kl-winner-summary kl-special">
+                    {selectedPastComp?.fastestPrize && (
+                      <div className="kl-winner-summary-item">
+                        <small><i className="fa-solid fa-bolt"></i> Hadiah Terpantas · {selectedPastComp.fastestPrize}</small>
+                        <strong>{pastFastest ? seatLabelOf(pastFastest.pondId, pastFastest.seatNum) : '—'}</strong>
+                        {pastFastest && <span>Peserta: <b>{pastFastest.anglerName || 'Tanpa nama'}</b> · {formatWeight(pastFastest.weight, decimalPlaces)}kg{fmtTime(pastFastest.capturedAt) ? ` · ${fmtTime(pastFastest.capturedAt)}` : ''}</span>}
+                      </div>
+                    )}
+                    {selectedPastComp?.mostPrize && (
+                      <div className="kl-winner-summary-item">
+                        <small><i className="fa-solid fa-fish"></i> Hadiah Terbanyak · {selectedPastComp.mostPrize}{pastMost.length > 1 ? ' (dikongsi)' : ''}</small>
+                        <strong>{pastMost.length ? pastMost.map(w => seatLabelOf(w.pondId, w.seatNum)).join(' & ') : '—'}</strong>
+                        {pastMost.length > 0 && <span>Peserta: <b>{pastMost.map(w => w.anglerName).join(' & ')}</b> · {pastMost[0].records.length} rekod</span>}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
               <div className="kl-table-head">
                 <div>Kedudukan</div><div>No. Pancang</div><div>Berat</div><div>Hadiah</div>
               </div>
@@ -600,28 +622,6 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 );
               }) : (
                 <div className="kl-no-data">Tiada rekod berat untuk event ini.</div>
-              )}
-
-              {!pastLoading && (selectedPastComp?.fastestPrize || selectedPastComp?.mostPrize) && (
-                <>
-                  <div className="kl-special-head">Hadiah Khas</div>
-                  <div className="kl-winner-summary kl-special">
-                    {selectedPastComp?.fastestPrize && (
-                      <div className="kl-winner-summary-item">
-                        <small><i className="fa-solid fa-bolt"></i> Hadiah Terpantas · {selectedPastComp.fastestPrize}</small>
-                        <strong>{pastFastest ? seatLabelOf(pastFastest.pondId, pastFastest.seatNum) : '—'}</strong>
-                        {pastFastest && <span>Peserta: <b>{pastFastest.anglerName || 'Tanpa nama'}</b> · {formatWeight(pastFastest.weight, decimalPlaces)}kg{fmtTime(pastFastest.capturedAt) ? ` · ${fmtTime(pastFastest.capturedAt)}` : ''}</span>}
-                      </div>
-                    )}
-                    {selectedPastComp?.mostPrize && (
-                      <div className="kl-winner-summary-item">
-                        <small><i className="fa-solid fa-fish"></i> Hadiah Terbanyak · {selectedPastComp.mostPrize}{pastMost.length > 1 ? ' (dikongsi)' : ''}</small>
-                        <strong>{pastMost.length ? pastMost.map(w => seatLabelOf(w.pondId, w.seatNum)).join(' & ') : '—'}</strong>
-                        {pastMost.length > 0 && <span>Peserta: <b>{pastMost.map(w => w.anglerName).join(' & ')}</b> · {pastMost[0].records.length} rekod</span>}
-                      </div>
-                    )}
-                  </div>
-                </>
               )}
             </section>
           </div>
