@@ -414,8 +414,8 @@
 .kl-winner-entry > strong small { color: var(--red); font-family: inherit; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .kl-winner-entry > span { display: block; margin-top: 5px; }
 .kl-winner-entry > span b { color: var(--navy); }
-.kl-winner-rank { width: 42px; height: 42px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; background: var(--navy); color: #fff; font-family: var(--font-heading); font-size: 22px; font-weight: 900; }
-.kl-winner-row:first-of-type .kl-winner-rank { background: var(--red); }
+.kl-winner-row .kl-winner-rank { width: 42px; height: 42px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; background: var(--navy); color: #fff; font-family: var(--font-heading); font-size: 22px; font-weight: 900; }
+.kl-winner-row.is-champion .kl-winner-rank { background: var(--red); }
 .kl-no-data { text-align: center; padding: 48px 24px; color: var(--muted); font-size: 14px; }
 
 @media (max-width: 1024px) {

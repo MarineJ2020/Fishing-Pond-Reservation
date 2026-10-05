@@ -631,7 +631,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 const pondName = (pond?.name || e.pondName || '').split('—')[0].trim();
                 const seatLabel = pond?.code ? formatSeat(pond.code, e.peg) : `#${e.peg}`;
                 return (
-                  <div key={e.peg} className="kl-winner-row">
+                  <div key={e.peg} className={`kl-winner-row${rank === 1 ? ' is-champion' : ''}`}>
                     <div><span className="kl-winner-rank">{p2(rank)}</span></div>
                     <div className="kl-winner-entry">
                       <strong><small>No. Pancang</small>{seatLabel}</strong>
