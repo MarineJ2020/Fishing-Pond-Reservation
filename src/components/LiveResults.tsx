@@ -559,7 +559,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                     <button type="button" disabled={safePastPage === 0} onClick={() => setPastPage(safePastPage - 1)}>
                       <i className="fa-solid fa-chevron-left" aria-hidden="true"></i> Sebelum
                     </button>
-                    <span aria-live="polite">Halaman {safePastPage + 1} / {pastPageCount}</span>
+                    <span aria-live="polite" aria-label={`Halaman ${safePastPage + 1} daripada ${pastPageCount}`} style={{ whiteSpace: 'nowrap' }}>{safePastPage + 1} / {pastPageCount}</span>
                     <button type="button" disabled={safePastPage >= pastPageCount - 1} onClick={() => setPastPage(safePastPage + 1)}>
                       Seterusnya <i className="fa-solid fa-chevron-right" aria-hidden="true"></i>
                     </button>
