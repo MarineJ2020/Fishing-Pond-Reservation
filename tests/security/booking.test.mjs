@@ -334,7 +334,7 @@ test('10-minute peg holds: block other buyers, let the holder book, replace, rel
 
     const held = await holdPegs(adminDb, sel([1]), a);
     assert.ok(Date.parse(held.expiresAt) - Date.now() > 9 * 60 * 1000);
-    await assert.rejects(createSecureBooking(adminDb, sel([1]), b), /ditahan/);
+    await assert.rejects(createSecureBooking(adminDb, sel([1]), b), /No Pancang 1 sedang ditahan/);
     await assert.rejects(holdPegs(adminDb, sel([1]), b), /ditahan/);
     const booked = await createSecureBooking(adminDb, sel([1]), a);
     assert.equal((await claimFor(1)).data().bookingId, booked.bookingId);

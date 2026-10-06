@@ -36,11 +36,13 @@ test('approved email creates one QR for every selected peg', () => {
         competition: { name: 'Piala <Keli>', eventDate: '2026-10-04T00:00:00Z' },
         appUrl: 'https://example.test',
     });
-    assert.equal((approved.html.match(/api\.qrserver\.com/g) || []).length, 3);
+    assert.equal((approved.html.match(/<img src="https:\/\/api\.qrserver\.com/g) || []).length, 3);
     // Printed QRs carry competition, start time and ref under every peg (escaped).
     assert.equal((approved.html.match(/margin-top:4px;">Piala &lt;Keli&gt;/g) || []).length, 3);
     assert.equal((approved.html.match(/Ref: KKS-QR123/g) || []).length, 3);
     assert.match(approved.html, /4 Okt 2026/);
+    assert.equal((approved.html.match(/download=1/g) || []).length, 3);
+    assert.equal((approved.html.match(/Muat turun QR/g) || []).length, 3);
     assert.match(approved.html, /Kolam Utara &middot; A-1/);
     assert.match(approved.html, /Kolam Selatan &middot; B-7/);
     assert.match(approved.html, /pond%3D1/);

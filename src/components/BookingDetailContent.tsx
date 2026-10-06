@@ -4,6 +4,7 @@ import { Booking, ScoreEntry, Settings } from '../types';
 import { bookingSeatEntries, isBookingSeatCheckedIn, outstandingBalance, receiptBankReference } from '../utils/booking';
 import { formatDate } from '../utils';
 import { buildSeatQrValue } from '../utils/qr';
+import { downloadQrCard } from '../utils/qrDownload';
 import { formatSeat } from '../utils/seatLabel';
 import { formatWeight } from '../utils/weight';
 import { getScoresForCompetition } from '../lib/firestore';
@@ -56,6 +57,24 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
   const [scoresLoading, setScoresLoading] = useState(false);
   // Start of the event ("dd/mm/yyyy hh:mm"), short enough to print under a QR.
   const qrDateLabel = (competitionDateLabel || '').split(' - ')[0];
+  const qrRef = booking.bookingRef || booking.id.slice(0, 8).toUpperCase();
+  const [qrDownloadError, setQrDownloadError] = useState<string | null>(null);
+  const handleQrDownload = async (event: React.MouseEvent<HTMLButtonElement>, pondName: string, peg: string) => {
+    const svg = event.currentTarget.closest('.qr-card')?.querySelector('svg');
+    if (!svg) return;
+    setQrDownloadError(null);
+    try {
+      await downloadQrCard(svg as SVGSVGElement, [
+        `No Pancang ${peg}`,
+        booking.competitionName || 'Pertandingan',
+        ...(qrDateLabel ? [qrDateLabel] : []),
+        `Kolam ${pondName}`,
+        `Ref: ${qrRef}`,
+      ], `QR-${qrRef}-${peg}.png`);
+    } catch {
+      setQrDownloadError('QR tidak dapat dimuat turun. Sila ambil tangkapan skrin. / Could not download the QR; please take a screenshot.');
+    }
+  };
   const receipts = booking.receipts && booking.receipts.length
     ? booking.receipts
     : (booking.receiptData ? [{
@@ -205,6 +224,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                 return (
                   <div
                     key={entry.key}
+                    className="qr-card"
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -230,8 +250,15 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                       <strong>{booking.competitionName || 'Pertandingan'}</strong>
                       {qrDateLabel && <span>{qrDateLabel}</span>}
                       <span>Kolam {entry.pondName} · No Pancang {formatSeat(entry.pondCode, entry.seatNum)}</span>
-                      <span>Ref: {booking.bookingRef || booking.id.slice(0, 8).toUpperCase()}</span>
+                      <span>Ref: {qrRef}</span>
                     </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm qr-download-btn"
+                      onClick={(event) => { void handleQrDownload(event, entry.pondName, formatSeat(entry.pondCode, entry.seatNum)); }}
+                    >
+                      <i className="fa-solid fa-download" aria-hidden="true"></i> Muat turun QR
+                    </button>
                     {checkedIn && (
                       <span style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--green-bright, #16a34a)' }}>
                         ✓ Sudah Check-In
@@ -241,6 +268,15 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                 );
               })}
             </div>
+            {qrDownloadError && (
+              <div className="booking-alert" role="alert" style={{ marginTop: 12 }}>
+                <i className="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+                <span>{qrDownloadError}</span>
+                <button type="button" onClick={() => setQrDownloadError(null)} aria-label="Tutup / Close">
+                  <i className="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

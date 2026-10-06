@@ -487,3 +487,19 @@
 .qr-disabled span { font-size: .8rem; color: var(--muted); }
 .qr-disabled .qr-disabled-pegs { font-weight: 700; color: var(--navy); }
 @media print { .qr-print-details span { color: #333; } }
+
+/* Error messages: solid banner at the top that stays until closed (Toast.tsx),
+   and the inline booking-flow alert next to the action (BookingAlert). */
+.toast-errors { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 10000; width: min(560px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 8px; }
+.toast-error-banner, .booking-alert { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: var(--radius-xs); background: var(--red-pale); border: 1px solid var(--red); border-left-width: 5px; color: var(--navy); font-size: .88rem; line-height: 1.45; font-weight: 600; }
+.toast-error-banner { background: #fff; box-shadow: 0 12px 30px rgba(8, 26, 42, .22); }
+.toast-error-banner > i, .booking-alert > i { color: var(--red); font-size: 1.05rem; margin-top: 2px; }
+.toast-error-banner > span, .booking-alert > span { flex: 1; min-width: 0; }
+.toast-error-banner button, .booking-alert button { border: 0; background: transparent; color: var(--navy); cursor: pointer; padding: 2px 4px; font-size: 1rem; line-height: 1; }
+.booking-alert { margin: 0 0 12px; }
+.bk-mobile-continue .booking-alert { grid-column: 1 / -1; margin: 0; }
+.bk-seat-dialog > .booking-alert { margin: 0 16px 12px; }
+.qr-download-btn { margin-top: 4px; font-size: .74rem; }
+@media print { .qr-download-btn { display: none; } }
+/* Phones: the sticky bottom bar already shows the booking alert above Teruskan. */
+@media (max-width: 768px) { .bk-summary-actions .booking-alert { display: none; } }

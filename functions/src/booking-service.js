@@ -184,8 +184,10 @@ async function loadSelection(tx, db, payload, user, { checkout }) {
     return { compRef, profile, staffMode, competition, selections, amount, totalAmount, occupied };
 }
 
-const PEG_TAKEN = 'No Pancang telah ditempah. Sila pilih No Pancang lain.';
-const PEG_HELD = 'No Pancang ini sedang ditahan oleh pelanggan lain yang sedang membuat bayaran. Sila pilih No Pancang lain atau cuba semula selepas 10 minit. / This peg is on hold for another customer who is paying. Pick another peg or try again in 10 minutes.';
+// Messages name the peg ("A-11") so the customer knows which one to swap.
+const pegLabel = (group, num) => (group.pondCode ? `${String(group.pondCode).trim().toUpperCase()}-${num}` : `${num}`);
+const PEG_TAKEN = (peg) => `No Pancang ${peg} telah ditempah. Sila pilih No Pancang lain. / Peg ${peg} is already booked. Please pick another peg.`;
+const PEG_HELD = (peg) => `No Pancang ${peg} sedang ditahan oleh pelanggan lain yang sedang membuat bayaran. Sila pilih No Pancang lain atau cuba semula selepas 10 minit. / Peg ${peg} is on hold for another customer who is paying. Pick another peg or try again in 10 minutes.`;
 const holdActive = (claim, now) => !claim.bookingId && !!claim.holdUid && (claim.holdExpiresAt?.toMillis?.() ?? new Date(claim.holdExpiresAt || 0).getTime()) > now;
 
 // Claim refs for the selection, failing if a live booking or another
@@ -194,14 +196,14 @@ async function freePegRefs(tx, db, competitionId, selections, occupied, user, no
     const refs = [];
     for (const group of selections) {
         for (const num of group.seats) {
-            if (occupied.has(`${group.pondId}:${num}`)) fail(PEG_TAKEN, 409);
+            if (occupied.has(`${group.pondId}:${num}`)) fail(PEG_TAKEN(pegLabel(group, num)), 409);
             const ref = db.collection('bookingSeatClaims').doc(claimId(competitionId, group.pondDocId, num));
             const claim = (await tx.get(ref)).data();
             if (claim?.bookingId) {
                 const owner = await tx.get(db.collection('bookings').doc(claim.bookingId));
-                if (owner.exists && occupiesSeats(owner.data())) fail(PEG_TAKEN, 409);
+                if (owner.exists && occupiesSeats(owner.data())) fail(PEG_TAKEN(pegLabel(group, num)), 409);
             } else if (claim && holdActive(claim, now.getTime()) && claim.holdUid !== user.uid) {
-                fail(PEG_HELD, 409);
+                fail(PEG_HELD(pegLabel(group, num)), 409);
             }
             refs.push({ ref, pondId: group.pondId, num });
         }

@@ -35,6 +35,8 @@ interface BookingFormProps {
   holdExpiresAt?: string | null;
   holdBusy?: boolean;
   onRehold?: () => void;
+  /** Inline booking-flow error, shown next to the hold banner and the submit button. */
+  alert?: React.ReactNode;
 }
 
 // Countdown for the 10-minute payment hold placed when the customer pressed Teruskan.
@@ -102,6 +104,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   holdExpiresAt = null,
   holdBusy = false,
   onRehold,
+  alert = null,
 }) => {
   const [notes, setNotes] = useState('');
   const [verifyBusy, setVerifyBusy] = useState(false);
@@ -192,6 +195,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
       <div className="panel-title">Maklumat & Bayaran</div>
       <div className="panel-subtitle">Lengkapkan butiran di bawah untuk menempah tempat anda</div>
       {holdExpiresAt && <PegHoldBanner expiresAt={holdExpiresAt} busy={holdBusy} onRehold={onRehold} />}
+      {alert}
 
       {/* ── Account details reminder (self-service booking only) ── */}
       {!isAdminProxyMode && (
@@ -422,6 +426,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
           </div>
         </div>
       )}
+      {alert && <div style={{ marginTop: 16 }}>{alert}</div>}
       <button
         id="btn-submit"
         className={`btn btn-primary w-full btn-lg mt-4${canSubmit ? ' bk-hint' : ''}`}

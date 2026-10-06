@@ -21,10 +21,12 @@ export const UIProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [cmsModalOpen, setCMSModalOpen] = useState(false);
 
   const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const id = Date.now();
+    const id = Date.now() + Math.random();
     const toast: Toast = { id, message, type };
-    setToasts(prev => [...prev, toast]);
-    setTimeout(() => removeToast(id), 3800);
+    // Errors stay until the user closes them (and a repeat replaces, not stacks);
+    // success/info confirmations fade on their own.
+    setToasts(prev => [...prev.filter(t => !(t.type === 'error' && t.message === message)), toast]);
+    if (type !== 'error') setTimeout(() => removeToast(id), 3800);
   }, []);
 
   const removeToast = useCallback((id: number) => {

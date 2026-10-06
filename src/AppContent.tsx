@@ -137,6 +137,20 @@ const AppContent: React.FC = () => {
   const [rulesPdfPreview, setRulesPdfPreview] = useState<string | null>(null);
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
   const [holdBusy, setHoldBusy] = useState(false);
+  // Booking-flow problems (peg taken/held, limits, missing receipt…) are shown
+  // inline next to the button the customer just pressed, and stay until they
+  // close it or change their selection — a corner toast was too easy to miss.
+  const [bookingAlert, setBookingAlert] = useState<string | null>(null);
+  const showBookingAlert = (message: string) => setBookingAlert(message);
+  const bookingAlertBox = bookingAlert ? (
+    <div className="booking-alert" role="alert">
+      <i className="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+      <span>{bookingAlert}</span>
+      <button type="button" onClick={() => setBookingAlert(null)} aria-label="Tutup / Close">
+        <i className="fa-solid fa-xmark" aria-hidden="true"></i>
+      </button>
+    </div>
+  ) : null;
   const [myBookingsSort, setMyBookingsSort] = useState<'latest' | 'oldest'>('latest');
   // Set directly from submitBooking()'s return value — db.bookings[0] isn't
   // guaranteed to be the just-created booking (Firestore listener ordering).
@@ -290,7 +304,7 @@ const AppContent: React.FC = () => {
     const adding = !selectedSeats.includes(num);
     const total = Object.values(selectedPondSeats).reduce((sum, seats) => sum + seats.length, 0);
     if (adding && !isStaffRole(user?.role) && total >= maxPegsPerBooking) {
-      addToast(`Maksimum ${maxPegsPerBooking} No Pancang bagi setiap tempahan. / Max ${maxPegsPerBooking} pegs per booking.`, 'error');
+      showBookingAlert(`Maksimum ${maxPegsPerBooking} No Pancang bagi setiap tempahan. / Max ${maxPegsPerBooking} pegs per booking.`);
       return;
     }
     toggleSeat(num);
@@ -307,6 +321,8 @@ const AppContent: React.FC = () => {
     }));
   }), [db.ponds, selectedPondSeats]);
   const selectedSeatCount = selectedPancangs.length;
+  const selectionKey = `${selectedCompetitionId || ''}|${selectedPancangs.map((p) => `${p.pondId}-${p.seatNum}`).join(',')}`;
+  useEffect(() => { setBookingAlert(null); }, [selectionKey]);
   const selectedSeatLabels = selectedPancangs.map((selection) => selection.label);
   const selectedSeatNumbers = selectedPancangs.map((selection) => selection.seatNum);
   const selectedPancangGroups = useMemo(() => {
@@ -376,13 +392,13 @@ const AppContent: React.FC = () => {
 
   const handleSelectPond = (id: number) => {
     if (!selectedCompetition?.id) {
-      addToast('Sila pilih pertandingan dahulu.', 'error');
+      showBookingAlert('Sila pilih pertandingan dahulu.');
       document.getElementById('competitions')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
     const pond = bookablePonds.find((p) => p.id === id);
     if (!pond || !pond.open) {
-      addToast('This pond is currently closed for booking.', 'error');
+      showBookingAlert('Kolam ini ditutup untuk tempahan. / This pond is closed for booking.');
       return;
     }
     setPond(id);
@@ -416,9 +432,10 @@ const AppContent: React.FC = () => {
     setHoldBusy(true);
     try {
       await holdSelectedPegs();
+      setBookingAlert(null);
       return true;
     } catch (err: any) {
-      addToast(err?.message || 'No Pancang tidak dapat ditahan. Sila cuba lagi.', 'error');
+      showBookingAlert(err?.message || 'No Pancang tidak dapat ditahan. Sila cuba lagi.');
       void reloadDB();
       return false;
     } finally {
@@ -459,24 +476,24 @@ const AppContent: React.FC = () => {
     }
     const isStaff = isStaffRole(user.role);
     if (!isStaff && user.emailVerified === false) {
-      addToast('Sila sahkan email anda dahulu sebelum menempah.', 'error');
+      showBookingAlert('Sila sahkan email anda dahulu sebelum menempah.');
       return;
     }
     if (!selectedSeatCount) {
-      addToast('Select at least one peg', 'error');
+      showBookingAlert('Sila pilih sekurang-kurangnya satu No Pancang. / Select at least one peg.');
       return;
     }
     if (!receiptData) {
-      addToast('Upload your payment receipt', 'error');
+      showBookingAlert('Sila muat naik resit bayaran. / Upload your payment receipt.');
       return;
     }
     if (!bankReference.trim()) {
-      addToast('Sila masukkan No. Rujukan Bank.', 'error');
+      showBookingAlert('Sila masukkan No. Rujukan Bank. / Enter the bank reference number.');
       return;
     }
     if (!selectedPond) return;
     if (!selectedCompetition?.id) {
-      addToast('Sila pilih pertandingan terlebih dahulu.', 'error');
+      showBookingAlert('Sila pilih pertandingan terlebih dahulu.');
       return;
     }
 
@@ -511,18 +528,18 @@ const AppContent: React.FC = () => {
 
   const handleReceiptChange = (file: File) => {
     if (!isAllowedReceiptFile(file)) {
-      addToast(RECEIPT_TYPE_ERROR, 'error');
+      showBookingAlert(RECEIPT_TYPE_ERROR);
       return;
     }
     const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     const MAX_PDF = 10 * 1024 * 1024; // 10 MB
     const MAX_IMG = 15 * 1024 * 1024; // 15 MB (raw; images are compressed after)
     if (isPdf && file.size > MAX_PDF) {
-      addToast('Fail PDF terlalu besar. Maksimum 10MB. / PDF too large (max 10MB).', 'error');
+      showBookingAlert('Fail PDF terlalu besar. Maksimum 10MB. / PDF too large (max 10MB).');
       return;
     }
     if (!isPdf && file.size > MAX_IMG) {
-      addToast('Fail imej terlalu besar. Maksimum 15MB. / Image too large (max 15MB).', 'error');
+      showBookingAlert('Fail imej terlalu besar. Maksimum 15MB. / Image too large (max 15MB).');
       return;
     }
     // PDFs are stored raw; images go through the shared compressor (tuned for
@@ -1573,6 +1590,7 @@ const AppContent: React.FC = () => {
                           holdExpiresAt={pegHold?.expiresAt || null}
                           holdBusy={holdBusy}
                           onRehold={() => { void tryHoldPegs(); }}
+                          alert={bookingAlertBox}
                         />
                       </div>
                     </>
@@ -1596,6 +1614,7 @@ const AppContent: React.FC = () => {
                     </div>
                   </div>
                   <div className="bk-summary-actions">
+                    {!detailsPhase && bookingAlertBox}
                     {!detailsPhase ? (
                       <button className={`btn btn-red w-full${hintCls('continue')}`} type="button" disabled={!hasSeats || holdBusy} onClick={goToDetails}>
                         <i className={`fa-solid ${holdBusy ? 'fa-spinner fa-spin' : 'fa-arrow-right'}`}></i> Teruskan
@@ -1618,6 +1637,7 @@ const AppContent: React.FC = () => {
             {/* Mobile sticky continue bar */}
             {!detailsPhase && hasSeats && (
               <div className="bk-mobile-continue">
+                {bookingAlertBox}
                 <div>
                   <small>Pancang Dipilih</small>
                   <strong>{selectedSeatCount} pancang · RM{payableNow}</strong>
@@ -1640,6 +1660,7 @@ const AppContent: React.FC = () => {
                       <i className="fa-solid fa-xmark"></i>
                     </button>
                   </div>
+                  {bookingAlertBox}
                   {competitionScopedPonds.length > 1 && (
                     <div className="bk-seat-modal-pond-grid">
                       <div className="bk-pond-grid">
