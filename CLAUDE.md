@@ -107,7 +107,12 @@ missing or malformed (`vite.config.mjs`), to avoid deploying a blank site.
 - Booking integrity: server computes prices/status; `booking-policy.js` validates
   windows/pond/peg limits; `booking-seats.js` handles seat state. Transactions
   claim pegs via deterministic docs in `bookingSeatClaims`; the
-  `releaseBookingSeatClaims` trigger frees claims on cancel/reject.
+  `releaseBookingSeatClaims` trigger frees claims on cancel/reject. Once
+  `systemFlags/seatClaims` exists (set by `scripts/backfill-seat-claims.mjs`)
+  checkout trusts the claims instead of scanning the competition's bookings, so
+  rules forbid reviving cancelled bookings or changing their pegs. "Teruskan"
+  places a 10-minute hold (`/holdPegs`: a claim doc with `holdUid`/`holdExpiresAt`)
+  that blocks other buyers; `/bookingAvailability` lists holds by hashed holder.
 - Roles (`role-policy.js`): `CLIENT`, `STAFF`, `COUNTER_STAFF`, `ADMIN`, `SUPER_ADMIN`,
   stored on `users/{uid}.role` and synced to Auth custom claims by
   `syncUserRoleClaims`. Booking managers = COUNTER_STAFF + admins; only SUPER_ADMIN
