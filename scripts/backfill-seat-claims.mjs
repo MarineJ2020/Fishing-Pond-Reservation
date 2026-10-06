@@ -25,7 +25,7 @@ const api = emulator ? `http://${emulator}/v1/${root}` : `https://firestore.goog
 const loginToken = async () => {
   const cli = process.platform === 'win32' ? ['cmd.exe', ['/c', 'npx', '-y', 'firebase-tools', 'login:list', '--json']] : ['npx', ['-y', 'firebase-tools', 'login:list', '--json']];
   const login = JSON.parse(execFileSync(cli[0], cli[1], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
-  const account = (login.result || []).find((entry) => entry.user?.email === process.env.FIREBASE_ACCOUNT) || (login.result || [])[0];
+  const account = (login.result || []).find((entry) => entry.user?.email === (process.env.FIREBASE_ACCOUNT || 'hello@kolamkelisayang.com.my')) || (login.result || [])[0];
   if (!account?.tokens?.refresh_token) throw new Error('No Firebase CLI login found. Run: npx -y firebase-tools login');
   // Public OAuth client of firebase-tools (same values ship in its source).
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
