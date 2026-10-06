@@ -2598,10 +2598,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     : [];
   const dashMaxRevenue = Math.max(1, ...(dashStats?.byCompetition.map((row) => row.revenue) || [0]));
   const formatRM = (value: number) => `RM ${value.toLocaleString('ms-MY', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-  // Rekod Timbangan: default to the latest event, like every other filter.
+  // Rekod Timbangan: like Rekod Hadiah, open on the most recently ended
+  // competition (an upcoming one has no weigh-ins yet).
   useEffect(() => {
     if (page !== 'all-weigh-ins' || allWeighCompId || competitionsForCms.length === 0) return;
-    const fallback = latestCompetition(competitionsForCms) || competitionsForCms[0];
+    const fallback = latestEndedCompetition(competitionsForCms) || latestCompetition(competitionsForCms) || competitionsForCms[0];
     if (fallback?.id) setAllWeighCompId(fallback.id);
   }, [page, competitionsForCms, allWeighCompId]);
 
