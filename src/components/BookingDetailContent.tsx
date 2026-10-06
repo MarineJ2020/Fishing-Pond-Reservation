@@ -54,6 +54,8 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
   const [docPreviewTitle, setDocPreviewTitle] = useState('Resit Bayaran');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
   const [scoresLoading, setScoresLoading] = useState(false);
+  // Start of the event ("dd/mm/yyyy hh:mm"), short enough to print under a QR.
+  const qrDateLabel = (competitionDateLabel || '').split(' - ')[0];
   const receipts = booking.receipts && booking.receipts.length
     ? booking.receipts
     : (booking.receiptData ? [{
@@ -172,6 +174,20 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
           <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '18px 0' }}>
             ⏳ QR akan tersedia selepas tempahan diluluskan.
           </div>
+        ) : booking.status === 'rejected' || competitionEnded ? (
+          // QR codes stop working once the booking is cancelled or the event is over.
+          <div className="qr-disabled" role="note">
+            <i className="fa-solid fa-lock" aria-hidden="true"></i>
+            <strong>QR tidak lagi sah / QR no longer valid</strong>
+            <span>
+              {booking.status === 'rejected'
+                ? 'Tempahan ini telah dibatalkan. / This booking was cancelled.'
+                : 'Pertandingan ini telah tamat. / This competition has ended.'}
+            </span>
+            <span className="qr-disabled-pegs">
+              {seatEntries.map((entry) => formatSeat(entry.pondCode, entry.seatNum)).join(', ')}
+            </span>
+          </div>
         ) : (
           <>
             <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
@@ -208,8 +224,14 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                       bgColor="#ffffff"
                       fgColor="#112a41"
                     />
-                    <span style={{ fontSize: '.76rem', fontWeight: 700, color: 'var(--navy)', textAlign: 'center' }}>{entry.pondName}</span>
                     <span className="seat-pill">{formatSeat(entry.pondCode, entry.seatNum)}</span>
+                    {/* Printed with the QR so a paper copy carries every detail staff need. */}
+                    <div className="qr-print-details">
+                      <strong>{booking.competitionName || 'Pertandingan'}</strong>
+                      {qrDateLabel && <span>{qrDateLabel}</span>}
+                      <span>Kolam {entry.pondName} · No Pancang {formatSeat(entry.pondCode, entry.seatNum)}</span>
+                      <span>Ref: {booking.bookingRef || booking.id.slice(0, 8).toUpperCase()}</span>
+                    </div>
                     {checkedIn && (
                       <span style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--green-bright, #16a34a)' }}>
                         ✓ Sudah Check-In

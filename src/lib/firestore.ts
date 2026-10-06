@@ -653,6 +653,8 @@ export interface BookingsPageOptions {
   /** Raw Firestore status values, e.g. ['PENDING_APPROVAL'] or ['APPROVED','CONFIRMED','REJECTED']. */
   statuses: string[];
   balanceStage?: 'review-balance' | 'pending-balance' | 'fully-paid';
+  /** Only this competition (both stored encodings); omit for every competition. */
+  competitionId?: string;
   sortField?: 'createdAt' | 'userName' | 'totalAmount';
   sortDir?: 'asc' | 'desc';
   pageSize?: number;
@@ -722,6 +724,8 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
 
   const clauses: ReturnType<typeof where>[] = [where('status', 'in', opts.statuses)];
   if (opts.balanceStage) clauses.push(where('balanceStage', '==', opts.balanceStage));
+  // Needs the (competitionId, status, sortField) indexes in firestore.indexes.json.
+  if (opts.competitionId) clauses.push(where('competitionId', 'in', [opts.competitionId, doc(db, 'competitions', opts.competitionId)]));
 
   let q = query(collection(db, 'bookings'), ...clauses, orderBy(sortField, sortDir), limit(pageSize + 1));
   if (opts.cursor) q = query(q, startAfter(opts.cursor));

@@ -27,6 +27,31 @@ export function isCompetitionEnded(competition: Partial<Competition> | null | un
   return getCompetitionPhase(competition, now) === 'ended';
 }
 
+const timeOf = (value?: string) => (value ? new Date(value).getTime() : NaN);
+const endOf = (c: Partial<Competition>) => { const end = timeOf(c.endDate); return Number.isNaN(end) ? timeOf(c.startDate) : end; };
+
+/**
+ * The event staff are working on now, used as the default of every CMS
+ * competition filter: the live one (latest start if several), else the next
+ * upcoming one, else the most recently ended one.
+ */
+export function latestCompetition<T extends Partial<Competition>>(competitions: T[], now: number = Date.now()): T | undefined {
+  const list = competitions.filter((c) => c.id);
+  const live = list.filter((c) => getCompetitionPhase(c, now) === 'live')
+    .sort((a, b) => timeOf(b.startDate) - timeOf(a.startDate))[0];
+  if (live) return live;
+  const upcoming = list.filter((c) => getCompetitionPhase(c, now) === 'upcoming')
+    .sort((a, b) => (timeOf(a.startDate) || Infinity) - (timeOf(b.startDate) || Infinity))[0];
+  if (upcoming) return upcoming;
+  return latestEndedCompetition(list, now);
+}
+
+/** Most recently ended competition (Rekod Hadiah default). */
+export function latestEndedCompetition<T extends Partial<Competition>>(competitions: T[], now: number = Date.now()): T | undefined {
+  return competitions.filter((c) => c.id && getCompetitionPhase(c, now) === 'ended')
+    .sort((a, b) => endOf(b) - endOf(a))[0];
+}
+
 export type BookingWindowState = 'none' | 'before' | 'open' | 'after';
 
 /**

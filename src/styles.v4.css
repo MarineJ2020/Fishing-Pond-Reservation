@@ -477,3 +477,13 @@
 
 /* CMS: older bookings loading on demand (dashboard "all", users page). */
 .cms-loading-note { margin: 8px 0 0; font-size: .8rem; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+
+/* Customer QR card: details printed under each QR, and the disabled state. */
+.qr-print-details { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; font-size: .72rem; line-height: 1.35; color: var(--navy); }
+.qr-print-details strong { font-size: .78rem; }
+.qr-print-details span { color: var(--muted); }
+.qr-disabled { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 18px 12px; border-radius: var(--radius-xs); background: var(--cream); border: 1px dashed var(--line); color: var(--navy); }
+.qr-disabled > i { font-size: 1.6rem; color: var(--muted); }
+.qr-disabled span { font-size: .8rem; color: var(--muted); }
+.qr-disabled .qr-disabled-pegs { font-weight: 700; color: var(--navy); }
+@media print { .qr-print-details span { color: #333; } }

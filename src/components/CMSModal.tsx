@@ -52,7 +52,7 @@ import {
   isBookingSeatCheckedIn,
   receiptBankReference,
 } from '../utils/booking';
-import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta, sortCompetitionsLatestFirst } from '../utils/competition';
+import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta, sortCompetitionsLatestFirst, latestCompetition, latestEndedCompetition } from '../utils/competition';
 import { formatWeight, weightSanityWarning } from '../utils/weight';
 import { buildDashboardStats, dashboardRangeBounds, DashboardFilter, DashboardRange } from '../utils/dashboard';
 import { useBooking } from '../context/BookingContext';
@@ -202,6 +202,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [compCreate, setCompCreate] = useState({ ...EMPTY_COMP_CREATE });
   const [compEdit, setCompEdit] = useState<Competition>(comp);
   const [compList, setCompList] = useState<Competition[]>(competitions.length ? competitions : (comp.name ? [comp] : []));
+  // Every competition filter opens on the latest event (live, else next
+  // upcoming, else most recently ended); Rekod Hadiah uses the latest ended.
+  const latestCompId = latestCompetition(compList.length ? compList : competitions)?.id || '';
   const [competitionEditorOpen, setCompetitionEditorOpen] = useState(false);
   // True while the Manage editor is creating a brand-new competition (not yet persisted).
   const [compEditIsNew, setCompEditIsNew] = useState(false);
@@ -245,15 +248,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [allCompFilter, setAllCompFilter] = useState('');
   // Opens on the current competition: "Semua pertandingan" has to load every
   // booking ever, so it only does that when chosen.
-  const [dashFilter, setDashFilterState] = useState<DashboardFilter>({ competitionId: comp.id || '', range: 'all' });
+  const [dashFilter, setDashFilterState] = useState<DashboardFilter>({ competitionId: '', range: 'all' });
   const dashFilterTouched = useRef(false);
   const setDashFilter: React.Dispatch<React.SetStateAction<DashboardFilter>> = (next) => {
     dashFilterTouched.current = true;
     setDashFilterState(next);
   };
-  useEffect(() => {
-    if (!dashFilterTouched.current && comp.id) setDashFilterState((f) => (f.competitionId === comp.id ? f : { ...f, competitionId: comp.id || '' }));
-  }, [comp.id]);
+
   const [allPondFilter, setAllPondFilter] = useState('');
   const [allSortField, setAllSortField] = useState<'createdAt' | 'userName' | 'totalAmount'>('createdAt');
   const [allSortOrder, setAllSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -376,7 +377,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [allWeighAngler, setAllWeighAngler] = useState('');
 
   // Results / Live page state
-  const [resultsCompId, setResultsCompId] = useState<string>(comp.id || '');
+  const [resultsCompId, setResultsCompId] = useState<string>('');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
   const [scanOpen, setScanOpen] = useState(false);
   // Kelulusan badge: only pending bookings that arrived since THIS staff member
@@ -408,10 +409,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [scoreNameFilter, setScoreNameFilter] = useState('');
   const [scorePondFilter, setScorePondFilter] = useState('');
   const [topRecordSelectionKey, setTopRecordSelectionKey] = useState<string | null>(null);
-  const [prizeRecordCompId, setPrizeRecordCompId] = useState<string>(comp.id || '');
+  const [prizeRecordCompId, setPrizeRecordCompId] = useState<string>('');
   const [prizeRecordScores, setPrizeRecordScores] = useState<ScoreEntry[]>([]);
   const [prizeClaims, setPrizeClaims] = useState<PrizeClaim[]>([]);
   const [prizeClaimSaving, setPrizeClaimSaving] = useState<string | null>(null);
+
+  // Apply the latest-event default once competitions are known; later picks by staff stick.
+  const filterDefaultsApplied = useRef(false);
+  useEffect(() => {
+    if (!latestCompId || filterDefaultsApplied.current) return;
+    filterDefaultsApplied.current = true;
+    setApprovalCompFilter((current) => current || latestCompId);
+    setAllCompFilter((current) => current || latestCompId);
+    if (!dashFilterTouched.current) setDashFilterState((f) => (f.competitionId ? f : { ...f, competitionId: latestCompId }));
+  }, [latestCompId]);
 
   // Staff start with bookings of recent/upcoming competitions only; pull in an
   // older event's bookings when a page actually shows it.
@@ -448,7 +459,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const prizeScanStreamRef = useRef<MediaStream | null>(null);
   const prizeScanRafRef = useRef<number | null>(null);
   const prizeScanStartedAtRef = useRef(0);
-  const [prizesCompId, setPrizesCompId] = useState<string>(comp.id || '');
+  const [prizesCompId, setPrizesCompId] = useState<string>('');
   const [prizesEditMode, setPrizesEditMode] = useState(false);
   // Hadiah Khas (Terpantas/Terbanyak) edits independently of the prize-range list.
   const [specialEditMode, setSpecialEditMode] = useState(false);
@@ -694,7 +705,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const options = resultsCompetitionOptions(available);
     const current = options.find((competition) => competition.id === resultsCompId);
     const live = options.find((competition) => getCompetitionPhase(competition) === 'live');
-    const fallback = current && (!live || getCompetitionPhase(current) === 'live') ? current : (live || options[0]);
+    const fallback = current && (!live || getCompetitionPhase(current) === 'live') ? current : (live || latestCompetition(options) || options[0]);
     setResultsCompId(fallback?.id || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, competitions, comp]);
@@ -706,7 +717,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       .filter((competition) => getCompetitionPhase(competition) === 'upcoming')
       .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0];
     const live = available.find((competition) => getCompetitionPhase(competition) === 'live');
-    const fallback = live || nearestUpcoming || available[0];
+    const fallback = live || nearestUpcoming || latestCompetition(available) || available[0];
     if (fallback?.id) setCheckinCompetitionId(fallback.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
@@ -727,7 +738,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     if (page !== 'prizes') return;
     const current = compList.find(c => c.id === prizesCompId);
     if (current) return;
-    const fallback = compList[0];
+    const fallback = latestCompetition(compList) || compList[0];
     if (fallback?.id) setPrizesCompId(fallback.id);
   }, [page, prizesCompId, compList]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -743,7 +754,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       .filter((competition) => competition.id && getCompetitionPhase(competition) === 'ended')
       .sort((a, b) => new Date(b.endDate || b.startDate).getTime() - new Date(a.endDate || a.startDate).getTime());
     const current = ended.find((competition) => competition.id === prizeRecordCompId);
-    const fallback = current || ended[0] || available.find((competition) => competition.id === prizeRecordCompId) || available[0];
+    const fallback = current || latestEndedCompetition(ended) || available.find((competition) => competition.id === prizeRecordCompId) || available[0];
     if (fallback?.id && fallback.id !== prizeRecordCompId) setPrizeRecordCompId(fallback.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, competitions, comp]);
@@ -1273,6 +1284,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     try {
       const result = await getBookingsPage({
         statuses: ['PENDING_APPROVAL'],
+        competitionId: approvalCompFilter || undefined,
         sortField: approvalSortField,
         sortDir: approvalsSortOrder,
         pageSize: 50,
@@ -1317,7 +1329,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setKelulusanCursors([null]);
     fetchKelulusanPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, approvalSortField, approvalsSortOrder]);
+  }, [page, approvalSortField, approvalsSortOrder, approvalCompFilter]);
 
   // ── Semua Tempahan (decided: confirmed/rejected) paginated fetch ────────
   // Same competition/search-stay-client-side reasoning as Kelulusan.
@@ -1332,6 +1344,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         : ['APPROVED', 'CONFIRMED'];
       const result = await getBookingsPage({
         statuses,
+        competitionId: allCompFilter || undefined,
         sortField: allSortField,
         sortDir: allSortOrder,
         pageSize: 50,
@@ -1425,6 +1438,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       while (hasMore) {
         const result = await getBookingsPage({
           statuses,
+          competitionId: allCompFilter || undefined,
           sortField: 'userName',
           sortDir: 'asc',
           pageSize: 200,
@@ -1521,7 +1535,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setAllCursors([null]);
     fetchAllTempahanPage(null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, allStatus, allSortField, allSortOrder]);
+  }, [page, allStatus, allSortField, allSortOrder, allCompFilter]);
 
   // Refetch whichever list is currently on-screen after a mutation — the
   // OTHER list (if the booking just moved between them) picks up the change
@@ -2584,15 +2598,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     : [];
   const dashMaxRevenue = Math.max(1, ...(dashStats?.byCompetition.map((row) => row.revenue) || [0]));
   const formatRM = (value: number) => `RM ${value.toLocaleString('ms-MY', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-  // Rekod Timbangan: default to the live competition, or (since an
-  // upcoming one has no weigh-ins yet) the most recently *ended* one instead.
+  // Rekod Timbangan: default to the latest event, like every other filter.
   useEffect(() => {
     if (page !== 'all-weigh-ins' || allWeighCompId || competitionsForCms.length === 0) return;
-    const live = competitionsForCms.find((c) => getCompetitionPhase(c) === 'live');
-    const mostRecentEnded = competitionsForCms
-      .filter((c) => getCompetitionPhase(c) === 'ended')
-      .sort((a, b) => new Date(b.endDate || b.startDate).getTime() - new Date(a.endDate || a.startDate).getTime())[0];
-    const fallback = live || mostRecentEnded || competitionsForCms[0];
+    const fallback = latestCompetition(competitionsForCms) || competitionsForCms[0];
     if (fallback?.id) setAllWeighCompId(fallback.id);
   }, [page, competitionsForCms, allWeighCompId]);
 
@@ -3050,8 +3059,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </div>
                     </>
                   )}
-                  {(dashFilter.competitionId !== (comp.id || '') || dashFilter.range !== 'all') && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => setDashFilter({ competitionId: comp.id || '', range: 'all' })}>Set semula</button>
+                  {(dashFilter.competitionId !== latestCompId || dashFilter.range !== 'all') && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setDashFilter({ competitionId: latestCompId, range: 'all' })}>Set semula</button>
                   )}
                 </div>
                 {extraBookingsLoading && (
@@ -3657,7 +3666,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="cms-filter-row">
                 <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, no resit..." value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} /></div>
                 <div className="field"><label>Pertandingan</label><select className="form-input" value={approvalCompFilter} onChange={e => setApprovalCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
-                <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalSearch(''); setApprovalCompFilter(''); }}>Reset</button></div>
+                <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalSearch(''); setApprovalCompFilter(latestCompId); }}>Reset</button></div>
               </div>
 
               <div className="card"><div className="card-body"><div className="table-wrap"><table>
@@ -3823,7 +3832,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <button className="btn btn-primary btn-sm" disabled={!allCompFilter || allExporting} onClick={handleExportAllBookingsCsv}>
                     {allExporting ? 'Export...' : 'Export CSV'}
                   </button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(''); setAllPondFilter(''); }}>Reset</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(latestCompId); setAllPondFilter(''); }}>Reset</button>
                 </div>
               </div>
 
