@@ -418,6 +418,8 @@ export interface DB {
   availability: Pick<Booking, 'competitionId' | 'pondId' | 'seats' | 'pondSelections' | 'status'>[];
   /** Pegs on a 10-minute payment hold (from /bookingAvailability). */
   holds?: import('./utils/pegHolds').PegHold[];
+  /** Staff only: competition ids whose bookings were loaded up front (recent/upcoming). Others load on demand. */
+  bookingScope?: string[] | null;
   ponds: Pond[];
   bookings: Booking[];
   scores: Record<number, Score>;

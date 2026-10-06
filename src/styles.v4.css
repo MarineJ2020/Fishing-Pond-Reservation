@@ -474,3 +474,6 @@
 .peg-hold-banner.expired { background: var(--amber-pale); border-color: var(--amber); }
 .peg-hold-banner.expired > i { color: var(--amber); }
 .peg-hold-banner .btn { align-self: flex-start; margin-top: 4px; }
+
+/* CMS: older bookings loading on demand (dashboard "all", users page). */
+.cms-loading-note { margin: 8px 0 0; font-size: .8rem; color: var(--muted); display: flex; gap: 8px; align-items: center; }

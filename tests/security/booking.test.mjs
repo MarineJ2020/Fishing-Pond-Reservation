@@ -73,6 +73,19 @@ test('private booking reads: owner encodings, staff and admin succeed; anonymous
     await assertSucceeds(getDocs(collection(firestoreFor(staff), 'bookings')));
 });
 
+test('CMS scoped booking loads: staff may query by competition and refund type, customers may not', async () => {
+    const byCompetition = (context) => query(collection(firestoreFor(context), 'bookings'), where('competitionId', 'in', ['past', doc(firestoreFor(context), 'competitions', 'past')]));
+    const refunds = (context) => query(collection(firestoreFor(context), 'bookings'), where('cancelType', '==', 'refund'));
+    for (const context of [staff, admin]) {
+        await assertSucceeds(getDocs(byCompetition(context)));
+        await assertSucceeds(getDocs(refunds(context)));
+    }
+    for (const context of [owner, other, guest]) {
+        await assertFails(getDocs(byCompetition(context)));
+        await assertFails(getDocs(refunds(context)));
+    }
+});
+
 test('user account list is admin-only while users can read their own profile', async () => {
     await assertSucceeds(getDoc(doc(firestoreFor(staff), 'users', 'staff')));
     await assertFails(getDoc(doc(firestoreFor(staff), 'users', 'owner')));

@@ -439,6 +439,18 @@ const AppContent: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingPhase, user?.uid, user?.emailVerified, user?.role, pegHold, selectedSeatCount]);
 
+  // Staff only hold recent competitions' bookings in memory, so a link to an
+  // older booking fetches that one document (1 read) before saying "not found".
+  const [detailFetching, setDetailFetching] = useState(false);
+  const detailFetchRef = useRef('');
+  useEffect(() => {
+    if (currentSection !== 'bookingDetail' || !bookingDetailId || !user || bookingsLoading) return;
+    if (db.bookings.some((b) => b.id === bookingDetailId) || detailFetchRef.current === bookingDetailId) return;
+    detailFetchRef.current = bookingDetailId;
+    setDetailFetching(true);
+    void refreshBooking(bookingDetailId).finally(() => setDetailFetching(false));
+  }, [currentSection, bookingDetailId, user, bookingsLoading, db.bookings, refreshBooking]);
+
   const handleSubmitBooking = async () => {
     if (bookingSubmitting) return;
     if (!user) {
@@ -1902,7 +1914,7 @@ const AppContent: React.FC = () => {
         );
       }
       case 'bookingDetail': {
-        if (!authReady || bookingsLoading) {
+        if (!authReady || bookingsLoading || detailFetching) {
           return (
             <div style={{ textAlign: 'center', padding: '6rem 2rem', color: 'var(--text-muted)' }}>
               <div style={{ fontSize: '2rem', marginBottom: '1rem' }}><i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i></div>

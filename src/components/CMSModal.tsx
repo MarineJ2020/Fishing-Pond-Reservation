@@ -54,7 +54,9 @@ import {
 } from '../utils/booking';
 import { getCompetitionPhase, isCompetitionEnded, isBookingOpen, getCompetitionCmsStatus, getCompetitionCmsStatusMeta, sortCompetitionsLatestFirst } from '../utils/competition';
 import { formatWeight, weightSanityWarning } from '../utils/weight';
-import { buildDashboardStats, DashboardFilter, DashboardRange } from '../utils/dashboard';
+import { buildDashboardStats, dashboardRangeBounds, DashboardFilter, DashboardRange } from '../utils/dashboard';
+import { useBooking } from '../context/BookingContext';
+import { RECENT_COMPETITION_DAYS } from '../lib/firestore';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { prizeRange, formatDate } from '../utils';
@@ -241,7 +243,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [bookingSearch, setBookingSearch] = useState('');
   const [allStatus, setAllStatus] = useState<'all' | 'confirmed' | 'cancelled'>('all');
   const [allCompFilter, setAllCompFilter] = useState('');
-  const [dashFilter, setDashFilter] = useState<DashboardFilter>({ competitionId: '', range: 'all' });
+  // Opens on the current competition: "Semua pertandingan" has to load every
+  // booking ever, so it only does that when chosen.
+  const [dashFilter, setDashFilterState] = useState<DashboardFilter>({ competitionId: comp.id || '', range: 'all' });
+  const dashFilterTouched = useRef(false);
+  const setDashFilter: React.Dispatch<React.SetStateAction<DashboardFilter>> = (next) => {
+    dashFilterTouched.current = true;
+    setDashFilterState(next);
+  };
+  useEffect(() => {
+    if (!dashFilterTouched.current && comp.id) setDashFilterState((f) => (f.competitionId === comp.id ? f : { ...f, competitionId: comp.id || '' }));
+  }, [comp.id]);
   const [allPondFilter, setAllPondFilter] = useState('');
   const [allSortField, setAllSortField] = useState<'createdAt' | 'userName' | 'totalAmount'>('createdAt');
   const [allSortOrder, setAllSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -400,6 +412,27 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [prizeRecordScores, setPrizeRecordScores] = useState<ScoreEntry[]>([]);
   const [prizeClaims, setPrizeClaims] = useState<PrizeClaim[]>([]);
   const [prizeClaimSaving, setPrizeClaimSaving] = useState<string | null>(null);
+
+  // Staff start with bookings of recent/upcoming competitions only; pull in an
+  // older event's bookings when a page actually shows it.
+  const { loadCompetitionBookings, loadAllBookings, loadRefundBookings, extraBookingsLoading } = useBooking();
+  const dashNeedsAll = page === 'dashboard' && !dashFilter.competitionId && (() => {
+    const [start] = dashboardRangeBounds(dashFilter);
+    // Bookings created inside the last RECENT_COMPETITION_DAYS belong to competitions still in range.
+    return start === null || start < Date.now() - RECENT_COMPETITION_DAYS * 24 * 60 * 60 * 1000;
+  })();
+  useEffect(() => {
+    if (!isOpen) return;
+    if (page === 'dashboard') {
+      void loadRefundBookings();
+      if (dashNeedsAll) void loadAllBookings();
+      else void loadCompetitionBookings(dashFilter.competitionId);
+    }
+    if (page === 'users') void loadAllBookings();
+    if (page === 'approvals') void loadCompetitionBookings(approvalCompFilter);
+    if (page === 'checkin') void loadCompetitionBookings(checkinCompetitionId);
+    if (page === 'prize-records') void loadCompetitionBookings(prizeRecordCompId);
+  }, [isOpen, page, dashNeedsAll, dashFilter.competitionId, approvalCompFilter, checkinCompetitionId, prizeRecordCompId, loadAllBookings, loadCompetitionBookings, loadRefundBookings]);
   const [prizeRecordSearch, setPrizeRecordSearch] = useState('');
   const [prizeRecordPondFilter, setPrizeRecordPondFilter] = useState('');
   const [prizeRecordStatus, setPrizeRecordStatus] = useState<'all' | 'claimed' | 'pending'>('all');
@@ -3017,10 +3050,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </div>
                     </>
                   )}
-                  {(dashFilter.competitionId || dashFilter.range !== 'all') && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => setDashFilter({ competitionId: '', range: 'all' })}>Set semula</button>
+                  {(dashFilter.competitionId !== (comp.id || '') || dashFilter.range !== 'all') && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setDashFilter({ competitionId: comp.id || '', range: 'all' })}>Set semula</button>
                   )}
                 </div>
+                {extraBookingsLoading && (
+                  <p className="cms-loading-note" role="status"><i className="fa-solid fa-spinner fa-spin"></i> Memuatkan tempahan pertandingan lama… / Loading older bookings…</p>
+                )}
               </div>
               <div className="stats-grid">
                 <div className="stat-card stat-accent"><div className="stat-label">Jumlah Tempahan</div><div className="stat-value">{dashStats.total}</div><div className="stat-change">Termasuk dibatalkan ({dashStats.cancelled})</div></div>
@@ -5307,6 +5343,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             );
           })()}
+          {page === 'users' && extraBookingsLoading && (
+            <p className="cms-loading-note" role="status"><i className="fa-solid fa-spinner fa-spin"></i> Mengira tempahan setiap pengguna… / Counting bookings per user…</p>
+          )}
           {page === 'users' && (() => {
             // Derive the real email: self-service bookings store the Firebase UID in
             // userId (not human-readable), so prefer userEmail and fall back to a

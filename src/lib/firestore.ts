@@ -48,9 +48,49 @@ const withTimeout = async <T,>(promise: Promise<T>, ms: number, message: string)
   }
 };
 
-const getVisibleBookingDocs = async () => {
+// Staff used to read every booking ever on each CMS load, which grows with
+// every event. Now they load only competitions that are upcoming or ended in
+// the last RECENT_COMPETITION_DAYS days (plus their own bookings); older
+// events load on demand (loadCompetitionBookingDocs / loadAllBookingDocs).
+export const RECENT_COMPETITION_DAYS = 30;
+
+const competitionEndMillis = (data: DocumentData) => {
+  const value = data.endDate ?? data.eventDate ?? data.startDate;
+  if (!value) return NaN;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  return new Date(value).getTime();
+};
+
+/** Competition ids whose bookings staff load up front. */
+export const recentCompetitionIds = (competitionDocs: Array<{ id: string; data: () => DocumentData }>, now = Date.now()) =>
+  competitionDocs
+    .filter((snap) => {
+      const end = competitionEndMillis(snap.data());
+      return !Number.isFinite(end) || end >= now - RECENT_COMPETITION_DAYS * 24 * 60 * 60 * 1000;
+    })
+    .map((snap) => snap.id);
+
+/** Bookings of these competitions, matching both stored competitionId encodings. */
+export const getBookingDocsForCompetitions = async (competitionIds: string[]) => {
+  const chunks = Array.from({ length: Math.ceil(competitionIds.length / 15) }, (_, i) => competitionIds.slice(i * 15, i * 15 + 15));
+  const snaps = await Promise.all(chunks.map((ids) => getDocs(query(
+    collection(db, 'bookings'),
+    where('competitionId', 'in', ids.flatMap((id) => [id, doc(db, 'competitions', id)])),
+  ))));
+  return snaps.flatMap((snap) => snap.docs);
+};
+
+export const getAllBookingDocs = async () => (await getDocs(collection(db, 'bookings'))).docs;
+
+/** Cancelled-with-refund bookings from any event (dashboard "refunds owed"). */
+export const getRefundBookingDocs = async () =>
+  (await getDocs(query(collection(db, 'bookings'), where('cancelType', '==', 'refund')))).docs;
+
+const getVisibleBookingDocs = async (
+  competitionDocsPromise?: Promise<Array<{ id: string; data: () => DocumentData }>>,
+): Promise<{ docs: QueryDocumentSnapshot<DocumentData>[]; scope: string[] | null }> => {
   const user = auth.currentUser;
-  if (!user) return [];
+  if (!user) return { docs: [], scope: null };
   const profilePromise = getDoc(doc(db, 'users', user.uid));
   const ownerValues: unknown[] = [user.uid, doc(db, 'users', user.uid)];
   if (user.emailVerified && user.email) ownerValues.push(user.email);
@@ -58,9 +98,15 @@ const getVisibleBookingDocs = async () => {
   if (user.emailVerified && user.email) requests.push(getDocs(query(collection(db, 'bookings'), where('userEmail', '==', user.email))));
   const ownerBookingsPromise = Promise.all(requests);
   const profile = await profilePromise;
-  if (isStaffRole(profile.data()?.role)) return (await getDocs(collection(db, 'bookings'))).docs;
-  const snapshots = await ownerBookingsPromise;
-  return [...new Map(snapshots.flatMap((snap) => snap.docs).map((snap) => [snap.id, snap])).values()];
+  const ownDocs = (await ownerBookingsPromise).flatMap((snap) => snap.docs);
+  let scope: string[] | null = null;
+  let staffDocs: QueryDocumentSnapshot<DocumentData>[] = [];
+  if (isStaffRole(profile.data()?.role)) {
+    const competitionDocs = await (competitionDocsPromise ?? getDocs(collection(db, 'competitions')).then((snap) => snap.docs));
+    scope = recentCompetitionIds(competitionDocs);
+    staffDocs = scope.length ? await getBookingDocsForCompetitions(scope) : [];
+  }
+  return { docs: [...new Map([...staffDocs, ...ownDocs].map((snap) => [snap.id, snap])).values()], scope };
 };
 
 // buildBooking needs seat docs only for legacy bookings that stored seatIds
@@ -569,7 +615,7 @@ export const getBookings = async (
     bookingDocs?: QueryDocumentSnapshot<DocumentData>[];
   }
 ): Promise<Booking[]> => {
-  const bookingDocs = preFetched?.bookingDocs ?? await getVisibleBookingDocs();
+  const bookingDocs = preFetched?.bookingDocs ?? (await getVisibleBookingDocs()).docs;
 
   const ponds = preFetched?.ponds ?? await getPondsWithSeats();
   const pondMap = new Map<string, Pond>();
@@ -709,12 +755,14 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void, opts: { fresh
         console.error('Failed to load availability:', error);
         return { availability: [], availabilityError: true };
       });
-    const [pondDocs, competitionSnapshot, bookingDocs, settings] = await Promise.all([
+    const competitionSnapshotPromise = getDocs(collection(db, 'competitions'));
+    const [pondDocs, competitionSnapshot, visible, settings] = await Promise.all([
       opts.fresh ? getDocs(collection(db, 'ponds')).then((snap) => snap.docs) : getPublicPondDocs(),
-      getDocs(collection(db, 'competitions')),
-      getVisibleBookingDocs(),
+      competitionSnapshotPromise,
+      getVisibleBookingDocs(competitionSnapshotPromise.then((snap) => snap.docs)),
       getSettings(),
     ]);
+    const bookingDocs = visible.docs;
 
     const ponds = await getPondsWithSeats({ pondDocs });
     const competitions = await getCompetitions(competitionSnapshot.docs);
@@ -756,6 +804,7 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void, opts: { fresh
       competitions: competitions.length ? competitions : [competition],
       settings,
       users: [],
+      bookingScope: visible.scope,
     };
     onCoreLoaded?.(core);
 

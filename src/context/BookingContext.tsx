@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, ReactNode, useCallback, use
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { DB, User, Pond, Booking, BookingPondSelection, Settings } from '../types';
 import { emptyDB, setDB } from '../data';
-import { getBookingById, loadAppDB, subscribeSettings } from '../lib/firestore';
+import { getAllBookingDocs, getBookingById, getBookingDocsForCompetitions, getBookings, getRefundBookingDocs, loadAppDB, subscribeSettings } from '../lib/firestore';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { createBooking as createBookingApi, holdPegs as holdPegsApi, releaseHold as releaseHoldApi } from '../lib/api';
 import { heldPegKeys, holderKeyFor } from '../utils/pegHolds';
 import { getTurnstileToken } from '../lib/turnstile';
@@ -64,7 +65,27 @@ interface BookingContextType {
   releaseHeldPegs: () => void;
   /** Holder key of the signed-in user, so their own holds don't show as taken. */
   myHolderKey: string | null;
+  /** Staff: load an older competition's bookings into db.bookings (no-op if already loaded). */
+  loadCompetitionBookings: (competitionId: string | null | undefined) => Promise<void>;
+  /** Staff: load every booking (dashboard "all competitions", user booking counts). */
+  loadAllBookings: () => Promise<void>;
+  /** Staff: load cancelled-with-refund bookings from every event (refunds owed). */
+  loadRefundBookings: () => Promise<void>;
+  /** True while one of the on-demand loads above is running. */
+  extraBookingsLoading: boolean;
 }
+
+// On-demand staff loads are reused for this long before being re-read.
+const EXTRA_BOOKINGS_TTL_MS = 5 * 60 * 1000;
+
+/** `incoming` replaces same-id bookings in `current` and adds the rest. */
+const mergeBookings = (current: Booking[], incoming: Booking[]) => {
+  if (!incoming.length) return current;
+  const byId = new Map(incoming.map((booking) => [booking.id, booking]));
+  const merged = current.map((booking) => byId.get(booking.id) ?? booking);
+  const present = new Set(current.map((booking) => booking.id));
+  return [...merged, ...incoming.filter((booking) => !present.has(booking.id))];
+};
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
@@ -99,15 +120,27 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [dbLoading, setDbLoading] = useState(true);
   const [bookingsLoading, setBookingsLoading] = useState(true);
   const liveSettings = useRef<Settings | null>(null);
+  // Bookings staff loaded on demand (older events). Kept apart so a reload of
+  // the recent-events list (reloadDB after every CMS edit) doesn't drop them.
+  const extraBookings = useRef(new Map<string, Booking>());
+  const extraLoadedAt = useRef(new Map<string, number>());
+  const [extraLoads, setExtraLoads] = useState(0);
+  const dbRef = useRef(db);
+  dbRef.current = db;
+  const withExtras = (bookings: Booking[]) => {
+    const present = new Set(bookings.map((booking) => booking.id));
+    return [...bookings, ...[...extraBookings.current.values()].filter((booking) => !present.has(booking.id))];
+  };
 
   // A live snapshot wins over initial loads/reloads already in flight.
   const applyLoadedDB = useCallback((loaded: DB) => {
-    setDbState({ ...loaded, settings: liveSettings.current ?? loaded.settings });
+    setDbState({ ...loaded, bookings: withExtras(loaded.bookings), settings: liveSettings.current ?? loaded.settings });
   }, []);
 
   const applyCoreLoadedDB = useCallback((loaded: DB) => {
     setDbState({
       ...loaded,
+      bookings: withExtras(loaded.bookings),
       settings: liveSettings.current ?? loaded.settings,
     });
   }, []);
@@ -126,6 +159,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     let generation = 0;
     const unsubscribe = onAuthStateChanged(auth, async () => {
       const current = ++generation;
+      extraBookings.current.clear();
+      extraLoadedAt.current.clear();
       setDbState((previous) => ({ ...previous, bookings: [], users: [] }));
       setDbLoading(true);
       setBookingsLoading(true);
@@ -158,6 +193,10 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const refreshBooking = useCallback(async (bookingId: string) => {
     try {
       const fresh = await getBookingById(bookingId, db.competitions);
+      // Keep bookings outside the staff's recent-competition scope across reloads.
+      const scope = dbRef.current.bookingScope;
+      if (fresh && (extraBookings.current.has(bookingId) || (scope && !scope.includes(fresh.competitionId || '')))) extraBookings.current.set(bookingId, fresh);
+      if (!fresh) extraBookings.current.delete(bookingId);
       setDbState((current) => {
         const rest = current.bookings.filter((booking) => booking.id !== bookingId);
         if (!fresh) return { ...current, bookings: rest };
@@ -435,6 +474,32 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     return booking;
   }, [user, selectedPondSeats, receiptData, receiptFile, bankReference, bookingNotes, contactPhone, adminProxyName, adminProxyEmail, adminProxyPhone, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
 
+  const loadExtraBookings = useCallback(async (key: string, fetchDocs: () => Promise<QueryDocumentSnapshot<DocumentData>[]>) => {
+    if (!isStaffRole(user?.role) || !dbRef.current.bookingScope) return;
+    const loadedAt = extraLoadedAt.current.get(key);
+    if (loadedAt && Date.now() - loadedAt < EXTRA_BOOKINGS_TTL_MS) return;
+    extraLoadedAt.current.set(key, Date.now());
+    setExtraLoads((n) => n + 1);
+    try {
+      const { competitions, ponds } = dbRef.current;
+      const loaded = await getBookings(undefined, competitions, { ponds, bookingDocs: await fetchDocs() });
+      loaded.forEach((booking) => extraBookings.current.set(booking.id, booking));
+      setDbState((current) => ({ ...current, bookings: mergeBookings(current.bookings, loaded) }));
+    } catch (err) {
+      extraLoadedAt.current.delete(key);
+      console.error(`Loading bookings (${key}) failed:`, err);
+    } finally {
+      setExtraLoads((n) => n - 1);
+    }
+  }, [user?.role]);
+
+  const loadCompetitionBookings = useCallback(async (competitionId: string | null | undefined) => {
+    if (!competitionId || dbRef.current.bookingScope?.includes(competitionId) || extraLoadedAt.current.has('*all')) return;
+    await loadExtraBookings(`comp:${competitionId}`, () => getBookingDocsForCompetitions([competitionId]));
+  }, [loadExtraBookings]);
+  const loadAllBookings = useCallback(() => loadExtraBookings('*all', getAllBookingDocs), [loadExtraBookings]);
+  const loadRefundBookings = useCallback(() => loadExtraBookings('*refunds', getRefundBookingDocs), [loadExtraBookings]);
+
   const holdSelectedPegs = useCallback(async () => {
     const competitionId = selectedCompetitionId || db.comp.id || '';
     const pondSelections = Object.entries(selectedPondSeats)
@@ -500,6 +565,10 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         holdSelectedPegs,
         releaseHeldPegs,
         myHolderKey,
+        loadCompetitionBookings,
+        loadAllBookings,
+        loadRefundBookings,
+        extraBookingsLoading: extraLoads > 0,
       }}
     >
       {children}
