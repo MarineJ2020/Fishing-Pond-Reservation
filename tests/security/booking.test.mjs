@@ -11,7 +11,9 @@ const projectId = 'demo-kks-security';
 process.env.GCLOUD_PROJECT = projectId;
 process.env.FIREBASE_CONFIG = JSON.stringify({ projectId, storageBucket: `${projectId}.appspot.com` });
 const { adminDb, adminAuth } = await import('../../functions/src/auth-utils.js');
-const { createSecureBooking, updateCustomerReceipt, registerBookingRoutes, releaseClaims } = await import('../../functions/src/booking-service.js');
+const { createSecureBooking, updateCustomerReceipt, registerBookingRoutes, releaseClaims, ensureClaims, seatClaimsFlagRef } = await import('../../functions/src/booking-service.js');
+const { execFileSync } = await import('node:child_process');
+const { fileURLToPath } = await import('node:url');
 const requireFunctions = createRequire(new URL('../../functions/src/index.js', import.meta.url));
 const express = requireFunctions('express');
 let server;
@@ -50,7 +52,7 @@ before(async () => {
         const db = firestoreFor(context);
         for (const [uid, role] of [['owner', 'CLIENT'], ['other', 'CLIENT'], ['staff', 'STAFF'], ['admin', 'ADMIN']]) await setDoc(doc(db, 'users', uid), { role, email: `${uid}@example.com` });
         for (const [id, userId] of [['uid', 'owner'], ['email', user.email], ['reference', doc(db, 'users', 'owner')]]) {
-            await setDoc(doc(db, 'bookings', id), { userId, userEmail: user.email, status: 'APPROVED', totalAmount: 200, paidAmount: 100, receipts: [{ url: 'legacy', amount: 100, status: 'accepted' }] });
+            await setDoc(doc(db, 'bookings', id), { userId, userEmail: user.email, status: 'APPROVED', amount: 200, totalAmount: 200, paidAmount: 100, receipts: [{ url: 'legacy', amount: 100, status: 'accepted' }] });
         }
         await setDoc(doc(db, 'eventResults', 'winner'), { competitionId: 'past', anglerName: 'Winner', seatNum: 1, weight: 5 });
         await setDoc(doc(db, 'competitions', 'past'), { name: 'Past event' });
@@ -127,7 +129,7 @@ test('new receipts are scoped and immutable; staff review and old receipt previe
     await assertSucceeds(getBytes(ref(owner.storage(), 'fishing-pond-receipts/legacy.jpg')));
 });
 
-const payload = { competitionId: 'open', paymentType: 'deposit', amount: 1, totalAmount: 1, pondId: 1, pondSelections: [{ pondId: 1, seats: [1] }], userEmail: 'forged@example.com', receiptUrl: 'test-proof', bookingPhone: '0123456789', bankReference: 'PAY123' };
+const payload = { competitionId: 'open', paymentType: 'full', amount: 1, totalAmount: 1, pondId: 1, pondSelections: [{ pondId: 1, seats: [1] }], userEmail: 'forged@example.com', receiptUrl: 'test-proof', bookingPhone: '0123456789', bankReference: 'PAY123' };
 test('server race: exactly one booking succeeds; authoritative price/identity win; rejected claims can be reused', async () => {
     await adminDb.collection('competitions').doc('open').set({ name: 'Open event', eventDate: new Date(Date.now() + 60000), endDate: new Date(Date.now() + 3600000), pricePerPeg: 101 });
     await adminDb.collection('ponds').doc('1').set({ name: 'Pond 1', totalSeats: 3, open: true });
@@ -138,7 +140,7 @@ test('server race: exactly one booking succeeds; authoritative price/identity wi
     const result = outcomes.find((outcome) => outcome.status === 'fulfilled').value;
     const bookingRef = adminDb.collection('bookings').doc(result.bookingId);
     const booking = (await bookingRef.get()).data();
-    assert.equal(booking.amount, 51);
+    assert.equal(booking.amount, 101);
     assert.equal(booking.totalAmount, 101);
     assert.notEqual(booking.userEmail, 'forged@example.com');
     assert.equal(booking.status, 'PENDING_APPROVAL');
@@ -218,7 +220,7 @@ test('HTTP booking and receipt flows validate real uploaded files, authenticatio
     const bookingId = created.body.bookingId;
     const bookingDoc = adminDb.collection('bookings').doc(bookingId);
     const original = (await bookingDoc.get()).data();
-    await bookingDoc.update({ status: 'APPROVED', paidAmount: 51, receipts: [{ ...original.receipts[0], status: 'accepted' }] });
+    await bookingDoc.update({ status: 'APPROVED', paidAmount: 51, receipts: [{ ...original.receipts[0], amount: 51, status: 'accepted' }] });
     assert.equal((await post('/submitBookingReceipt', { bookingId, receiptUrl: urls[1], amount: 50 })).status, 200);
     assert.equal((await post('/replaceBookingReceipt', { bookingId, receiptUrl: urls[2], receiptIndex: 0 })).status, 409);
     const current = (await bookingDoc.get()).data();
@@ -243,4 +245,68 @@ test('public availability endpoint exposes only non-sensitive seat occupancy', a
     }
     assert.equal(JSON.stringify(availability).includes('owner@example.com'), false);
     assert.equal(JSON.stringify(availability).includes('test-proof'), false);
+});
+
+// Runs last: switches checkout to claim mode via the real backfill script.
+test('claim mode: backfill protects old bookings, concurrent checkouts never double-book, revivals are blocked', async () => {
+    const comp = { name: 'Claims event', eventDate: new Date(Date.now() + 60000), endDate: new Date(Date.now() + 3600000), pricePerPeg: 20, pondSeats: { 2: 4 } };
+    await adminDb.collection('competitions').doc('claims').set(comp);
+    await adminDb.collection('ponds').doc('2').set({ name: 'Pond 2', totalSeats: 5, open: true });
+    for (let num = 1; num <= 5; num++) await adminDb.collection('seats').doc(`p2-seat-${num}`).set({ pondId: '2', seatNumber: num, price: 20 });
+    const full = { ...payload, competitionId: 'claims', pondId: 2 };
+    const peg = (seats) => ({ ...full, pondSelections: [{ pondId: 2, seats }] });
+    const customer = (n) => ({ uid: `buyer-${n}`, email: `buyer-${n}@example.com`, email_verified: true });
+    // Pre-claim bookings: one with numbers, one legacy seatIds-only, one rejected.
+    await adminDb.collection('bookings').doc('old-numbers').set({ competitionId: adminDb.collection('competitions').doc('claims'), pondId: 2, seatNumbers: [1], status: 'CONFIRMED', userId: 'x' });
+    await adminDb.collection('bookings').doc('old-seatids').set({ competitionId: 'claims', pondId: '2', seatIds: ['p2-seat-2'], status: 'pending', userId: 'y' });
+    await adminDb.collection('bookings').doc('old-rejected').set({ competitionId: 'claims', pondId: 2, seatNumbers: [3], status: 'REJECTED', userId: 'z' });
+
+    const script = new URL('../../scripts/backfill-seat-claims.mjs', import.meta.url);
+    const dry = execFileSync(process.execPath, [fileURLToPath(script)], { encoding: 'utf8', env: { ...process.env, FIREBASE_PROJECT_ID: projectId } });
+    assert.match(dry, /DRY RUN/);
+    assert.equal((await seatClaimsFlagRef(adminDb).get()).exists, false, 'dry run must not enable claim mode');
+    execFileSync(process.execPath, [fileURLToPath(script), '--confirm'], { encoding: 'utf8', env: { ...process.env, FIREBASE_PROJECT_ID: projectId } });
+    assert.equal((await seatClaimsFlagRef(adminDb).get()).exists, true);
+
+    // Old bookings block their pegs through the backfilled claims; the rejected one does not.
+    await assert.rejects(createSecureBooking(adminDb, peg([1]), customer(1)), { status: 409 });
+    await assert.rejects(createSecureBooking(adminDb, peg([2]), customer(1)), { status: 409 });
+    await createSecureBooking(adminDb, peg([3]), customer(1));
+
+    // Eight buyers race for peg 4: exactly one wins.
+    const race = await Promise.allSettled(Array.from({ length: 8 }, (_, n) => createSecureBooking(adminDb, peg([4]), customer(10 + n))));
+    assert.equal(race.filter((r) => r.status === 'fulfilled').length, 1, JSON.stringify(race.map((r) => r.reason?.message)));
+    // Overlapping multi-peg bookings: at most one of [3,4] / [4] style overlaps can win.
+    await assert.rejects(createSecureBooking(adminDb, peg([3, 4]), customer(30)), { status: 409 });
+    // Cap 4 from pondSeats and missing seat docs still reject.
+    await assert.rejects(createSecureBooking(adminDb, peg([5]), customer(31)), /tidak tersedia/);
+    await assert.rejects(createSecureBooking(adminDb, peg([9]), customer(31)), /tidak tersedia/);
+    // Pending limit still counts the buyer's own bookings.
+    await adminDb.collection('competitions').doc('claims').update({ maxPendingBookingsPerUser: 1, pondSeats: { 2: 5 } });
+    await assert.rejects(createSecureBooking(adminDb, peg([5]), customer(1)), { status: 429 });
+
+    // Only one booking per peg is live.
+    const live = (await adminDb.collection('bookings').where('competitionId', '==', 'claims').get()).docs
+        .filter((d) => ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'pending'].includes(d.data().status));
+    const pegs = live.flatMap((d) => (d.data().pondSelections || []).flatMap((g) => g.seats));
+    assert.equal(new Set(pegs).size, pegs.length);
+
+    // Clients cannot revive a cancelled booking or move pegs; cancelling still works.
+    const winner = live.find((d) => d.data().pondSelections?.[0]?.seats.includes(4));
+    await assertSucceeds(updateDoc(doc(firestoreFor(admin), 'bookings', winner.id), { status: 'REJECTED' }));
+    await releaseClaims(adminDb, winner.id);
+    await assertFails(updateDoc(doc(firestoreFor(admin), 'bookings', winner.id), { status: 'APPROVED' }));
+    await assertFails(updateDoc(doc(firestoreFor(admin), 'bookings', 'old-seatids'), { pondSelections: [{ pondId: 2, seats: [5] }] }));
+    await assertSucceeds(updateDoc(doc(firestoreFor(admin), 'bookings', 'old-seatids'), { staffNotes: 'still editable' }));
+
+    // A revival by trusted code re-claims only free pegs and never steals one.
+    const resold = await createSecureBooking(adminDb, peg([4]), customer(40));
+    await adminDb.collection('bookings').doc(winner.id).update({ status: 'APPROVED' });
+    assert.equal((await ensureClaims(adminDb, winner.id)).conflicts.length, 1);
+    await assert.rejects(createSecureBooking(adminDb, peg([4]), customer(41)), { status: 409 });
+    const claim = (await adminDb.collection('bookingSeatClaims').where('bookingId', '==', resold.bookingId).get()).size;
+    assert.equal(claim, 1, 'the resold booking keeps its claim');
+    await adminDb.collection('bookings').doc('old-rejected').update({ status: 'APPROVED' });
+    assert.equal((await ensureClaims(adminDb, 'old-rejected')).conflicts.length, 1, 'peg 3 was rebooked after rejection');
+    await seatClaimsFlagRef(adminDb).delete();
 });

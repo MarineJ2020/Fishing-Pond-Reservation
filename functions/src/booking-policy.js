@@ -87,6 +87,15 @@ export function bookingSelections(booking, ponds, seats) {
     });
 }
 
+// The pegs a booking holds, keyed the way checkout keys bookingSeatClaims docs.
+export function bookingPegs(booking, ponds, seats) {
+    return bookingSelections(booking, ponds, seats).flatMap((group) => {
+        const pond = ponds.find((p) => p.id === group.pondId);
+        if (!pond) return [];
+        return [...new Set(group.seats.map(Number).filter(Number.isInteger))].map((num) => ({ pondDocId: pond.docId, num }));
+    });
+}
+
 // Seat doc ids that bookingSelections must resolve because a legacy selection
 // stored only seatIds and no seat numbers.
 export function legacySeatIds(booking) {
@@ -104,9 +113,15 @@ export function validateSelections(payload, competition, ponds) {
     const selected = requested.map((group) => {
         const pond = ponds.find((p) => p.id === group.pondId);
         if (!pond || pond.open === false || (competition.activePondIds?.length && !competition.activePondIds.map(refId).includes(pond.docId))) fail('Kolam tidak tersedia.');
-        const allSeats = pond.seats.length ? pond.seats : Array.from({ length: pond.totalSeats || 30 }, (_, i) => ({ seatNumber: i + 1, price: 100 }));
-        const cap = competition.pondSeats?.[pond.docId] ?? competition.pondSeats?.[String(pond.id)] ?? allSeats.length;
-        const allowed = allSeats.slice(0, Math.max(0, Math.floor(cap)));
+        // seatsPartial: checkout loaded only the requested seat docs, so ranking by
+        // position is impossible; pond seats are numbered 1..N (verified by
+        // scripts/backfill-seat-claims.mjs), which makes "first cap seats" == "number <= cap".
+        const hasSeatDocs = pond.seatsPartial ? pond.hasSeatDocs : pond.seats.length > 0;
+        const allSeats = hasSeatDocs ? pond.seats : Array.from({ length: pond.totalSeats || 30 }, (_, i) => ({ seatNumber: i + 1, price: 100 }));
+        const configuredCap = competition.pondSeats?.[pond.docId] ?? competition.pondSeats?.[String(pond.id)];
+        const allowed = pond.seatsPartial && hasSeatDocs
+            ? (configuredCap == null ? allSeats : allSeats.filter((s) => s.seatNumber <= Math.max(0, Math.floor(configuredCap))))
+            : allSeats.slice(0, Math.max(0, Math.floor(configuredCap ?? allSeats.length)));
         if (!Array.isArray(group.seats) || !group.seats.length) fail('No Pancang tidak sah.');
         const selectedSeats = group.seats.map((num) => {
             const seat = allowed.find((s) => s.seatNumber === num);

@@ -21,7 +21,8 @@ import {
 } from './email-service.js';
 import { buildCancelCheckInState, buildCheckInState } from './booking-seats.js';
 import { ADMIN_ROLES, ALLOWED_ROLES, normalizeRole, roleChangeBlockReason } from './role-policy.js';
-import { registerBookingRoutes, releaseClaims } from './booking-service.js';
+import { ensureClaims, registerBookingRoutes, releaseClaims } from './booking-service.js';
+import { occupiesSeats } from './booking-policy.js';
 import { browserFacing, browserFacingWith, regional } from './regions.js';
 
 const app = express();
@@ -187,6 +188,8 @@ app.post('/acquireSeatLock', verifyToken, async (req, res) => {
 
 // Admins accept a single receipt. Recomputes paidAmount, records a payment, and
 // (on the first accepted receipt) confirms the booking + holds the seats.
+const REVIVE_BLOCKED = 'Tempahan ini telah dibatalkan atau ditolak dan No Pancangnya mungkin telah ditempah semula. Sila buat tempahan baharu. / This booking was cancelled or rejected; its pegs may be rebooked. Please make a new booking.';
+
 app.post('/acceptBookingReceipt', verifyToken, requireBookingManager, async (req, res) => {
     const { bookingId, receiptIndex } = req.body;
     if (!bookingId || receiptIndex == null) {
@@ -201,6 +204,8 @@ app.post('/acceptBookingReceipt', verifyToken, requireBookingManager, async (req
         }
 
         const booking = bookingSnap.data();
+        // Reviving a cancelled/rejected booking could double-book its pegs.
+        if (!occupiesSeats(booking)) return res.status(409).json({ error: REVIVE_BLOCKED });
         const receipts = Array.isArray(booking.receipts) ? [...booking.receipts] : [];
         if (receiptIndex < 0 || receiptIndex >= receipts.length) {
             return res.status(400).json({ error: 'Invalid receiptIndex.' });
@@ -323,6 +328,7 @@ app.post('/approveBooking', verifyToken, requireBookingManager, async (req, res)
         }
 
         const booking = bookingSnap.data();
+        if (!occupiesSeats(booking)) return res.status(409).json({ error: REVIVE_BLOCKED });
         await bookingDocRef.update({
             status: 'APPROVED',
             paymentStatus: 'APPROVED',
@@ -607,8 +613,25 @@ app.post('/bookingActivity', verifyToken, requireStaff, async (req, res) => {
 export const api = browserFacingWith({ invoker: 'public', maxInstances: 100, secrets: ['TURNSTILE_SECRET'] }).https.onRequest(app);
 
 // Re-read current state so delayed trigger delivery cannot release a reused peg.
+const PEG_FIELDS = ['competitionId', 'pondId', 'pondSelections', 'seatNumbers', 'seatIds', 'seats'];
+const plainPegValue = (value) => {
+    if (Array.isArray(value)) return value.map(plainPegValue);
+    if (value && typeof value === 'object') {
+        if (typeof value.path === 'string') return value.path;
+        return Object.fromEntries(Object.keys(value).sort().map((key) => [key, plainPegValue(value[key])]));
+    }
+    return value ?? null;
+};
+const pegFingerprint = (data) => JSON.stringify(PEG_FIELDS.map((field) => plainPegValue(data[field])));
 export const releaseBookingSeatClaims = regional.firestore.document('bookings/{bookingId}')
-    .onWrite(async (_change, context) => {
+    .onWrite(async (change, context) => {
+        const before = change.before.exists ? change.before.data() : null;
+        const after = change.after.exists ? change.after.data() : null;
+        // Checkout creates its own claims; re-claim only when an existing booking
+        // was revived or moved by something other than checkout.
+        const revived = before && after && occupiesSeats(after)
+            && (!occupiesSeats(before) || pegFingerprint(before) !== pegFingerprint(after));
+        if (revived) await ensureClaims(adminDb, context.params.bookingId);
         await releaseClaims(adminDb, context.params.bookingId);
         return null;
     });

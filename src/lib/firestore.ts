@@ -1615,6 +1615,7 @@ export const acceptBookingReceiptDirect = async (bookingId: string, receiptIndex
   const snap = await getDoc(bookingRef);
   if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
   const booking = snap.data() as any;
+  assertStillHoldsPegs(booking);
   const receipts = deriveReceiptsFromBooking(booking);
   if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Indeks resit tidak sah. / Invalid receipt index.');
 
@@ -1658,6 +1659,13 @@ export const acceptBookingReceiptDirect = async (bookingId: string, receiptIndex
   return { success: true, paidAmount, fullyPaid, justConfirmed, balanceStage, status: update.status || booking.status };
 };
 
+// Rules refuse to revive a cancelled/rejected booking (its pegs may be resold).
+const assertStillHoldsPegs = (booking: any) => {
+  if (!['PENDING', 'PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE'].includes(String(booking?.status || '').toUpperCase())) {
+    throw new Error('Tempahan ini telah dibatalkan atau ditolak dan No Pancangnya mungkin telah ditempah semula. Sila buat tempahan baharu. / This booking was cancelled or rejected; its pegs may be rebooked. Please make a new booking.');
+  }
+};
+
 // Staff-assisted deposit approval path: attach uploaded proof, mark the
 // deposit as accepted, confirm the booking, and convert paymentType to `baki`
 // while a balance remains.
@@ -1666,6 +1674,7 @@ export const approveDepositWithProofDirect = async (bookingId: string, proofUrl:
   const snap = await getDoc(bookingRef);
   if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
   const booking = snap.data() as any;
+  assertStillHoldsPegs(booking);
 
   // A staff-uploaded proof replaces the decision on any currently pending
   // customer receipt. Preserve it in history, but make it non-actionable.

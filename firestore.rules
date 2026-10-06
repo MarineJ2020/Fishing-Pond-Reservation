@@ -111,9 +111,23 @@ service cloud.firestore {
           && request.resource.data.paymentType == 'full';
       }
 
+      // Pegs are guarded by bookingSeatClaims docs that only the checkout
+      // transaction writes, so a client may never move a booking onto other
+      // pegs or revive a cancelled/rejected one (its pegs may be resold).
+      function occupiesPegs(data) {
+        return string(data.get('status', '')).upper() in ['PENDING', 'PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE'];
+      }
+
+      function keepsPegClaims() {
+        return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'competitionId', 'pondId', 'pondSelections', 'seatNumbers', 'seatIds', 'seats'
+          ])
+          && (occupiesPegs(resource.data) || !occupiesPegs(request.resource.data));
+      }
+
       allow read: if isStaff() || ownsBookingData(resource.data);
       allow create: if false;
-      allow update: if isBookingManager() || staffCheckInUpdate() || staffCheckInWithManualPaymentUpdate();
+      allow update: if (isBookingManager() && keepsPegClaims()) || staffCheckInUpdate() || staffCheckInWithManualPaymentUpdate();
       allow delete: if isAdmin();
 
       match /payments/{paymentId} {

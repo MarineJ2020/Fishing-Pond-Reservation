@@ -1,7 +1,7 @@
 import { gzipSync } from 'node:zlib';
 import admin from 'firebase-admin';
 import { adminDb, verifyToken } from './auth-utils.js';
-import { bookingSelections, claimId, confirmed, fail, legacySeatIds, newBookingRef, occupiesSeats, ownsBooking, pondCatalog, receiptPath, receiptUpdate, refId, validateBookingWindow, validateSelections } from './booking-policy.js';
+import { bookingPegs, bookingSelections, claimId, confirmed, fail, legacySeatIds, newBookingRef, occupiesSeats, ownsBooking, pondCatalog, receiptPath, receiptUpdate, refId, validateBookingWindow, validateSelections } from './booking-policy.js';
 import { BOOKING_MANAGER_ROLES, STAFF_ROLES, normalizeRole } from './role-policy.js';
 
 const validId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 150 && !value.includes('/');
@@ -41,6 +41,22 @@ const seatQueries = (db, pondDocIds) => {
     }
     return queries;
 };
+// Seat docs for just the requested peg numbers, in both pondId encodings.
+const requestedSeatQueries = (db, pondDocId, nums) => {
+    const queries = [];
+    for (let i = 0; i < nums.length; i += 30) {
+        const chunk = nums.slice(i, i + 30);
+        for (const pondValue of [pondDocId, db.collection('ponds').doc(pondDocId)]) {
+            queries.push(db.collection('seats').where('pondId', '==', pondValue).where('seatNumber', 'in', chunk));
+        }
+    }
+    return queries;
+};
+const anySeatQueries = (db, pondDocId) => [pondDocId, db.collection('ponds').doc(pondDocId)]
+    .map((pondValue) => db.collection('seats').where('pondId', '==', pondValue).limit(1));
+// Written by scripts/backfill-seat-claims.mjs once every occupying booking has
+// claim docs. Until then checkout keeps scanning the competition's bookings.
+export const seatClaimsFlagRef = (db) => db.collection('systemFlags').doc('seatClaims');
 const handle = (handler) => async (req, res) => {
     try { return res.json(await handler(req)); }
     catch (error) {
@@ -105,34 +121,67 @@ export async function createSecureBooking(db, payload, user) {
         const competition = competitionSnap.data();
         validateBookingWindow(competition);
         const pondIndex = (await tx.get(pondIndexQuery(db))).docs;
-        const requestedIds = new Set((Array.isArray(payload.pondSelections) ? payload.pondSelections : []).map((group) => group?.pondId));
-        const wantedDocIds = pondCatalog(pondIndex, []).filter((pond) => requestedIds.has(pond.id)).map((pond) => pond.docId);
+        const requestedGroups = Array.isArray(payload.pondSelections) ? payload.pondSelections : [];
+        const requestedIds = new Set(requestedGroups.map((group) => group?.pondId));
+        const wanted = pondCatalog(pondIndex, []).filter((pond) => requestedIds.has(pond.id));
+        const wantedDocIds = wanted.map((pond) => pond.docId);
         const fullPonds = wantedDocIds.length ? await tx.getAll(...wantedDocIds.map((id) => db.collection('ponds').doc(id))) : [];
-        const seatDocs = (await Promise.all(seatQueries(db, wantedDocIds).map((query) => tx.get(query)))).flatMap((snap) => snap.docs);
         const fullById = new Map(fullPonds.filter((snap) => snap.exists).map((snap) => [snap.id, snap]));
-        const ponds = pondCatalog(pondIndex.map((snap) => fullById.get(snap.id) || snap), seatDocs);
+        // Claims mode: every occupying booking owns bookingSeatClaims docs, so the
+        // per-peg claim reads below are the whole double-booking check and only the
+        // requested seat docs are needed. Legacy mode scans the competition instead.
+        const claimsMode = (await tx.get(seatClaimsFlagRef(db))).exists;
+        let seatDocs;
+        const partial = new Map();
+        if (claimsMode) {
+            seatDocs = [];
+            for (const pond of wanted) {
+                const nums = new Set(requestedGroups.filter((group) => group?.pondId === pond.id)
+                    .flatMap((group) => (Array.isArray(group.seats) ? group.seats : [])).filter(Number.isInteger));
+                // validateSelections falls back to the lowest seat's price.
+                if (typeof competition.pricePerPeg !== 'number') nums.add(1);
+                if (nums.size > 101) fail('Maksimum 100 No Pancang bagi setiap tempahan.');
+                const found = (await Promise.all(requestedSeatQueries(db, pond.docId, [...nums]).map((query) => tx.get(query)))).flatMap((snap) => snap.docs);
+                const hasSeatDocs = found.length > 0
+                    || (await Promise.all(anySeatQueries(db, pond.docId).map((query) => tx.get(query)))).some((snap) => !snap.empty);
+                seatDocs.push(...found);
+                partial.set(pond.docId, hasSeatDocs);
+            }
+        } else {
+            seatDocs = (await Promise.all(seatQueries(db, wantedDocIds).map((query) => tx.get(query)))).flatMap((snap) => snap.docs);
+        }
+        const ponds = pondCatalog(pondIndex.map((snap) => fullById.get(snap.id) || snap), seatDocs)
+            .map((pond) => (partial.has(pond.docId) ? { ...pond, seatsPartial: true, hasSeatDocs: partial.get(pond.docId) } : pond));
         const { selections, amount, totalAmount } = validateSelections(payload, competition, ponds);
         const maxPegs = limitOf(competition.maxPegsPerBooking, DEFAULT_MAX_PEGS_PER_BOOKING);
         const pegCount = selections.reduce((sum, group) => sum + group.seats.length, 0);
         if (!staffMode && pegCount > maxPegs) fail(`Maksimum ${maxPegs} No Pancang bagi setiap tempahan.`);
 
-        // Query both historical encodings inside the transaction. No backfill is required.
-        const legacyStrings = await tx.get(db.collection('bookings').where('competitionId', '==', payload.competitionId).where('status', 'in', OCCUPYING_STATUSES));
-        const legacyRefs = await tx.get(db.collection('bookings').where('competitionId', '==', compRef).where('status', 'in', OCCUPYING_STATUSES));
+        // Query both historical competitionId encodings. No backfill is required.
+        const competitionBookings = claimsMode
+            ? [
+                ...(await tx.get(db.collection('bookings').where('userId', '==', user.uid).where('competitionId', '==', payload.competitionId))).docs,
+                ...(await tx.get(db.collection('bookings').where('userId', '==', user.uid).where('competitionId', '==', compRef))).docs,
+            ]
+            : [
+                ...(await tx.get(db.collection('bookings').where('competitionId', '==', payload.competitionId).where('status', 'in', OCCUPYING_STATUSES))).docs,
+                ...(await tx.get(db.collection('bookings').where('competitionId', '==', compRef).where('status', 'in', OCCUPYING_STATUSES))).docs,
+            ];
         if (!staffMode) {
-            // Counted from the occupying bookings already read above, so no extra reads.
             const maxPending = limitOf(competition.maxPendingBookingsPerUser, DEFAULT_MAX_PENDING_PER_USER);
-            const mine = new Set([...legacyStrings.docs, ...legacyRefs.docs]
+            const mine = new Set(competitionBookings
                 .filter((snap) => snap.data().userId === user.uid && PENDING_STATUSES.has(snap.data().status))
                 .map((snap) => snap.id));
             if (mine.size >= maxPending) fail(`Anda mempunyai ${mine.size} tempahan yang belum disahkan untuk pertandingan ini. Sila tunggu pengesahan sebelum membuat tempahan baru. / You have reached the limit of ${maxPending} pending bookings.`, 429);
         }
         const occupied = new Set();
-        [...legacyStrings.docs, ...legacyRefs.docs].forEach((snap) => {
-            if (!occupiesSeats(snap.data())) return;
-            // Seats outside the requested ponds are not loaded; they cannot conflict anyway.
-            bookingSelections(snap.data(), ponds, seatDocs).forEach((group) => group.seats.forEach((num) => occupied.add(`${group.pondId}:${num}`)));
-        });
+        if (!claimsMode) {
+            competitionBookings.forEach((snap) => {
+                if (!occupiesSeats(snap.data())) return;
+                // Seats outside the requested ponds are not loaded; they cannot conflict anyway.
+                bookingSelections(snap.data(), ponds, seatDocs).forEach((group) => group.seats.forEach((num) => occupied.add(`${group.pondId}:${num}`)));
+            });
+        }
         const claims = [];
         for (const group of selections) {
             for (const num of group.seats) {
@@ -193,6 +242,43 @@ export async function updateCustomerReceipt(db, payload, user, replace = false) 
         });
         tx.update(ref, { ...update, updatedBy: user.uid });
         return { receipts: update.receipts };
+    });
+}
+
+// Re-claims the pegs of a booking that became occupying outside checkout (rules
+// and the approve/accept routes block that, so this only catches console or
+// script edits). Never steals a peg another live booking holds; logs instead.
+export async function ensureClaims(db, bookingId) {
+    return db.runTransaction(async (tx) => {
+        const bookingSnap = await tx.get(db.collection('bookings').doc(bookingId));
+        const booking = bookingSnap.data();
+        if (!bookingSnap.exists || !occupiesSeats(booking)) return { conflicts: [] };
+        const pondIndex = (await tx.get(pondIndexQuery(db))).docs;
+        const seatIds = legacySeatIds(booking);
+        const seats = seatIds.length ? (await tx.getAll(...seatIds.map((id) => db.collection('seats').doc(id)))).filter((snap) => snap.exists) : [];
+        const competitionId = refId(booking.competitionId);
+        const pegs = bookingPegs(booking, pondCatalog(pondIndex, []), seats);
+        const refs = pegs.map(({ pondDocId, num }) => db.collection('bookingSeatClaims').doc(claimId(competitionId, pondDocId, num)));
+        const claims = refs.length ? await tx.getAll(...refs) : [];
+        const wantedIds = new Set(refs.map((ref) => ref.id));
+        const stale = (await tx.get(db.collection('bookingSeatClaims').where('bookingId', '==', bookingId))).docs
+            .filter((claim) => !wantedIds.has(claim.id));
+        const conflicts = [];
+        const toWrite = [];
+        for (let i = 0; i < claims.length; i += 1) {
+            const owner = claims[i].exists ? claims[i].data().bookingId : null;
+            if (owner === bookingId) continue;
+            if (owner) {
+                const ownerSnap = await tx.get(db.collection('bookings').doc(owner));
+                if (ownerSnap.exists && occupiesSeats(ownerSnap.data())) { conflicts.push({ ...pegs[i], owner }); continue; }
+            }
+            toWrite.push(refs[i]);
+        }
+        const now = new Date();
+        toWrite.forEach((ref) => tx.set(ref, { bookingId, competitionId, updatedAt: now }));
+        stale.forEach((claim) => tx.delete(claim.ref));
+        if (conflicts.length) console.error(`ensureClaims: booking ${bookingId} shares pegs with other live bookings`, conflicts);
+        return { conflicts };
     });
 }
 

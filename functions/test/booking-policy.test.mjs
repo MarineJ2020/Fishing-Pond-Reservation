@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { claimId, legacySeatIds, receiptPath, receiptUpdate, validateBookingWindow, validateSelections } from '../src/booking-policy.js';
+import { bookingPegs, claimId, legacySeatIds, receiptPath, receiptUpdate, validateBookingWindow, validateSelections } from '../src/booking-policy.js';
 
 const now = Date.parse('2026-09-09T04:00:00Z');
 const competition = { eventDate: '2026-09-09T02:00:00Z', endDate: '2026-09-09T10:00:00Z', pricePerPeg: 101 };
@@ -72,4 +72,28 @@ test('legacy seat ids are only needed for selections without seat numbers', () =
     assert.deepEqual(legacySeatIds({ seatIds: ['s1', { id: 's2' }] }), ['s1', 's2']);
     assert.deepEqual(legacySeatIds({ seatNumbers: [3], seatIds: ['s3'] }), []);
     assert.deepEqual(legacySeatIds({ pondSelections: [{ pondId: 1, seats: [1], seatIds: ['a'] }, { pondId: 2, seatIds: ['b'] }] }), ['b']);
+});
+
+test('partial seat loads (claim-mode checkout) apply the same caps and existence checks', () => {
+    // Only the requested seat docs are loaded; seats are numbered 1..N.
+    const partial = (seats, hasSeatDocs = true) => [{ ...ponds[0], seats, seatsPartial: true, hasSeatDocs }];
+    const seat = (n) => ({ id: `a${n}`, seatNumber: n });
+    const pick = (seats) => ({ ...payload, pondSelections: [{ pondId: 1, seats }] });
+    assert.deepEqual(validateSelections(pick([2]), competition, partial([seat(2)])).selections[0].seatIds, ['a2']);
+    assert.throws(() => validateSelections(pick([3]), competition, partial([])), /tidak tersedia/);
+    assert.throws(() => validateSelections(pick([3]), { ...competition, pondSeats: { 'pond-a': 2 } }, partial([seat(3)])), /tidak tersedia/);
+    assert.doesNotThrow(() => validateSelections(pick([2]), { ...competition, pondSeats: { 'pond-a': 2 } }, partial([seat(2)])));
+    assert.throws(() => validateSelections(pick([1]), { ...competition, pondSeats: { 'pond-a': 0 } }, partial([seat(1)])));
+    // Pond without any seat docs keeps the totalSeats fallback.
+    assert.doesNotThrow(() => validateSelections(pick([5]), competition, [{ ...ponds[0], seats: [], totalSeats: 5, seatsPartial: true, hasSeatDocs: false }]));
+    assert.throws(() => validateSelections(pick([6]), competition, [{ ...ponds[0], seats: [], totalSeats: 5, seatsPartial: true, hasSeatDocs: false }]));
+});
+
+test('booking pegs resolve numeric and doc-id ponds and legacy seat ids to claim keys', () => {
+    const catalog = [{ id: 1, docId: 'pond-a' }, { id: 2, docId: 'pond-b' }];
+    assert.deepEqual(bookingPegs({ pondSelections: [{ pondId: 1, seats: [3, 3, 4] }, { pondId: 'pond-b', seats: [1] }] }, catalog, []),
+        [{ pondDocId: 'pond-a', num: 3 }, { pondDocId: 'pond-a', num: 4 }, { pondDocId: 'pond-b', num: 1 }]);
+    assert.deepEqual(bookingPegs({ pondId: { id: 'pond-b' }, seatIds: ['s9'] }, catalog, [{ id: 's9', data: () => ({ seatNumber: 9 }) }]),
+        [{ pondDocId: 'pond-b', num: 9 }]);
+    assert.deepEqual(bookingPegs({ pondId: 'gone', seatNumbers: [1] }, catalog, []), []);
 });
