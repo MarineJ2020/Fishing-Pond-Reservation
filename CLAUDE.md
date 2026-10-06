@@ -76,6 +76,11 @@ missing or malformed (`vite.config.mjs`), to avoid deploying a blank site.
   and seat availability come from CDN-cached `api` routes (`/api/publicPonds`,
   `/api/bookingAvailability` via the Hosting `/api/**` rewrite). `loadAppDB(_, {fresh})`
   bypasses the CDN after edits.
+- Staff (CMS) load only bookings of competitions upcoming or ended in the last
+  30 days (`RECENT_COMPETITION_DAYS` in `src/lib/firestore.ts`). Screens that show
+  older events call `loadCompetitionBookings` / `loadAllBookings` /
+  `loadRefundBookings` from `BookingContext`; a new CMS view over old events must
+  do the same or it will silently show partial data.
 - Scale weigh-in OCR: `src/lib/sevenSegmentOcr/` runs an ONNX model
   (`public/ocr-model/`) via onnxruntime-web WASM, single-threaded; Vite copies only
   the needed `ort-wasm-simd-threaded.*` blobs to `dist/ort/`. `utils/scaleOcr.ts`
