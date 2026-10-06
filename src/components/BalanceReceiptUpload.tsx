@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { friendlyError } from '../utils/friendlyError';
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { useUI } from '../context/UIContext';
 import { compressImageToDataUrl, uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
@@ -67,7 +68,7 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
       await onSubmitted();
     } catch (err: any) {
       console.error('Balance receipt submit failed:', err);
-      addToast(err?.message || 'Gagal menghantar resit. Sila cuba lagi.', 'error');
+      addToast(friendlyError(err, 'Gagal menghantar resit. Sila cuba lagi. / Receipt could not be sent, please try again.'), 'error');
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = '';

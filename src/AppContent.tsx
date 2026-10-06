@@ -34,6 +34,7 @@ import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindow
 import { isAllowedReceiptFile, normalizePdfUrl, RECEIPT_TYPE_ERROR } from './utils/pdfStorage';
 import { isStaffRole } from './utils/roles';
 import { heldPegKeys } from './utils/pegHolds';
+import { friendlyError } from './utils/friendlyError';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
 
@@ -435,7 +436,7 @@ const AppContent: React.FC = () => {
       setBookingAlert(null);
       return true;
     } catch (err: any) {
-      showBookingAlert(err?.message || 'No Pancang tidak dapat ditahan. Sila cuba lagi.');
+      showBookingAlert(friendlyError(err, 'No Pancang tidak dapat ditahan. Sila cuba lagi. / Could not hold the pegs, please try again.'));
       void reloadDB();
       return false;
     } finally {
@@ -508,7 +509,7 @@ const AppContent: React.FC = () => {
     } catch (err: any) {
       setBookingError(String(err?.code || '').startsWith('storage/')
         ? 'Resit gagal dimuat naik. Sila guna gambar (JPG/PNG) atau PDF sahaja dan cuba lagi. / Receipt upload failed — use an image or PDF and try again.'
-        : err?.message || 'Ralat semasa menghantar tempahan. Sila cuba lagi.');
+        : friendlyError(err, 'Ralat semasa menghantar tempahan. Sila cuba lagi. / Booking could not be sent, please try again.'));
       setBookingSubmitting(false);
       return;
     }

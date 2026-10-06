@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { friendlyError } from '../utils/friendlyError';
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { useUI } from '../context/UIContext';
 import { compressImageToDataUrl, uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
@@ -46,7 +47,7 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, receiptStat
       await onSubmitted();
     } catch (err: any) {
       console.error('Receipt re-upload failed:', err);
-      addToast(err?.message || 'Gagal menggantikan resit. Sila cuba lagi. / Failed to replace receipt. Please try again.', 'error');
+      addToast(friendlyError(err, 'Gagal menggantikan resit. Sila cuba lagi. / Failed to replace receipt. Please try again.'), 'error');
     } finally {
       setBusy(false);
       setConfirming(false);
