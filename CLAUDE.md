@@ -41,7 +41,9 @@ missing or malformed (`vite.config.mjs`), to avoid deploying a blank site.
 - Preferred command: `firebase deploy --only "hosting,functions" --project kolamkelisayang`
   (add `,firestore,storage` when rules changed). If the CLI fails, retry with
   `npx firebase deploy ...`. The repo-root **`build and deploy.bat`** does the full
-  build + combined deploy in one step.
+  build + combined deploy in one step; if that deploy fails part-way (Google
+  sometimes returns an HTML error page), it publishes hosting at once and retries
+  functions twice.
 - `scripts/copy-seo-template.mjs` (run by `npm run build`) copies `dist/index.html`
   to `functions/src/template.html` and then **renames it to `dist/app.html`**, so the
   `/` rewrite reaches `seoRender` instead of being shadowed by a static index.html.

@@ -47,7 +47,33 @@ if errorlevel 1 goto :fail
 echo(
 echo === [3/3] Deploying hosting + functions ===
 call ".\scripts\firebase-cli.cmd" deploy --only "hosting,functions" --project %PROJECT%
-if errorlevel 1 goto :fail
+if not errorlevel 1 goto :done
+
+REM Recovery. Google's deploy API sometimes answers with an HTML error page
+REM ("Unable to parse JSON ... <!DOCTYPE"). The CLI then stops after functions
+REM and never uploads hosting, while seoRender may already point at the new
+REM bundles -> blank "/". So: publish hosting at once, then retry functions
+REM (unchanged functions are skipped, so a retry only redoes what failed).
+echo(
+echo *** Deploy did not finish (often a temporary Google error). Recovering... ***
+echo(
+echo === [recovery 1/2] Deploying hosting ===
+call ".\scripts\firebase-cli.cmd" deploy --only hosting --project %PROJECT%
+if not errorlevel 1 goto :retry_functions
+echo Hosting deploy failed, trying once more...
+call ".\scripts\firebase-cli.cmd" deploy --only hosting --project %PROJECT%
+if errorlevel 1 goto :fail_hosting
+
+:retry_functions
+echo(
+echo === [recovery 2/2] Retrying functions (attempt 1 of 2) ===
+call ".\scripts\firebase-cli.cmd" deploy --only functions --project %PROJECT%
+if not errorlevel 1 goto :done
+echo(
+echo === [recovery 2/2] Retrying functions (attempt 2 of 2) ===
+call ".\scripts\firebase-cli.cmd" deploy --only functions --project %PROJECT%
+if not errorlevel 1 goto :done
+goto :fail_functions
 
 :done
 echo(
@@ -58,6 +84,21 @@ echo    hard refresh should show the new build immediately. )
 echo ============================================================================
 pause
 exit /b 0
+
+:fail_hosting
+echo(
+echo *** HOSTING COULD NOT BE PUBLISHED - the home page may be blank right now. ***
+echo     Run this file again as soon as possible.
+pause
+exit /b 1
+
+:fail_functions
+echo(
+echo *** Hosting is live, but some Cloud Functions failed to update twice. ***
+echo     The site keeps working on the previous code for those functions.
+echo     Wait a few minutes, then run this file again.
+pause
+exit /b 1
 
 :fail
 echo(
