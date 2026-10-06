@@ -163,7 +163,12 @@ export const renderBookingReceivedEmail = ({ booking, competition }) => {
     };
 };
 
-const qrTable = ({ bookingId, booking, appUrl }) => {
+// Each QR carries the competition, start time, pond/peg and ref under it, so a
+// printed email works on its own at check-in (same as the app's QR cards).
+const qrTable = ({ bookingId, booking, competition, appUrl }) => {
+    const bookingRef = subjectText(booking.bookingRef, bookingId);
+    const competitionName = competition?.name || booking.competitionName || '';
+    const start = toDate(competition?.eventDate ?? competition?.startDate);
     const cells = selectionList(booking).flatMap((selection) => selection.seats.map((seat) => {
         const label = seatLabel(seat, selection.pondCode);
         const pondQuery = selection.pondId != null
@@ -174,6 +179,9 @@ const qrTable = ({ bookingId, booking, appUrl }) => {
         return `<td style="padding:8px;text-align:center;vertical-align:top;">
             <img src="${imageUrl}" alt="QR Peg ${escapeHtml(label)}" width="150" height="150" style="width:150px;height:150px;display:block;margin:0 auto;border:1px solid #eee;border-radius:8px;padding:6px;background:#fff;" />
             <div style="font-size:12px;font-weight:700;color:${BRAND_NAVY};margin-top:6px;">${escapeHtml(selection.pondName)} &middot; ${escapeHtml(label)}</div>
+            ${competitionName ? `<div style="font-size:11px;font-weight:700;color:${BRAND_NAVY};margin-top:4px;">${escapeHtml(competitionName)}</div>` : ''}
+            ${start ? `<div style="font-size:11px;color:#666;">${escapeHtml(myDateTime.format(start))}</div>` : ''}
+            <div style="font-size:11px;color:#666;">Ref: ${escapeHtml(bookingRef)}</div>
           </td>`;
     }));
     const rows = [];
@@ -196,7 +204,7 @@ export const renderBookingApprovedEmail = ({ bookingId, booking, competition, ap
             <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
             <div style="text-align:center;margin:22px 0;">
               <div style="font-size:12px;color:#888;margin-bottom:8px;">Setiap peg mempunyai QR sendiri — imbas QR peg berkenaan semasa check-in / timbang ikan</div>
-              <table style="border-collapse:collapse;margin:0 auto;">${qrTable({ bookingId, booking, appUrl })}</table>
+              <table style="border-collapse:collapse;margin:0 auto;">${qrTable({ bookingId, booking, competition, appUrl })}</table>
             </div>
             <p style="text-align:center;"><a href="${escapeHtml(bookingUrl)}" style="display:inline-block;background:${BRAND_RED};color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;">Lihat Butiran Tempahan</a></p>
             <p style="font-size:12px;color:#666;">Pautan terus: <a href="${escapeHtml(bookingUrl)}" style="color:${BRAND_NAVY};">${escapeHtml(bookingUrl)}</a></p>
