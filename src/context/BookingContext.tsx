@@ -3,7 +3,8 @@ import { receiptUploadFolder } from '../utils/receiptStorage';
 import { DB, User, Pond, Booking, BookingPondSelection, Settings } from '../types';
 import { emptyDB, setDB } from '../data';
 import { getBookingById, loadAppDB, subscribeSettings } from '../lib/firestore';
-import { createBooking as createBookingApi } from '../lib/api';
+import { createBooking as createBookingApi, holdPegs as holdPegsApi, releaseHold as releaseHoldApi } from '../lib/api';
+import { heldPegKeys, holderKeyFor } from '../utils/pegHolds';
 import { getTurnstileToken } from '../lib/turnstile';
 import { uploadDataUrlToFirebaseStorage } from '../utils/imageStorage';
 import { isPdfFile, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
@@ -56,6 +57,13 @@ interface BookingContextType {
   /** Re-read one booking and patch it into db.bookings (cheap CMS refresh after an edit). */
   refreshBooking: (bookingId: string) => Promise<void>;
   calculateTotal: () => number;
+  /** This customer's current 10-minute payment hold, if any. */
+  pegHold: { competitionId: string; expiresAt: string } | null;
+  /** Holds the selected pegs (null when the user can't hold yet: signed out / unverified). Throws if a peg is taken or held. */
+  holdSelectedPegs: () => Promise<{ expiresAt: string } | null>;
+  releaseHeldPegs: () => void;
+  /** Holder key of the signed-in user, so their own holds don't show as taken. */
+  myHolderKey: string | null;
 }
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
@@ -83,6 +91,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [adminProxyName, setAdminProxyName] = useState('');
   const [adminProxyEmail, setAdminProxyEmail] = useState('');
   const [adminProxyPhone, setAdminProxyPhone] = useState('');
+  const [pegHold, setPegHold] = useState<{ competitionId: string; expiresAt: string } | null>(null);
+  const [myHolderKey, setMyHolderKey] = useState<string | null>(null);
   // True until the first Firestore load resolves — db.settings is emptyDB's
   // blank placeholder until then, so callers checking e.g. db.settings.whatsapp
   // right after mount must not treat "still loading" as "genuinely unset".
@@ -182,6 +192,14 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     [selectedPond, selectedPondSeats],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    const uid = user?.uid;
+    if (!uid) { setMyHolderKey(null); return; }
+    holderKeyFor(uid).then((key) => { if (!cancelled) setMyHolderKey(key); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
   const seatTakenMap = React.useMemo(() => {
     const map = new Map<string, boolean>();
     for (const booking of [...db.availability, ...db.bookings]) {
@@ -197,8 +215,9 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
       }
     }
+    heldPegKeys(db.holds, selectedCompetitionId || db.comp.id || '', myHolderKey).forEach((key) => map.set(key, true));
     return map;
-  }, [db.availability, db.bookings, db.comp.id, selectedCompetitionId]);
+  }, [db.availability, db.bookings, db.holds, db.comp.id, selectedCompetitionId, myHolderKey]);
 
   const toggleSeat = useCallback((num: number) => {
     const pond = db.ponds.find(p => p.id === selectedPond);
@@ -412,8 +431,30 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const newDb = { ...db, bookings: [booking, ...db.bookings] };
     updateDB(newDb);
     clearBooking();
+    setPegHold(null);
     return booking;
   }, [user, selectedPondSeats, receiptData, receiptFile, bankReference, bookingNotes, contactPhone, adminProxyName, adminProxyEmail, adminProxyPhone, db, updateDB, clearBooking, selectedCompetitionId, getCompetitionPricePerPeg]);
+
+  const holdSelectedPegs = useCallback(async () => {
+    const competitionId = selectedCompetitionId || db.comp.id || '';
+    const pondSelections = Object.entries(selectedPondSeats)
+      .filter(([, seats]) => seats.length)
+      .map(([pondId, seats]) => ({ pondId: Number(pondId), seats: [...seats] }));
+    const isStaff = isStaffRole(user?.role);
+    // Signed-out and unverified customers can't hold yet; checkout still re-checks every peg.
+    if (!user || !auth.currentUser || !competitionId || !pondSelections.length || (!isStaff && user.emailVerified === false)) return null;
+    const primary = pondSelections.find((selection) => selection.pondId === selectedPond) || pondSelections[0];
+    const result = await holdPegsApi({ competitionId, pondId: primary.pondId, pondSelections, createdByStaff: isStaff });
+    setPegHold({ competitionId, expiresAt: result.expiresAt });
+    return { expiresAt: result.expiresAt };
+  }, [db.comp.id, selectedCompetitionId, selectedPond, selectedPondSeats, user]);
+
+  const releaseHeldPegs = useCallback(() => {
+    if (!pegHold) return;
+    setPegHold(null);
+    // Best effort: an unreleased hold simply expires after 10 minutes.
+    releaseHoldApi(pegHold.competitionId).catch(() => {});
+  }, [pegHold]);
 
   return (
     <BookingContext.Provider
@@ -455,6 +496,10 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         reloadDB,
         refreshBooking,
         calculateTotal,
+        pegHold,
+        holdSelectedPegs,
+        releaseHeldPegs,
+        myHolderKey,
       }}
     >
       {children}

@@ -416,6 +416,8 @@ export interface User {
 export interface DB {
   availabilityError?: boolean;
   availability: Pick<Booking, 'competitionId' | 'pondId' | 'seats' | 'pondSelections' | 'status'>[];
+  /** Pegs on a 10-minute payment hold (from /bookingAvailability). */
+  holds?: import('./utils/pegHolds').PegHold[];
   ponds: Pond[];
   bookings: Booking[];
   scores: Record<number, Score>;

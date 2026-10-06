@@ -766,6 +766,7 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void, opts: { fresh
     return {
       ...core,
       availability: availabilityResult.availabilityError ? bookingAvailabilityFallback : availabilityResult.availability,
+      holds: Array.isArray((availabilityResult as any).holds) ? (availabilityResult as any).holds : [],
       availabilityError: availabilityResult.availabilityError || false,
       scores,
     };

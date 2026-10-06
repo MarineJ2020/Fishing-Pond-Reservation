@@ -11,7 +11,7 @@ const projectId = 'demo-kks-security';
 process.env.GCLOUD_PROJECT = projectId;
 process.env.FIREBASE_CONFIG = JSON.stringify({ projectId, storageBucket: `${projectId}.appspot.com` });
 const { adminDb, adminAuth } = await import('../../functions/src/auth-utils.js');
-const { createSecureBooking, updateCustomerReceipt, registerBookingRoutes, releaseClaims, ensureClaims, seatClaimsFlagRef } = await import('../../functions/src/booking-service.js');
+const { createSecureBooking, updateCustomerReceipt, registerBookingRoutes, releaseClaims, ensureClaims, seatClaimsFlagRef, holdPegs, releaseHold, holderKey } = await import('../../functions/src/booking-service.js');
 const { execFileSync } = await import('node:child_process');
 const { fileURLToPath } = await import('node:url');
 const requireFunctions = createRequire(new URL('../../functions/src/index.js', import.meta.url));
@@ -309,4 +309,52 @@ test('claim mode: backfill protects old bookings, concurrent checkouts never dou
     await adminDb.collection('bookings').doc('old-rejected').update({ status: 'APPROVED' });
     assert.equal((await ensureClaims(adminDb, 'old-rejected')).conflicts.length, 1, 'peg 3 was rebooked after rejection');
     await seatClaimsFlagRef(adminDb).delete();
+});
+
+test('10-minute peg holds: block other buyers, let the holder book, replace, release and expire', async () => {
+    await adminDb.collection('competitions').doc('holds').set({ name: 'Hold event', eventDate: new Date(Date.now() + 60000), endDate: new Date(Date.now() + 3600000), pricePerPeg: 20 });
+    const sel = (seats) => ({ ...payload, competitionId: 'holds', pondId: 2, pondSelections: [{ pondId: 2, seats }] });
+    const buyer = (name) => ({ uid: `hold-${name}`, email: `hold-${name}@example.com`, email_verified: true });
+    const [a, b, c] = ['a', 'b', 'c'].map(buyer);
+    const { claimId } = await import('../../functions/src/booking-policy.js');
+    const claimFor = (num) => adminDb.collection('bookingSeatClaims').doc(claimId('holds', '2', num)).get();
+
+    const held = await holdPegs(adminDb, sel([1]), a);
+    assert.ok(Date.parse(held.expiresAt) - Date.now() > 9 * 60 * 1000);
+    await assert.rejects(createSecureBooking(adminDb, sel([1]), b), /ditahan/);
+    await assert.rejects(holdPegs(adminDb, sel([1]), b), /ditahan/);
+    const booked = await createSecureBooking(adminDb, sel([1]), a);
+    assert.equal((await claimFor(1)).data().bookingId, booked.bookingId);
+    assert.equal((await claimFor(1)).data().holdUid, undefined, 'booking replaces the hold');
+    await assert.rejects(holdPegs(adminDb, sel([1]), b), { status: 409 });
+
+    // A new hold replaces the previous one; release frees it; unverified buyers cannot hold.
+    await holdPegs(adminDb, sel([2]), a);
+    await holdPegs(adminDb, sel([3]), a);
+    await holdPegs(adminDb, sel([2]), b);
+    await assert.rejects(holdPegs(adminDb, sel([3]), b), /ditahan/);
+    assert.equal((await releaseHold(adminDb, 'holds', a)).released, 1);
+    await holdPegs(adminDb, sel([2, 3]), b);
+    await assert.rejects(holdPegs(adminDb, sel([4]), { ...c, email_verified: false }), { status: 403 });
+
+    // Expired holds no longer block.
+    await (await claimFor(3)).ref.update({ holdExpiresAt: new Date(Date.now() - 1000) });
+    await createSecureBooking(adminDb, sel([3]), c);
+    // Releasing after checkout never drops the booking's claim.
+    await holdPegs(adminDb, sel([4]), c);
+    const own = await createSecureBooking(adminDb, sel([4]), c);
+    await releaseHold(adminDb, 'holds', c);
+    assert.equal((await claimFor(4)).data().bookingId, own.bookingId);
+
+    // HTTP routes need a signed-in user; the public feed lists holds without identities.
+    const hold = await post('/holdPegs', sel([5]), { uid: 'owner' });
+    assert.equal(hold.status, 200, JSON.stringify(hold.body));
+    assert.equal((await post('/holdPegs', sel([5]), null)).status, 401);
+    await new Promise((resolve) => setTimeout(resolve, 15500)); // availability is cached for 15 s
+    const feed = await (await fetch(`${baseUrl}/bookingAvailability`)).json();
+    const mine = feed.holds.find((h) => h.competitionId === 'holds' && h.holder === holderKey('owner'));
+    assert.deepEqual(mine?.pondSelections, [{ pondId: 2, seats: [5] }]);
+    assert.ok(feed.holds.some((h) => h.holder === holderKey(b.uid) && h.pondSelections[0].seats.includes(2)));
+    assert.equal(/hold-|owner@|holdUid/.test(JSON.stringify(feed.holds)), false);
+    assert.equal((await post('/releaseHold', { competitionId: 'holds' }, { uid: 'owner' })).status, 200);
 });

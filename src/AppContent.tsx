@@ -33,6 +33,7 @@ import { trackEvent } from './utils/analytics';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindowState } from './utils/competition';
 import { isAllowedReceiptFile, normalizePdfUrl, RECEIPT_TYPE_ERROR } from './utils/pdfStorage';
 import { isStaffRole } from './utils/roles';
+import { heldPegKeys } from './utils/pegHolds';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
 
@@ -89,7 +90,11 @@ const AppContent: React.FC = () => {
     submitBooking,
     updateDB,
     reloadDB,
-    refreshBooking
+    refreshBooking,
+    pegHold,
+    holdSelectedPegs,
+    releaseHeldPegs,
+    myHolderKey,
   } = useBooking();
   const { addToast, setAuthModalOpen, authModalOpen } = useUI();
   const { currentSection, bookingDetailId, goToSection, goToBook, goHome, goToLive, goToMyBookings, goToProfile, goToConfirmed, goToBookingDetail, goToCMS } = useNavigation();
@@ -131,6 +136,7 @@ const AppContent: React.FC = () => {
   const [choiceOpen, setChoiceOpen] = useState(false);
   const [rulesPdfPreview, setRulesPdfPreview] = useState<string | null>(null);
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
+  const [holdBusy, setHoldBusy] = useState(false);
   const [myBookingsSort, setMyBookingsSort] = useState<'latest' | 'oldest'>('latest');
   // Set directly from submitBooking()'s return value — db.bookings[0] isn't
   // guaranteed to be the just-created booking (Firestore listener ordering).
@@ -170,6 +176,7 @@ const AppContent: React.FC = () => {
         selection.seats.forEach((seatNum) => occupied.add(`${selection.pondId}-${seatNum}`));
       });
     });
+    heldPegKeys(db.holds, activeCompetitionId, myHolderKey).forEach((key) => occupied.add(key));
 
     const scopedPonds = db.ponds.map((pond) => {
       const pondKey = pond._docId || pond.id.toString();
@@ -196,7 +203,7 @@ const AppContent: React.FC = () => {
       const docId = pond._docId || pond.id.toString();
       return allowedPondIds.includes(docId);
     });
-  }, [db.availability, db.availabilityError, db.bookings, db.comp?.id, db.ponds, selectedCompetition?.activePondIds, selectedCompetition?.id, selectedCompetition?.pondSeats]);
+  }, [db.availability, db.availabilityError, db.bookings, db.holds, myHolderKey, db.comp?.id, db.ponds, selectedCompetition?.activePondIds, selectedCompetition?.id, selectedCompetition?.pondSeats]);
 
   const availablePegs = useMemo(
     () => competitionScopedPonds.reduce((sum, pond) => sum + pond.seats.filter(s => s.status === 'available').length, 0),
@@ -222,6 +229,7 @@ const AppContent: React.FC = () => {
           selection.seats.forEach((seatNum: number) => occupied.add(`${selection.pondId}-${seatNum}`));
         });
       });
+      heldPegKeys(db.holds, compId, myHolderKey).forEach((key) => occupied.add(key));
       const scopedPonds = db.ponds.filter((pond) => {
         if (!allowedPondIds.length) return true;
         const docId = pond._docId || pond.id.toString();
@@ -242,7 +250,7 @@ const AppContent: React.FC = () => {
       result.set(compId, count);
     });
     return result;
-  }, [competitions, db.availability, db.bookings, db.comp?.id, db.ponds]);
+  }, [competitions, db.availability, db.bookings, db.holds, myHolderKey, db.comp?.id, db.ponds]);
 
   const totalPonds = db.ponds.length;
   const confirmedBookings = db.availability.filter(b => b.status === 'confirmed').length;
@@ -401,6 +409,35 @@ const AppContent: React.FC = () => {
     setReceiptData(null, null);
     addToast('Pertandingan tempahan telah ditukar.', 'info');
   };
+
+  // Places (or renews) the 10-minute payment hold. Returns false and explains
+  // when a peg was taken or is held by someone else.
+  const tryHoldPegs = async (): Promise<boolean> => {
+    setHoldBusy(true);
+    try {
+      await holdSelectedPegs();
+      return true;
+    } catch (err: any) {
+      addToast(err?.message || 'No Pancang tidak dapat ditahan. Sila cuba lagi.', 'error');
+      void reloadDB();
+      return false;
+    } finally {
+      setHoldBusy(false);
+    }
+  };
+
+  // Customers who sign in (or verify) on the payment step get their hold then.
+  const holdAttemptRef = useRef('');
+  useEffect(() => {
+    if (bookingPhase !== 'details') { holdAttemptRef.current = ''; return; }
+    const eligible = user && (isStaffRole(user.role) || user.emailVerified !== false);
+    if (!eligible || pegHold || holdBusy || !selectedSeatCount) return;
+    const attempt = `${user.uid}|${user.emailVerified}`;
+    if (holdAttemptRef.current === attempt) return;
+    holdAttemptRef.current = attempt;
+    void tryHoldPegs().then((ok) => { if (!ok) setBookingPhase('seats'); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingPhase, user?.uid, user?.emailVerified, user?.role, pegHold, selectedSeatCount]);
 
   const handleSubmitBooking = async () => {
     if (bookingSubmitting) return;
@@ -1282,12 +1319,18 @@ const AppContent: React.FC = () => {
         // The details phase is only meaningful once seats are picked; if seats get
         // reset (e.g. pond/competition change) we fall back to the seat phase.
         const detailsPhase = bookingPhase === 'details' && hasSeats && hasCompetition;
-        const goToDetails = () => {
-          if (!selectedSeatCount) return;
+        const goToDetails = async () => {
+          if (!selectedSeatCount || holdBusy) return;
+          // Hold the pegs for 10 minutes before the customer pays, so nobody
+          // else can take them mid-transfer. Signed-out users get held on login.
+          if (!(await tryHoldPegs())) return;
           setBookingPhase('details');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         };
-        const goToSeats = () => setBookingPhase('seats');
+        const goToSeats = () => {
+          releaseHeldPegs();
+          setBookingPhase('seats');
+        };
         const stepClass = (state: 'done' | 'active' | '') => `progress-step${state === 'active' ? ' active' : state === 'done' ? ' done' : ''}`;
         const step1 = hasCompetition ? 'done' : 'active';
         const step2 = !hasCompetition ? '' : hasPond ? 'done' : 'active';
@@ -1515,6 +1558,9 @@ const AppContent: React.FC = () => {
                           onRefreshVerification={refreshUser}
                           onOpenRulesPdf={openRulesPdf}
                           onGoToProfile={goToProfile}
+                          holdExpiresAt={pegHold?.expiresAt || null}
+                          holdBusy={holdBusy}
+                          onRehold={() => { void tryHoldPegs(); }}
                         />
                       </div>
                     </>
@@ -1539,8 +1585,8 @@ const AppContent: React.FC = () => {
                   </div>
                   <div className="bk-summary-actions">
                     {!detailsPhase ? (
-                      <button className={`btn btn-red w-full${hintCls('continue')}`} type="button" disabled={!hasSeats} onClick={goToDetails}>
-                        <i className="fa-solid fa-arrow-right"></i> Teruskan
+                      <button className={`btn btn-red w-full${hintCls('continue')}`} type="button" disabled={!hasSeats || holdBusy} onClick={goToDetails}>
+                        <i className={`fa-solid ${holdBusy ? 'fa-spinner fa-spin' : 'fa-arrow-right'}`}></i> Teruskan
                       </button>
                     ) : (
                       <button className="btn btn-light w-full" type="button" onClick={goToSeats}>
@@ -1564,8 +1610,8 @@ const AppContent: React.FC = () => {
                   <small>Pancang Dipilih</small>
                   <strong>{selectedSeatCount} pancang · RM{payableNow}</strong>
                 </div>
-                <button className={`btn btn-red${hintCls('continue')}`} type="button" onClick={goToDetails}>
-                  <i className="fa-solid fa-arrow-right"></i> Teruskan
+                <button className={`btn btn-red${hintCls('continue')}`} type="button" disabled={holdBusy} onClick={goToDetails}>
+                  <i className={`fa-solid ${holdBusy ? 'fa-spinner fa-spin' : 'fa-arrow-right'}`}></i> Teruskan
                 </button>
               </div>
             )}

@@ -464,3 +464,13 @@
   .kl-winner-row > div:nth-child(4)::before { content: "Berat "; color: var(--muted); font-weight: 600; }
   .kl-winner-row > div:nth-child(5)::before { content: "Hadiah "; color: var(--muted); font-weight: 600; }
 }
+
+/* 10-minute peg hold countdown on the payment step (BookingForm). */
+.peg-hold-banner { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 16px; padding: 12px 14px; border-radius: var(--radius-xs); background: var(--green-pale); border: 1px solid var(--green); color: var(--navy); }
+.peg-hold-banner > i { color: var(--green-dark); font-size: 1.1rem; margin-top: 2px; }
+.peg-hold-banner > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.peg-hold-banner strong { font-size: .92rem; font-variant-numeric: tabular-nums; }
+.peg-hold-banner span { font-size: .78rem; color: var(--muted); line-height: 1.5; }
+.peg-hold-banner.expired { background: var(--amber-pale); border-color: var(--amber); }
+.peg-hold-banner.expired > i { color: var(--amber); }
+.peg-hold-banner .btn { align-self: flex-start; margin-top: 4px; }

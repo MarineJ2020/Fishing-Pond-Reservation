@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { User, Pond, Settings } from '../types';
 import PhoneNumberField from './PhoneNumberField';
 import QrZoomModal from './QrZoomModal';
@@ -31,7 +31,48 @@ interface BookingFormProps {
   onRefreshVerification: () => Promise<boolean>;
   onOpenRulesPdf: () => void;
   onGoToProfile: () => void;
+  /** When this customer's 10-minute peg hold ends (ISO), or null if none. */
+  holdExpiresAt?: string | null;
+  holdBusy?: boolean;
+  onRehold?: () => void;
 }
+
+// Countdown for the 10-minute payment hold placed when the customer pressed Teruskan.
+const PegHoldBanner: React.FC<{ expiresAt: string; busy: boolean; onRehold?: () => void }> = ({ expiresAt, busy, onRehold }) => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const left = Math.max(0, Date.parse(expiresAt) - now);
+  const mins = Math.floor(left / 60000);
+  const secs = Math.floor((left % 60000) / 1000);
+  if (left > 0) {
+    return (
+      <div className="peg-hold-banner" role="status">
+        <i className="fa-solid fa-lock"></i>
+        <div>
+          <strong>No Pancang anda ditahan: {mins}:{String(secs).padStart(2, '0')}</strong>
+          <span>Sila buat bayaran dan hantar resit sebelum masa tamat. / Your pegs are held for you while you pay.</span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="peg-hold-banner expired" role="alert">
+      <i className="fa-solid fa-clock"></i>
+      <div>
+        <strong>Tempoh tahanan telah tamat</strong>
+        <span>No Pancang anda mungkin diambil pelanggan lain. Tahan semula sebelum membuat bayaran. / Your hold has ended; hold the pegs again before paying.</span>
+        {onRehold && (
+          <button className="btn btn-red btn-sm" type="button" disabled={busy} onClick={onRehold}>
+            <i className={`fa-solid ${busy ? 'fa-spinner fa-spin' : 'fa-lock'}`}></i> Tahan Semula
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const BookingForm: React.FC<BookingFormProps> = ({
   user,
@@ -58,6 +99,9 @@ const BookingForm: React.FC<BookingFormProps> = ({
   onRefreshVerification,
   onOpenRulesPdf,
   onGoToProfile,
+  holdExpiresAt = null,
+  holdBusy = false,
+  onRehold,
 }) => {
   const [notes, setNotes] = useState('');
   const [verifyBusy, setVerifyBusy] = useState(false);
@@ -147,6 +191,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
     <div className="panel">
       <div className="panel-title">Maklumat & Bayaran</div>
       <div className="panel-subtitle">Lengkapkan butiran di bawah untuk menempah tempat anda</div>
+      {holdExpiresAt && <PegHoldBanner expiresAt={holdExpiresAt} busy={holdBusy} onRehold={onRehold} />}
 
       {/* ── Account details reminder (self-service booking only) ── */}
       {!isAdminProxyMode && (

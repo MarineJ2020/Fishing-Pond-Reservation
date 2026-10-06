@@ -40,6 +40,10 @@ const postJson = async (path: string, body: any) => {
 
 export const createClientAccount = async (payload: { name: string; email: string; phone?: string }) => postJson('/createClientAccount', payload);
 export const acquireSeatLock = async (payload: { seatId: string; competitionId: string }) => postJson('/acquireSeatLock', payload);
+export const holdPegs = async (payload: { competitionId: string; pondId: number; pondSelections: { pondId: number; seats: number[] }[]; createdByStaff: boolean }) =>
+  bookingRequest('/holdPegs', payload) as Promise<{ expiresAt: string; holdMs: number }>;
+export const releaseHold = async (competitionId: string) => bookingRequest('/releaseHold', { competitionId });
+
 export const createBooking = async (payload: any) => {
   return bookingRequest('/createBooking', payload);
 };

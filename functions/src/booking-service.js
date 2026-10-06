@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import admin from 'firebase-admin';
 import { adminDb, verifyToken } from './auth-utils.js';
@@ -104,98 +105,155 @@ const verifyTurnstile = async (req) => {
     }
 };
 
+// Checkout and holds share these checks: role, booking window, ponds/seats,
+// price, peg/pending limits and (legacy mode only) the competition scan.
+async function loadSelection(tx, db, payload, user, { checkout }) {
+    const compRef = db.collection('competitions').doc(payload.competitionId);
+    const profile = await tx.get(db.collection('users').doc(user.uid));
+    const role = normalizeRole(profile.data()?.role);
+    const staffMode = payload.createdByStaff === true;
+    if (staffMode && !STAFF_ROLES.has(role)) fail('Kebenaran petugas diperlukan.', 403);
+    if (!staffMode && !user.email_verified && !STAFF_ROLES.has(role)) fail('Sila sahkan alamat e-mel anda.', 403);
+    if (staffMode && !BOOKING_MANAGER_ROLES.has(role) && text(payload.userEmail) && payload.userEmail !== user.email) fail('Kebenaran staf kaunter diperlukan untuk tempahan bagi pihak pelanggan.', 403);
+    if (checkout && (!text(payload.bookingPhone) || !text(payload.bankReference))) fail('Nombor telefon dan rujukan bank diperlukan.');
+    const competitionSnap = await tx.get(compRef);
+    const competition = competitionSnap.data();
+    validateBookingWindow(competition);
+    const pondIndex = (await tx.get(pondIndexQuery(db))).docs;
+    const requestedGroups = Array.isArray(payload.pondSelections) ? payload.pondSelections : [];
+    const requestedIds = new Set(requestedGroups.map((group) => group?.pondId));
+    const wanted = pondCatalog(pondIndex, []).filter((pond) => requestedIds.has(pond.id));
+    const wantedDocIds = wanted.map((pond) => pond.docId);
+    const fullPonds = wantedDocIds.length ? await tx.getAll(...wantedDocIds.map((id) => db.collection('ponds').doc(id))) : [];
+    const fullById = new Map(fullPonds.filter((snap) => snap.exists).map((snap) => [snap.id, snap]));
+    // Claims mode: every occupying booking owns bookingSeatClaims docs, so the
+    // per-peg claim reads below are the whole double-booking check and only the
+    // requested seat docs are needed. Legacy mode scans the competition instead.
+    const claimsMode = (await tx.get(seatClaimsFlagRef(db))).exists;
+    let seatDocs;
+    const partial = new Map();
+    if (claimsMode) {
+        seatDocs = [];
+        for (const pond of wanted) {
+            const nums = new Set(requestedGroups.filter((group) => group?.pondId === pond.id)
+                .flatMap((group) => (Array.isArray(group.seats) ? group.seats : [])).filter(Number.isInteger));
+            // validateSelections falls back to the lowest seat's price.
+            if (typeof competition.pricePerPeg !== 'number') nums.add(1);
+            if (nums.size > 101) fail('Maksimum 100 No Pancang bagi setiap tempahan.');
+            const found = (await Promise.all(requestedSeatQueries(db, pond.docId, [...nums]).map((query) => tx.get(query)))).flatMap((snap) => snap.docs);
+            const hasSeatDocs = found.length > 0
+                || (await Promise.all(anySeatQueries(db, pond.docId).map((query) => tx.get(query)))).some((snap) => !snap.empty);
+            seatDocs.push(...found);
+            partial.set(pond.docId, hasSeatDocs);
+        }
+    } else {
+        seatDocs = (await Promise.all(seatQueries(db, wantedDocIds).map((query) => tx.get(query)))).flatMap((snap) => snap.docs);
+    }
+    const ponds = pondCatalog(pondIndex.map((snap) => fullById.get(snap.id) || snap), seatDocs)
+        .map((pond) => (partial.has(pond.docId) ? { ...pond, seatsPartial: true, hasSeatDocs: partial.get(pond.docId) } : pond));
+    const { selections, amount, totalAmount } = validateSelections(payload, competition, ponds);
+    const maxPegs = limitOf(competition.maxPegsPerBooking, DEFAULT_MAX_PEGS_PER_BOOKING);
+    const pegCount = selections.reduce((sum, group) => sum + group.seats.length, 0);
+    if (!staffMode && pegCount > maxPegs) fail(`Maksimum ${maxPegs} No Pancang bagi setiap tempahan.`);
+
+    // Query both historical competitionId encodings. No backfill is required.
+    const competitionBookings = claimsMode
+        ? [
+            ...(await tx.get(db.collection('bookings').where('userId', '==', user.uid).where('competitionId', '==', payload.competitionId))).docs,
+            ...(await tx.get(db.collection('bookings').where('userId', '==', user.uid).where('competitionId', '==', compRef))).docs,
+        ]
+        : [
+            ...(await tx.get(db.collection('bookings').where('competitionId', '==', payload.competitionId).where('status', 'in', OCCUPYING_STATUSES))).docs,
+            ...(await tx.get(db.collection('bookings').where('competitionId', '==', compRef).where('status', 'in', OCCUPYING_STATUSES))).docs,
+        ];
+    if (!staffMode) {
+        const maxPending = limitOf(competition.maxPendingBookingsPerUser, DEFAULT_MAX_PENDING_PER_USER);
+        const mine = new Set(competitionBookings
+            .filter((snap) => snap.data().userId === user.uid && PENDING_STATUSES.has(snap.data().status))
+            .map((snap) => snap.id));
+        if (mine.size >= maxPending) fail(`Anda mempunyai ${mine.size} tempahan yang belum disahkan untuk pertandingan ini. Sila tunggu pengesahan sebelum membuat tempahan baru. / You have reached the limit of ${maxPending} pending bookings.`, 429);
+    }
+    const occupied = new Set();
+    if (!claimsMode) {
+        competitionBookings.forEach((snap) => {
+            if (!occupiesSeats(snap.data())) return;
+            // Seats outside the requested ponds are not loaded; they cannot conflict anyway.
+            bookingSelections(snap.data(), ponds, seatDocs).forEach((group) => group.seats.forEach((num) => occupied.add(`${group.pondId}:${num}`)));
+        });
+    }
+    return { compRef, profile, staffMode, competition, selections, amount, totalAmount, occupied };
+}
+
+const PEG_TAKEN = 'No Pancang telah ditempah. Sila pilih No Pancang lain.';
+const PEG_HELD = 'No Pancang ini sedang ditahan oleh pelanggan lain yang sedang membuat bayaran. Sila pilih No Pancang lain atau cuba semula selepas 10 minit. / This peg is on hold for another customer who is paying. Pick another peg or try again in 10 minutes.';
+const holdActive = (claim, now) => !claim.bookingId && !!claim.holdUid && (claim.holdExpiresAt?.toMillis?.() ?? new Date(claim.holdExpiresAt || 0).getTime()) > now;
+
+// Claim refs for the selection, failing if a live booking or another
+// customer's unexpired hold already has any of the pegs.
+async function freePegRefs(tx, db, competitionId, selections, occupied, user, now) {
+    const refs = [];
+    for (const group of selections) {
+        for (const num of group.seats) {
+            if (occupied.has(`${group.pondId}:${num}`)) fail(PEG_TAKEN, 409);
+            const ref = db.collection('bookingSeatClaims').doc(claimId(competitionId, group.pondDocId, num));
+            const claim = (await tx.get(ref)).data();
+            if (claim?.bookingId) {
+                const owner = await tx.get(db.collection('bookings').doc(claim.bookingId));
+                if (owner.exists && occupiesSeats(owner.data())) fail(PEG_TAKEN, 409);
+            } else if (claim && holdActive(claim, now.getTime()) && claim.holdUid !== user.uid) {
+                fail(PEG_HELD, 409);
+            }
+            refs.push({ ref, pondId: group.pondId, num });
+        }
+    }
+    return refs;
+}
+
+export const HOLD_MS = 10 * 60 * 1000;
+// Same value the client computes with SubtleCrypto (sha256 of the uid, hex, first 16).
+export const holderKey = (uid) => createHash('sha256').update(String(uid)).digest('hex').slice(0, 16);
+
+// Holds the pegs for this customer for 10 minutes while they pay. One hold set
+// per customer per competition: a new hold replaces their previous one.
+export async function holdPegs(db, payload, user) {
+    if (!validId(payload.competitionId)) fail('Pertandingan tidak sah.');
+    return db.runTransaction(async (tx) => {
+        const now = new Date();
+        const { selections, occupied } = await loadSelection(tx, db, { ...payload, paymentType: 'full' }, user, { checkout: false });
+        const pegs = await freePegRefs(tx, db, payload.competitionId, selections, occupied, user, now);
+        const keep = new Set(pegs.map(({ ref }) => ref.id));
+        const previous = (await tx.get(db.collection('bookingSeatClaims').where('holdUid', '==', user.uid))).docs
+            .filter((claim) => claim.data().competitionId === payload.competitionId && !claim.data().bookingId && !keep.has(claim.id));
+        const expiresAt = new Date(now.getTime() + HOLD_MS);
+        previous.forEach((claim) => tx.delete(claim.ref));
+        pegs.forEach(({ ref, pondId, num }) => tx.set(ref, {
+            competitionId: payload.competitionId, pondId, seatNumber: num,
+            holdUid: user.uid, holdExpiresAt: expiresAt, updatedAt: now,
+        }));
+        return { expiresAt: expiresAt.toISOString(), holdMs: HOLD_MS };
+    });
+}
+
+export async function releaseHold(db, competitionId, user) {
+    if (!validId(competitionId)) fail('Pertandingan tidak sah.');
+    // Transactional so a hold that checkout just turned into a booking claim is never deleted.
+    return db.runTransaction(async (tx) => {
+        const held = (await tx.get(db.collection('bookingSeatClaims').where('holdUid', '==', user.uid))).docs
+            .filter((claim) => claim.data().competitionId === competitionId && !claim.data().bookingId);
+        held.forEach((claim) => tx.delete(claim.ref));
+        return { released: held.length };
+    });
+}
+
 export async function createSecureBooking(db, payload, user) {
     if (!validId(payload.competitionId)) fail('Pertandingan tidak sah.');
     const bookingDoc = db.collection('bookings').doc();
     const bookingRef = newBookingRef();
     const result = await db.runTransaction(async (tx) => {
-        const compRef = db.collection('competitions').doc(payload.competitionId);
-        const profile = await tx.get(db.collection('users').doc(user.uid));
-        const role = normalizeRole(profile.data()?.role);
-        const staffMode = payload.createdByStaff === true;
-        if (staffMode && !STAFF_ROLES.has(role)) fail('Kebenaran petugas diperlukan.', 403);
-        if (!staffMode && !user.email_verified && !STAFF_ROLES.has(role)) fail('Sila sahkan alamat e-mel anda.', 403);
-        if (staffMode && !BOOKING_MANAGER_ROLES.has(role) && text(payload.userEmail) && payload.userEmail !== user.email) fail('Kebenaran staf kaunter diperlukan untuk tempahan bagi pihak pelanggan.', 403);
-        if (!text(payload.bookingPhone) || !text(payload.bankReference)) fail('Nombor telefon dan rujukan bank diperlukan.');
-        const competitionSnap = await tx.get(compRef);
-        const competition = competitionSnap.data();
-        validateBookingWindow(competition);
-        const pondIndex = (await tx.get(pondIndexQuery(db))).docs;
-        const requestedGroups = Array.isArray(payload.pondSelections) ? payload.pondSelections : [];
-        const requestedIds = new Set(requestedGroups.map((group) => group?.pondId));
-        const wanted = pondCatalog(pondIndex, []).filter((pond) => requestedIds.has(pond.id));
-        const wantedDocIds = wanted.map((pond) => pond.docId);
-        const fullPonds = wantedDocIds.length ? await tx.getAll(...wantedDocIds.map((id) => db.collection('ponds').doc(id))) : [];
-        const fullById = new Map(fullPonds.filter((snap) => snap.exists).map((snap) => [snap.id, snap]));
-        // Claims mode: every occupying booking owns bookingSeatClaims docs, so the
-        // per-peg claim reads below are the whole double-booking check and only the
-        // requested seat docs are needed. Legacy mode scans the competition instead.
-        const claimsMode = (await tx.get(seatClaimsFlagRef(db))).exists;
-        let seatDocs;
-        const partial = new Map();
-        if (claimsMode) {
-            seatDocs = [];
-            for (const pond of wanted) {
-                const nums = new Set(requestedGroups.filter((group) => group?.pondId === pond.id)
-                    .flatMap((group) => (Array.isArray(group.seats) ? group.seats : [])).filter(Number.isInteger));
-                // validateSelections falls back to the lowest seat's price.
-                if (typeof competition.pricePerPeg !== 'number') nums.add(1);
-                if (nums.size > 101) fail('Maksimum 100 No Pancang bagi setiap tempahan.');
-                const found = (await Promise.all(requestedSeatQueries(db, pond.docId, [...nums]).map((query) => tx.get(query)))).flatMap((snap) => snap.docs);
-                const hasSeatDocs = found.length > 0
-                    || (await Promise.all(anySeatQueries(db, pond.docId).map((query) => tx.get(query)))).some((snap) => !snap.empty);
-                seatDocs.push(...found);
-                partial.set(pond.docId, hasSeatDocs);
-            }
-        } else {
-            seatDocs = (await Promise.all(seatQueries(db, wantedDocIds).map((query) => tx.get(query)))).flatMap((snap) => snap.docs);
-        }
-        const ponds = pondCatalog(pondIndex.map((snap) => fullById.get(snap.id) || snap), seatDocs)
-            .map((pond) => (partial.has(pond.docId) ? { ...pond, seatsPartial: true, hasSeatDocs: partial.get(pond.docId) } : pond));
-        const { selections, amount, totalAmount } = validateSelections(payload, competition, ponds);
-        const maxPegs = limitOf(competition.maxPegsPerBooking, DEFAULT_MAX_PEGS_PER_BOOKING);
-        const pegCount = selections.reduce((sum, group) => sum + group.seats.length, 0);
-        if (!staffMode && pegCount > maxPegs) fail(`Maksimum ${maxPegs} No Pancang bagi setiap tempahan.`);
-
-        // Query both historical competitionId encodings. No backfill is required.
-        const competitionBookings = claimsMode
-            ? [
-                ...(await tx.get(db.collection('bookings').where('userId', '==', user.uid).where('competitionId', '==', payload.competitionId))).docs,
-                ...(await tx.get(db.collection('bookings').where('userId', '==', user.uid).where('competitionId', '==', compRef))).docs,
-            ]
-            : [
-                ...(await tx.get(db.collection('bookings').where('competitionId', '==', payload.competitionId).where('status', 'in', OCCUPYING_STATUSES))).docs,
-                ...(await tx.get(db.collection('bookings').where('competitionId', '==', compRef).where('status', 'in', OCCUPYING_STATUSES))).docs,
-            ];
-        if (!staffMode) {
-            const maxPending = limitOf(competition.maxPendingBookingsPerUser, DEFAULT_MAX_PENDING_PER_USER);
-            const mine = new Set(competitionBookings
-                .filter((snap) => snap.data().userId === user.uid && PENDING_STATUSES.has(snap.data().status))
-                .map((snap) => snap.id));
-            if (mine.size >= maxPending) fail(`Anda mempunyai ${mine.size} tempahan yang belum disahkan untuk pertandingan ini. Sila tunggu pengesahan sebelum membuat tempahan baru. / You have reached the limit of ${maxPending} pending bookings.`, 429);
-        }
-        const occupied = new Set();
-        if (!claimsMode) {
-            competitionBookings.forEach((snap) => {
-                if (!occupiesSeats(snap.data())) return;
-                // Seats outside the requested ponds are not loaded; they cannot conflict anyway.
-                bookingSelections(snap.data(), ponds, seatDocs).forEach((group) => group.seats.forEach((num) => occupied.add(`${group.pondId}:${num}`)));
-            });
-        }
-        const claims = [];
-        for (const group of selections) {
-            for (const num of group.seats) {
-                if (occupied.has(`${group.pondId}:${num}`)) fail('No Pancang telah ditempah. Sila pilih No Pancang lain.', 409);
-                const ref = db.collection('bookingSeatClaims').doc(claimId(payload.competitionId, group.pondDocId, num));
-                const claim = await tx.get(ref);
-                if (claim.exists && claim.data().bookingId) {
-                    const owner = await tx.get(db.collection('bookings').doc(claim.data().bookingId));
-                    if (owner.exists && occupiesSeats(owner.data())) fail('No Pancang telah ditempah. Sila pilih No Pancang lain.', 409);
-                }
-                claims.push(ref);
-            }
-        }
         const now = new Date();
+        const { profile, staffMode, competition, selections, amount, totalAmount, occupied } = await loadSelection(tx, db, payload, user, { checkout: true });
+        // The buyer's own hold is taken over; anyone else's unexpired hold blocks.
+        const claims = (await freePegRefs(tx, db, payload.competitionId, selections, occupied, user, now)).map(({ ref }) => ref);
         const primary = selections.find((s) => s.pondId === payload.pondId) || selections[0];
         const paidAmount = staffMode ? amount : 0;
         const balanceDue = Math.max(0, totalAmount - paidAmount);
@@ -301,9 +359,10 @@ export function registerBookingRoutes(app) {
         if (availabilityCache && Date.now() - availabilityCache.createdAt < AVAILABILITY_CACHE_MS) {
             return availabilityCache.payload;
         }
-        const [bookings, pondIndex] = await Promise.all([
+        const [bookings, pondIndex, holdSnap] = await Promise.all([
             adminDb.collection('bookings').where('status', 'in', OCCUPYING_STATUSES).get(),
             pondIndexQuery(adminDb).get(),
+            adminDb.collection('bookingSeatClaims').where('holdExpiresAt', '>', new Date()).get(),
         ]);
         const occupying = bookings.docs.filter((snap) => occupiesSeats(snap.data()));
         const seatIds = [...new Set(occupying.flatMap((snap) => legacySeatIds(snap.data())))];
@@ -316,6 +375,20 @@ export function registerBookingRoutes(app) {
             const groups = bookingSelections(booking, catalog, seats);
             return { competitionId: refId(booking.competitionId), status: confirmed(booking) ? 'confirmed' : 'pending', pondId: groups[0]?.pondId || 0, seats: groups[0]?.seats || [], pondSelections: groups };
         }) };
+        // Pegs on hold, grouped per holder. `holder` is a one-way hash so the
+        // holder's own page can skip its pegs without exposing who holds them.
+        const holds = new Map();
+        holdSnap.docs.map((snap) => snap.data()).filter((claim) => !claim.bookingId && claim.holdUid).forEach((claim) => {
+            const holder = holderKey(claim.holdUid);
+            const key = `${claim.competitionId}|${holder}`;
+            if (!holds.has(key)) holds.set(key, { competitionId: claim.competitionId, holder, pegs: new Map() });
+            const pegs = holds.get(key).pegs;
+            if (!pegs.has(claim.pondId)) pegs.set(claim.pondId, []);
+            pegs.get(claim.pondId).push(claim.seatNumber);
+        });
+        payload.holds = [...holds.values()].map(({ competitionId, holder, pegs }) => ({
+            competitionId, holder, pondSelections: [...pegs].map(([pondId, seats]) => ({ pondId, seats })),
+        }));
         availabilityCache = { createdAt: Date.now(), payload };
         return payload;
     }));
@@ -337,6 +410,8 @@ export function registerBookingRoutes(app) {
             return res.status(500).json({ error: 'Tempahan tidak dapat diproses. Sila cuba lagi.' });
         }
     });
+    app.post('/holdPegs', verifyToken, handle(async (req) => holdPegs(adminDb, req.body || {}, req.user)));
+    app.post('/releaseHold', verifyToken, handle(async (req) => releaseHold(adminDb, req.body?.competitionId, req.user)));
     app.post('/createBooking', verifyToken, handle(async (req) => {
         await verifyTurnstile(req);
         await validateReceipt(req.body.receiptUrl, req.user.uid);
