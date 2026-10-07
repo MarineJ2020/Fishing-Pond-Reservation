@@ -111,7 +111,7 @@ type Step =
 const MAX_LONG_EDGE = 1600;
 const DEFAULT_CROP: NormRect = { x: 0.25, y: 0.42, w: 0.5, h: 0.18 };
 /** Guide box drawn over the live camera; the saved photo is cropped to exactly this. */
-const GUIDE_CROP: NormRect = { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
+const GUIDE_CROP: NormRect = { x: 0.2, y: 0.74, w: 0.6, h: 0.18 };
 const LAST_CROP_KEY = 'kks.scaleCropRect';
 
 /** Where the box sits on a new photo: found automatically, last used, or the stock default. */
@@ -1137,37 +1137,27 @@ const ScaleScanModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* STEP: capture weight photo */}
+          {/* STEP: capture weight photo — live camera + guide box; gallery pick sits beside the shutter */}
           {step === 'capture' && (
-            <div style={{ textAlign: 'center', padding: capCamActive ? '0' : '24px 12px' }}>
-              <div style={{ display: capCamActive ? 'block' : 'none' }}>
-                {/* Sized by the video itself (not stretched) so the guide box lines up
-                    with the saved frame, and short enough that the button needs no scrolling. */}
-                <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', borderRadius: 10, background: '#0f172a', lineHeight: 0, verticalAlign: 'top' }}>
-                  <video ref={capVideoRef} playsInline muted style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '38vh', display: 'block' }} />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', borderRadius: 10, background: '#0f172a', lineHeight: 0, verticalAlign: 'top', minWidth: capCamActive ? undefined : 240 }}>
+                {/* Sized by the video itself (not stretched) so the guide box lines up with the saved frame. */}
+                <video ref={capVideoRef} playsInline muted style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '56vh', display: capCamActive ? 'block' : 'none' }} />
+                {capCamActive && (
                   <div style={{
                     position: 'absolute',
                     left: `${GUIDE_CROP.x * 100}%`, top: `${GUIDE_CROP.y * 100}%`,
                     width: `${GUIDE_CROP.w * 100}%`, height: `${GUIDE_CROP.h * 100}%`,
                     border: '2px solid #fcd34d', borderRadius: 4, boxSizing: 'border-box',
-                    boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)', pointerEvents: 'none',
+                    boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)', pointerEvents: 'none',
                   }} />
-                </div>
-                <div style={{ margin: '10px 0 6px' }}>
-                  <button className="btn btn-primary" onClick={handleLiveCapture}>📸 Ambil &amp; Imbas</button>
-                </div>
-                <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                  Letak <strong>hanya angka</strong> dalam kotak kuning (tanpa label &amp; "kg").
-                </p>
+                )}
+                {!capCamActive && (
+                  <div style={{ padding: '44px 16px', color: '#cbd5e1', fontSize: 13, lineHeight: 1.5 }}>
+                    {capCamError || 'Membuka kamera…'}
+                  </div>
+                )}
               </div>
-              {!capCamActive && (
-                <>
-                  <div style={{ fontSize: 64, marginBottom: 12 }}>📷</div>
-                  <p style={{ marginBottom: 16, color: 'var(--text-muted)' }}>
-                    {capCamError || 'Membuka kamera… atau ambil gambar paparan timbangan dengan jelas. Pastikan nombor kelihatan penuh.'}
-                  </p>
-                </>
-              )}
               <input
                 ref={weightCameraInputRef}
                 type="file"
@@ -1191,16 +1181,39 @@ const ScaleScanModal: React.FC<Props> = ({
                   e.target.value = '';
                 }}
               />
-              {!capCamActive && (
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary" onClick={() => weightCameraInputRef.current?.click()}>
-                    📷 Ambil Gambar Timbangan
-                  </button>
-                  <button className="btn" onClick={() => weightUploadInputRef.current?.click()}>
-                    🖼️ Pilih Gambar Timbangan
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', margin: '10px 0 4px' }}>
+                <div style={{ justifySelf: 'start' }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => weightUploadInputRef.current?.click()}
+                    aria-label="Pilih gambar dari galeri"
+                    title="Pilih gambar dari galeri"
+                    style={{ width: 44, height: 44, borderRadius: '50%', padding: 0, fontSize: 20 }}
+                  >
+                    🖼️
                   </button>
                 </div>
-              )}
+                {/* Round shutter, like a phone camera. Falls back to the phone's own camera when live view is unavailable. */}
+                <button
+                  type="button"
+                  onClick={capCamActive ? handleLiveCapture : () => weightCameraInputRef.current?.click()}
+                  disabled={!capCamActive && !capCamError}
+                  aria-label={capCamActive ? 'Ambil dan imbas' : 'Ambil gambar timbangan'}
+                  title={capCamActive ? 'Ambil & Imbas' : 'Ambil gambar timbangan'}
+                  style={{
+                    width: 60, height: 60, borderRadius: '50%', cursor: 'pointer',
+                    background: '#fff', border: '4px solid #fcd34d', boxShadow: '0 0 0 2px #0f172a inset',
+                    fontSize: 22, opacity: !capCamActive && !capCamError ? 0.4 : 1,
+                  }}
+                >
+                  {capCamActive ? '' : '📷'}
+                </button>
+                <span />
+              </div>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                Letak <strong>hanya angka</strong> dalam kotak kuning (tanpa label &amp; "kg"). Pemancing &amp; ikan boleh ada dalam gambar.
+              </p>
             </div>
           )}
 
