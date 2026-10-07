@@ -101,6 +101,27 @@ export async function openQrCameraStream(): Promise<MediaStream> {
   return stream;
 }
 
+/** Rear camera at the highest practical resolution, for photographing a scale display. */
+export async function openScaleCameraStream(): Promise<MediaStream> {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+    },
+    audio: false,
+  });
+  const [track] = stream.getVideoTracks();
+  if (track && typeof track.applyConstraints === 'function') {
+    try {
+      await track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] });
+    } catch {
+      // Not supported on this browser/camera — fall back to default autofocus.
+    }
+  }
+  return stream;
+}
+
 /** Build the booking-detail URL (origin + /bookings/:id), no seat info. */
 export function buildBookingUrl(bookingId: string): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';

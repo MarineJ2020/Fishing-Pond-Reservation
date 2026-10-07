@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
-import { parseQrPayload, decodeQr, openQrCameraStream } from '../../utils/qr';
+import { parseQrPayload, decodeQr, openQrCameraStream, openScaleCameraStream } from '../../utils/qr';
 import { weightSanityWarning } from '../../utils/weight';
 import { detectDisplayInBitmap } from '../../utils/displayDetect';
 
@@ -110,10 +110,12 @@ type Step =
 
 const MAX_LONG_EDGE = 1600;
 const DEFAULT_CROP: NormRect = { x: 0.25, y: 0.42, w: 0.5, h: 0.18 };
+/** Guide box drawn over the live camera; the saved photo is cropped to exactly this. */
+const GUIDE_CROP: NormRect = { x: 0.12, y: 0.36, w: 0.76, h: 0.28 };
 const LAST_CROP_KEY = 'kks.scaleCropRect';
 
 /** Where the box sits on a new photo: found automatically, last used, or the stock default. */
-type CropSource = 'auto' | 'last' | 'default';
+type CropSource = 'auto' | 'last' | 'guide' | 'default';
 
 function loadLastCrop(): NormRect | null {
   try {
@@ -343,6 +345,10 @@ const ScaleScanModal: React.FC<Props> = ({
   const [manualSearch, setManualSearch] = useState('');
   const [liveQrActive, setLiveQrActive] = useState(false);
   const [liveQrBusy, setLiveQrBusy] = useState(false);
+  const [capCamActive, setCapCamActive] = useState(false);
+  const [capCamError, setCapCamError] = useState<string | null>(null);
+  const capVideoRef = useRef<HTMLVideoElement | null>(null);
+  const capStreamRef = useRef<MediaStream | null>(null);
   const qrFileInputRef = useRef<HTMLInputElement>(null);
   const weightCameraInputRef = useRef<HTMLInputElement>(null);
   const weightUploadInputRef = useRef<HTMLInputElement>(null);
@@ -377,6 +383,7 @@ const ScaleScanModal: React.FC<Props> = ({
       setPhotoUrl(null);
       setPhotoBlob(null);
       setCropRect(DEFAULT_CROP);
+      setCropSource('default');
       setResult(null);
       setActiveReading(null);
       setManualMode(false);
@@ -416,6 +423,35 @@ const ScaleScanModal: React.FC<Props> = ({
     canvas.style.borderRadius = '6px';
     box.appendChild(canvas);
   }, [step, result]);
+
+  // Live camera with the guide box: on while the capture step is showing.
+  useEffect(() => {
+    if (!isOpen || step !== 'capture') return;
+    let cancelled = false;
+    setCapCamError(null);
+    (async () => {
+      try {
+        const stream = await openScaleCameraStream();
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        capStreamRef.current = stream;
+        const video = capVideoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        await video.play();
+        if (!cancelled) setCapCamActive(true);
+      } catch (err) {
+        console.warn('Scale camera unavailable:', err);
+        if (!cancelled) setCapCamError('Kamera langsung tidak tersedia. Guna butang di bawah untuk ambil / pilih gambar.');
+      }
+    })();
+    return () => {
+      cancelled = true;
+      capStreamRef.current?.getTracks().forEach((t) => t.stop());
+      capStreamRef.current = null;
+      if (capVideoRef.current) capVideoRef.current.srcObject = null;
+      setCapCamActive(false);
+    };
+  }, [isOpen, step]);
 
   const bookingsForPicker = useMemo(() => {
     if (step !== 'manual-picker') return [];
@@ -672,17 +708,16 @@ const ScaleScanModal: React.FC<Props> = ({
     setStep('crop');
   };
 
-  const buildCropCanvas = async (): Promise<HTMLCanvasElement> => {
-    if (!photoBlob) throw new Error('Tiada gambar');
-    const bitmap = await createImageBitmap(photoBlob);
+  const buildCropCanvas = async (blob: Blob, rect: NormRect): Promise<HTMLCanvasElement> => {
+    const bitmap = await createImageBitmap(blob);
     const scale = Math.min(1, MAX_LONG_EDGE / Math.max(bitmap.width, bitmap.height));
     const fullW = Math.round(bitmap.width * scale);
     const fullH = Math.round(bitmap.height * scale);
 
-    const cx = Math.round(cropRect.x * fullW);
-    const cy = Math.round(cropRect.y * fullH);
-    const cw = Math.round(cropRect.w * fullW);
-    const ch = Math.round(cropRect.h * fullH);
+    const cx = Math.round(rect.x * fullW);
+    const cy = Math.round(rect.y * fullH);
+    const cw = Math.round(rect.w * fullW);
+    const ch = Math.round(rect.h * fullH);
     if (cw < 20 || ch < 20) throw new Error('Kawasan terlalu kecil');
 
     const canvas = document.createElement('canvas');
@@ -699,13 +734,13 @@ const ScaleScanModal: React.FC<Props> = ({
     return canvas;
   };
 
-  const handleScan = async () => {
-    if (!photoBlob) return;
+  const handleScan = async (blob: Blob | null = photoBlob, rect: NormRect = cropRect) => {
+    if (!blob) return;
     setStep('processing');
     setProgress('Memproses imej…');
-    saveLastCrop(cropRect);
+    saveLastCrop(rect);
     try {
-      const cropCanvas = await buildCropCanvas();
+      const cropCanvas = await buildCropCanvas(blob, rect);
       setProgress('Imbas paparan…');
       const r = await scanWeight(cloneCanvas(cropCanvas), undefined, { usePreprocess, decimalPlaces });
       setResult(r);
@@ -722,6 +757,31 @@ const ScaleScanModal: React.FC<Props> = ({
       setError(err?.message || 'Imbasan gagal. Sila cuba lagi.');
       setStep('crop');
     }
+  };
+
+  // Photo taken through the live guide box: the box IS the crop, so scan at once.
+  // The verify step (with "Laras Kotak") is the safety net if framing was off.
+  const handleLiveCapture = async () => {
+    const video = capVideoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.92));
+    if (!blob) { setError('Gagal mengambil gambar. Sila cuba lagi.'); return; }
+    const file = new File([blob], `scale-${Date.now()}.jpg`, { type: 'image/jpeg' });
+    setError(null);
+    entryIdRef.current = null;
+    setPhotoFileName(file.name);
+    setPhotoBlob(file);
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    setPhotoUrl(URL.createObjectURL(file));
+    setCropRect(GUIDE_CROP);
+    setCropSource('guide');
+    await handleScan(file, GUIDE_CROP);
   };
 
   const handleManualPhotoChosen = (file: File) => {
@@ -1080,10 +1140,30 @@ const ScaleScanModal: React.FC<Props> = ({
           {/* STEP: capture weight photo */}
           {step === 'capture' && (
             <div style={{ textAlign: 'center', padding: '24px 12px' }}>
-              <div style={{ fontSize: 64, marginBottom: 12 }}>📷</div>
-              <p style={{ marginBottom: 16, color: 'var(--text-muted)' }}>
-                Ambil gambar paparan timbangan digital dengan jelas. Pastikan nombor kelihatan penuh.
-              </p>
+              <div style={{ display: capCamActive ? 'block' : 'none', marginBottom: 14 }}>
+                <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 10, background: '#0f172a', lineHeight: 0 }}>
+                  <video ref={capVideoRef} playsInline muted style={{ width: '100%', maxHeight: '60vh', display: 'block' }} />
+                  <div style={{
+                    position: 'absolute',
+                    left: `${GUIDE_CROP.x * 100}%`, top: `${GUIDE_CROP.y * 100}%`,
+                    width: `${GUIDE_CROP.w * 100}%`, height: `${GUIDE_CROP.h * 100}%`,
+                    border: '2px solid #fcd34d', borderRadius: 4, boxSizing: 'border-box',
+                    boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)', pointerEvents: 'none',
+                  }} />
+                </div>
+                <p style={{ margin: '8px 0 10px', fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  Letak <strong>hanya baris angka</strong> di dalam kotak kuning (tanpa label "TARE" / "WEIGHT"), kemudian tekan butang.
+                </p>
+                <button className="btn btn-primary" onClick={handleLiveCapture}>📸 Ambil &amp; Imbas</button>
+              </div>
+              {!capCamActive && (
+                <>
+                  <div style={{ fontSize: 64, marginBottom: 12 }}>📷</div>
+                  <p style={{ marginBottom: 16, color: 'var(--text-muted)' }}>
+                    {capCamError || 'Membuka kamera… atau ambil gambar paparan timbangan dengan jelas. Pastikan nombor kelihatan penuh.'}
+                  </p>
+                </>
+              )}
               <input
                 ref={weightCameraInputRef}
                 type="file"
@@ -1120,7 +1200,7 @@ const ScaleScanModal: React.FC<Props> = ({
 
           {step === 'crop' && photoUrl && (
             <div>
-              {cropSource !== 'default' && (
+              {(cropSource === 'auto' || cropSource === 'last') && (
                 <div style={{
                   background: '#ecfdf5', color: '#065f46', padding: '8px 12px',
                   borderRadius: 6, marginBottom: 8, fontSize: 13,
@@ -1146,7 +1226,7 @@ const ScaleScanModal: React.FC<Props> = ({
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
                 <button className="btn" onClick={handleRetakeWeight}>🔄 Ambil Semula</button>
-                <button className="btn btn-primary" onClick={handleScan}>Imbas Kawasan Ini</button>
+                <button className="btn btn-primary" onClick={() => handleScan()}>Imbas Kawasan Ini</button>
               </div>
             </div>
           )}
