@@ -111,7 +111,7 @@ type Step =
 const MAX_LONG_EDGE = 1600;
 const DEFAULT_CROP: NormRect = { x: 0.25, y: 0.42, w: 0.5, h: 0.18 };
 /** Guide box drawn over the live camera; the saved photo is cropped to exactly this. */
-const GUIDE_CROP: NormRect = { x: 0.12, y: 0.36, w: 0.76, h: 0.28 };
+const GUIDE_CROP: NormRect = { x: 0.2, y: 0.4, w: 0.6, h: 0.2 };
 const LAST_CROP_KEY = 'kks.scaleCropRect';
 
 /** Where the box sits on a new photo: found automatically, last used, or the stock default. */
@@ -1152,7 +1152,7 @@ const ScaleScanModal: React.FC<Props> = ({
                   }} />
                 </div>
                 <p style={{ margin: '8px 0 10px', fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  Letak <strong>hanya baris angka</strong> di dalam kotak kuning (tanpa label "TARE" / "WEIGHT"), kemudian tekan butang.
+                  Letak <strong>hanya baris angka</strong> di dalam kotak kuning (tanpa label "TARE" / "WEIGHT" dan tanpa "kg"), kemudian tekan butang.
                 </p>
                 <button className="btn btn-primary" onClick={handleLiveCapture}>📸 Ambil &amp; Imbas</button>
               </div>
@@ -1217,7 +1217,7 @@ const ScaleScanModal: React.FC<Props> = ({
                 <br />
                 • <strong>Jangan</strong> masukkan label seperti "TARE", "WEIGHT", "UNIT PRICE".
                 <br />
-                • Boleh sertakan "kg" jika berdekatan.
+                • <strong>Jangan</strong> masukkan "kg" — huruf "kg" boleh dibaca sebagai digit tambahan.
                 <br />
                 • <strong>Cubit</strong> atau guna butang <strong>+ / −</strong> untuk zoom sebelum melaraskan kotak.
               </p>
