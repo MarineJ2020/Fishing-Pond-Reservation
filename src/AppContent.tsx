@@ -16,6 +16,7 @@ import CMSModal from './components/CMSModal';
 import BookingDetailsModal from './components/BookingDetailsModal';
 import CompleteProfileModal from './components/CompleteProfileModal';
 import BookingDetailContent from './components/BookingDetailContent';
+import BookingTour from './components/BookingTour';
 import ProfileContent from './components/ProfileContent';
 import Toast from './components/Toast';
 import Footer from './components/Footer';
@@ -1400,6 +1401,7 @@ const AppContent: React.FC = () => {
                 <div className={stepClass(step3 as any)}><span>3</span>Pilih Tempat</div>
                 <div className={stepClass(step4 as any)}><span>4</span>Maklumat &amp; Bayaran</div>
               </div>
+              <BookingTour />
 
               <div className={`bk-grid${detailsPhase ? ' is-details' : ''}`}>
                 <div className="bk-stack">
