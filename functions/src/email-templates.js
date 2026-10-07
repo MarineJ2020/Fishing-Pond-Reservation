@@ -176,10 +176,18 @@ const qrTable = ({ bookingId, booking, competition, appUrl }) => {
             : '';
         const qrValue = `${appUrl}/bookings/${encodeURIComponent(bookingId)}?seat=${encodeURIComponent(String(seat))}${pondQuery}`;
         const imageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrValue)}`;
-        // Same QR at print size; download=1 makes the service send it as a PNG file.
-        const downloadUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&download=1&data=${encodeURIComponent(qrValue)}`;
+        // The bare QR image is all an email can show, so the image and the download
+        // link open a page on our site that draws the full card (QR + details) as a PNG.
+        const downloadUrl = `${appUrl}/qr-card?${new URLSearchParams({
+            v: qrValue,
+            t: label,
+            p: selection.pondName || '',
+            c: competitionName,
+            d: start ? myDateTime.format(start) : '',
+            r: bookingRef,
+        }).toString()}`;
         return `<td style="padding:8px;text-align:center;vertical-align:top;">
-            <img src="${imageUrl}" alt="QR Peg ${escapeHtml(label)}" width="150" height="150" style="width:150px;height:150px;display:block;margin:0 auto;border:1px solid #eee;border-radius:8px;padding:6px;background:#fff;" />
+            <a href="${escapeHtml(downloadUrl)}" style="text-decoration:none;"><img src="${imageUrl}" alt="QR Peg ${escapeHtml(label)}" width="150" height="150" style="width:150px;height:150px;display:block;margin:0 auto;border:1px solid #eee;border-radius:8px;padding:6px;background:#fff;" /></a>
             <div style="font-size:12px;font-weight:700;color:${BRAND_NAVY};margin-top:6px;">${escapeHtml(selection.pondName)} &middot; ${escapeHtml(label)}</div>
             ${competitionName ? `<div style="font-size:11px;font-weight:700;color:${BRAND_NAVY};margin-top:4px;">${escapeHtml(competitionName)}</div>` : ''}
             ${start ? `<div style="font-size:11px;color:#666;">${escapeHtml(myDateTime.format(start))}</div>` : ''}

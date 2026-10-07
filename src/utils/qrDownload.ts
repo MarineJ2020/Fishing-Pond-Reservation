@@ -1,7 +1,7 @@
 // Saves a QR card as a PNG: the on-screen QR (an <svg> from qrcode.react) with
 // the booking details printed underneath, so a downloaded/printed copy is
 // self-contained at check-in. Runs entirely in the browser (no server cost).
-export const downloadQrCard = async (svg: SVGSVGElement, lines: string[], filename: string) => {
+export const renderQrCardBlob = async (svg: SVGSVGElement, lines: string[]): Promise<Blob> => {
   const qrSize = 600;
   const pad = 40;
   const lineHeight = 34;
@@ -34,14 +34,19 @@ export const downloadQrCard = async (svg: SVGSVGElement, lines: string[], filena
     });
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('PNG export failed.');
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    return blob;
   } finally {
     URL.revokeObjectURL(url);
   }
+};
+
+export const downloadQrCard = async (svg: SVGSVGElement, lines: string[], filename: string) => {
+  const blob = await renderQrCardBlob(svg, lines);
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 };

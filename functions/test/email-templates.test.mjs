@@ -41,7 +41,9 @@ test('approved email creates one QR for every selected peg', () => {
     assert.equal((approved.html.match(/margin-top:4px;">Piala &lt;Keli&gt;/g) || []).length, 3);
     assert.equal((approved.html.match(/Ref: KKS-QR123/g) || []).length, 3);
     assert.match(approved.html, /4 Okt 2026/);
-    assert.equal((approved.html.match(/download=1/g) || []).length, 3);
+    // Download link and image open our own card page (QR + details), not the bare QR service.
+    assert.equal((approved.html.match(/https:\/\/example\.test\/qr-card\?v=/g) || []).length, 6);
+    assert.match(approved.html, /&amp;c=Piala\+%3CKeli%3E/);
     assert.equal((approved.html.match(/Muat turun QR/g) || []).length, 3);
     assert.match(approved.html, /Kolam Utara &middot; A-1/);
     assert.match(approved.html, /Kolam Selatan &middot; B-7/);
