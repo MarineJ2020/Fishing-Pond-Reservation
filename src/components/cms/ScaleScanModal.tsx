@@ -4,6 +4,7 @@ import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../u
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
 import { parseQrPayload, decodeQr, openQrCameraStream } from '../../utils/qr';
 import { weightSanityWarning } from '../../utils/weight';
+import { detectDisplayInBitmap } from '../../utils/displayDetect';
 
 export interface ScannedSeatEntry {
   key: string;
@@ -109,6 +110,25 @@ type Step =
 
 const MAX_LONG_EDGE = 1600;
 const DEFAULT_CROP: NormRect = { x: 0.25, y: 0.42, w: 0.5, h: 0.18 };
+const LAST_CROP_KEY = 'kks.scaleCropRect';
+
+/** Where the box sits on a new photo: found automatically, last used, or the stock default. */
+type CropSource = 'auto' | 'last' | 'default';
+
+function loadLastCrop(): NormRect | null {
+  try {
+    const r = JSON.parse(localStorage.getItem(LAST_CROP_KEY) || 'null');
+    const ok = r && [r.x, r.y, r.w, r.h].every((n: unknown) => typeof n === 'number' && Number.isFinite(n))
+      && r.w >= 0.05 && r.h >= 0.05 && r.x >= 0 && r.y >= 0 && r.x + r.w <= 1.001 && r.y + r.h <= 1.001;
+    return ok ? { x: r.x, y: r.y, w: r.w, h: r.h } : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastCrop(rect: NormRect) {
+  try { localStorage.setItem(LAST_CROP_KEY, JSON.stringify(rect)); } catch { /* storage blocked — fine */ }
+}
 
 function cloneCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
   const out = document.createElement('canvas');
@@ -293,6 +313,7 @@ const ScaleScanModal: React.FC<Props> = ({
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [photoFileName, setPhotoFileName] = useState<string>('scale.jpg');
   const [cropRect, setCropRect] = useState<NormRect>(DEFAULT_CROP);
+  const [cropSource, setCropSource] = useState<CropSource>('default');
   const [progress, setProgress] = useState<string>('');
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -627,6 +648,24 @@ const ScaleScanModal: React.FC<Props> = ({
     entryIdRef.current = null;
     setPhotoFileName(file.name || 'scale.jpg');
     setPhotoBlob(file);
+    // Pre-place the crop box: auto-detected digits, else the box staff used
+    // last time, else the stock default. Staff still confirm it on the next step.
+    let rect: NormRect | null = null;
+    let source: CropSource = 'default';
+    try {
+      const bitmap = await createImageBitmap(file);
+      rect = detectDisplayInBitmap(bitmap);
+      bitmap.close?.();
+      if (rect) source = 'auto';
+    } catch (err) {
+      console.warn('Display auto-detect failed:', err);
+    }
+    if (!rect) {
+      rect = loadLastCrop();
+      if (rect) source = 'last';
+    }
+    setCropRect(rect || DEFAULT_CROP);
+    setCropSource(source);
     const url = URL.createObjectURL(file);
     if (photoUrl) URL.revokeObjectURL(photoUrl);
     setPhotoUrl(url);
@@ -664,6 +703,7 @@ const ScaleScanModal: React.FC<Props> = ({
     if (!photoBlob) return;
     setStep('processing');
     setProgress('Memproses imej…');
+    saveLastCrop(cropRect);
     try {
       const cropCanvas = await buildCropCanvas();
       setProgress('Imbas paparan…');
@@ -1080,6 +1120,16 @@ const ScaleScanModal: React.FC<Props> = ({
 
           {step === 'crop' && photoUrl && (
             <div>
+              {cropSource !== 'default' && (
+                <div style={{
+                  background: '#ecfdf5', color: '#065f46', padding: '8px 12px',
+                  borderRadius: 6, marginBottom: 8, fontSize: 13,
+                }}>
+                  {cropSource === 'auto'
+                    ? '✓ Kotak dikesan automatik pada angka. Semak, kemudian tekan "Imbas Kawasan Ini".'
+                    : 'Paparan tidak dapat dikesan — guna kotak terakhir anda. Laras jika perlu.'}
+                </div>
+              )}
               <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.5 }}>
                 Seret kotak kuning untuk meliputi <strong>HANYA baris angka pada paparan</strong>.
                 <br />
