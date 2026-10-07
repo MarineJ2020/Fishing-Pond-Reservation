@@ -3748,6 +3748,8 @@ nav.kks-legacy-v3-nav::before {
   background: rgba(255,255,255,.12); font-size: 12px; font-weight: 800;
 }
 .kks-mini-featured { background: linear-gradient(135deg, rgba(231,25,45,.95), rgba(16,43,68,.82)); }
+.kks-mini-placeholder { background: rgba(255,255,255,.05); border: 1px dashed rgba(255,255,255,.3); }
+.kks-mini-placeholder h4, .kks-mini-placeholder p { opacity: .8; }
 
 /* ===== BOOKING STEPS (#how) ===== */
 .kks-booking-section {

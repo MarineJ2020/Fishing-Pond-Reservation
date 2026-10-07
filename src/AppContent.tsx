@@ -1177,6 +1177,13 @@ const AppContent: React.FC = () => {
                     )}
                   </article>
                   )}
+                  {featuredCompetition && !secondCompetition && (
+                  <article className="kks-mini-card kks-mini-placeholder">
+                    <h4>Pertandingan Seterusnya</h4>
+                    <p>Akan diumumkan tidak lama lagi. Ikuti kami untuk tarikh dan butiran terkini.</p>
+                    <div className="kks-mini-meta"><span>Akan Datang</span></div>
+                  </article>
+                  )}
                 </aside>
               </div>
             </>
