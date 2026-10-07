@@ -155,6 +155,26 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
     };
   }, [open, index, step, measure]);
 
+  // Lock manual scrolling while the tour is open so the spotlight and card stay
+  // put (the tour scrolls the page itself between steps). Wheel/touch/keys are
+  // blocked everywhere except inside the explanation card, which may scroll.
+  useEffect(() => {
+    if (!open) return;
+    const insideCard = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.('[data-tour-card]');
+    const block = (event: Event) => { if (!insideCard(event.target)) event.preventDefault(); };
+    const blockKeys = (event: KeyboardEvent) => {
+      if ([' ', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) event.preventDefault();
+    };
+    window.addEventListener('wheel', block, { passive: false });
+    window.addEventListener('touchmove', block, { passive: false });
+    window.addEventListener('keydown', blockKeys);
+    return () => {
+      window.removeEventListener('wheel', block);
+      window.removeEventListener('touchmove', block);
+      window.removeEventListener('keydown', blockKeys);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
@@ -196,6 +216,7 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
           {/* Click-catcher so the page underneath can't be used mid-tour. */}
           <div style={{ position: 'fixed', inset: 0 }} onClick={(e) => e.stopPropagation()} />
           <div
+            data-tour-card
             style={{
               position: 'fixed', left: '50%', transform: 'translateX(-50%)',
               ...(!rect ? { top: '50%', marginTop: -110 } : cardAtTop ? { top: 12 } : { bottom: 12 }),
