@@ -949,3 +949,9 @@
   color: #112a41;
 }
 .booking-customer-info strong { color: var(--navy); }
+
+/* iOS Safari zooms the whole page when a field under 16px gets focus (e.g. in a popup) and
+   does not zoom back. Keep every form control at 16px on iOS so the page stays fitted. */
+@supports (-webkit-touch-callout: none) {
+  input, select, textarea { font-size: 16px !important; }
+}

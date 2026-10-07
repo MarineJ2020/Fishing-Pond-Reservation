@@ -1737,6 +1737,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   };
 
   const performCheckinForBooking = async (booking: Booking, entry?: BookingSeatEntry, settleBalance = false) => {
+    if (booking.status === 'rejected') {
+      window.alert(`Check-in tidak dibenarkan: tempahan telah dibatalkan.${booking.cancelReason ? ` Sebab: ${booking.cancelReason}` : ''}`);
+      return;
+    }
     const payment = checkinPaymentMeta(booking);
     if (!payment.complete && !settleBalance) {
       window.alert('Check-in tidak dibenarkan: bayaran penuh belum selesai.');
@@ -2354,6 +2358,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const handleScanCheckInBeforeWeigh = async (booking: ScannedBookingFull, seatNum: number, options?: { settleBalance?: boolean }): Promise<ScannedBookingFull> => {
     const settleBalance = options?.settleBalance === true;
+    if (booking.bookingStatus === 'rejected') {
+      throw new Error(`Tidak boleh check-in: tempahan telah dibatalkan.${booking.cancelReason ? ` Sebab: ${booking.cancelReason}` : ''}`);
+    }
     const balanceDue = Math.max(0, Number(booking.balanceDue ?? ((booking.totalAmount ?? booking.amount ?? 0) - (booking.paidAmount ?? booking.amount ?? 0))));
     if (booking.balanceStage !== 'fully-paid' && !settleBalance) {
       throw new Error('Tidak boleh check-in: bayaran peserta belum selesai / belum disahkan.');

@@ -502,6 +502,11 @@ const ScaleScanModal: React.FC<Props> = ({
    *   • single-peg booking → that's the only choice, no need to ask.
    */
   const continueAfterSeatResolved = (full: ScannedBookingFull, seatNum: number, pondId?: number) => {
+    if (full.bookingStatus === 'rejected') {
+      setError(cancelledQrMessage(full));
+      setStep('identify');
+      return;
+    }
     const selectedBooking = selectSeat(full, seatNum, pondId);
     const lite = toLite(selectedBooking, seatNum, selectedBooking.pondId);
     setConfirmedBooking(lite);
@@ -537,6 +542,10 @@ const ScaleScanModal: React.FC<Props> = ({
 
   const handleCheckInBeforeWeigh = async (settleBalance = false) => {
     if (!pendingCheckIn) return;
+    if (pendingCheckIn.booking.bookingStatus === 'rejected') {
+      setError(cancelledQrMessage(pendingCheckIn.booking));
+      return;
+    }
     const pay = paymentMeta(pendingCheckIn.booking);
     if (!pay.complete) {
       setError('Tidak boleh check-in peserta kerana bayaran belum selesai.');
@@ -1207,9 +1216,14 @@ const ScaleScanModal: React.FC<Props> = ({
                     onClick={() => weightUploadInputRef.current?.click()}
                     aria-label="Pilih gambar dari galeri"
                     title="Pilih gambar dari galeri"
-                    style={{ width: 44, height: 44, borderRadius: '50%', padding: 0, fontSize: 20 }}
+                    style={{ width: 44, height: 44, borderRadius: '50%', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0 }}
                   >
-                    🖼️
+                    {/* Plain outlined "photo" glyph, drawn so it centres exactly in the circle. */}
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+                      <circle cx="9" cy="10" r="1.6" />
+                      <path d="M21 16l-5-5-8 9" />
+                    </svg>
                   </button>
                 </div>
                 {/* Round shutter, like a phone camera. Falls back to the phone's own camera when live view is unavailable. */}
@@ -1222,10 +1236,16 @@ const ScaleScanModal: React.FC<Props> = ({
                   style={{
                     width: 60, height: 60, borderRadius: '50%', cursor: 'pointer',
                     background: '#fff', border: '4px solid #fcd34d', boxShadow: '0 0 0 2px #0f172a inset',
-                    fontSize: 22, opacity: !capCamActive && !capCamError ? 0.4 : 1,
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, color: '#112a41',
+                    opacity: !capCamActive && !capCamError ? 0.4 : 1,
                   }}
                 >
-                  {capCamActive ? '' : '📷'}
+                  {capCamActive ? null : (
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+                      <circle cx="12" cy="13" r="3.5" />
+                    </svg>
+                  )}
                 </button>
                 <span />
               </div>
