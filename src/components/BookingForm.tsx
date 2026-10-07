@@ -304,7 +304,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
               onClick={() => setQrZoomOpen(true)}
               aria-label="Besarkan QR pembayaran"
               title="Besarkan QR pembayaran"
-              style={{ position: 'relative', width: 110, height: 110, padding: 0, borderRadius: '8px', border: '1px solid var(--border, #e5e0d8)', background: '#fff', flex: '0 0 auto', cursor: 'zoom-in', overflow: 'hidden', display: 'block' }}
+              style={{ position: 'relative', width: 'clamp(110px, 36vw, 150px)', aspectRatio: '1 / 1', padding: 0, borderRadius: '8px', border: '1px solid var(--border, #e5e0d8)', background: '#fff', flex: '0 0 auto', cursor: 'zoom-in', overflow: 'hidden', display: 'block' }}
             >
               <img
                 src={settings.qrImg}
