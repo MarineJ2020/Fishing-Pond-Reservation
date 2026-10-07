@@ -1,93 +1,150 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-// First-visit walkthrough for the booking page. It spotlights each chip of the
-// "Kemajuan tempahan" bar (always on screen, including on step 4) and explains
-// the step in a card at the bottom. Static and client-only: no server cost.
-// Shown once per browser (localStorage); the "Cara Tempah" button replays it.
+// Walkthrough for the booking page. It spotlights the real parts of the page
+// (data-tour="…" targets) and explains them in a card. Two short tours:
+//   • select  — choose pertandingan, pancang, then Teruskan
+//   • details — why phone/e-mel are needed, how to pay, upload the receipt
+// Each opens automatically once per browser (localStorage) and can be skipped;
+// the "Cara Tempah" button replays the tour for the current page. Client-only,
+// so no server cost.
 
-const SEEN_KEY = 'kks.bookingTourSeen';
+export type TourPhase = 'select' | 'details';
 
 interface TourStep {
-  /** 1-4 = chip in the progress bar; null = centred card with no spotlight. */
-  chip: number | null;
+  /** CSS selector of the element to spotlight; null/missing = centred card. */
+  target?: string;
+  /** If the target is not on screen yet (e.g. the pond panel before a competition is chosen). */
+  fallbackChip?: number;
   title: string;
   body: React.ReactNode;
 }
 
-const STEPS: TourStep[] = [
-  {
-    chip: null,
-    title: 'Cara tempah pancang',
-    body: <>Tempahan mengambil masa beberapa minit sahaja dan ada <strong>4 langkah</strong>. Kami akan tunjukkan setiap satu.</>,
-  },
-  {
-    chip: 1,
-    title: 'Langkah 1 — Pilih Pertandingan',
-    body: <>Pilih pertandingan yang tempahannya sedang dibuka. Tarikh, masa dan yuran dipaparkan pada setiap kad.</>,
-  },
-  {
-    chip: 2,
-    title: 'Langkah 2 — Pilih Kolam',
-    body: <>Pilih kolam yang anda mahu. Bilangan pancang kosong ditunjukkan pada setiap kolam.</>,
-  },
-  {
-    chip: 3,
-    title: 'Langkah 3 — Pilih Tempat',
-    body: <>Tekan <strong>Buka Peta Pancang</strong> dan pilih satu atau lebih pancang yang masih kosong. Pancang yang sudah ditempah tidak boleh dipilih.</>,
-  },
-  {
-    chip: 4,
-    title: 'Langkah 4 — Maklumat & Bayaran',
-    body: (
-      <>
-        Tekan <strong>Teruskan</strong>; pancang anda ditahan <strong>10 minit</strong>. Kemudian:
-        <ol style={{ margin: '6px 0 0', paddingLeft: 20 }}>
-          <li>Imbas <strong>QR pembayaran</strong> (boleh dibesarkan &amp; disimpan).</li>
-          <li>Muat naik <strong>resit</strong> dan isi no. rujukan bank.</li>
-          <li>Tandakan persetujuan dan tekan hantar.</li>
+const FLOWS: Record<TourPhase, TourStep[]> = {
+  select: [
+    {
+      title: 'Cara tempah pancang',
+      body: <>Tempahan ada <strong>4 langkah</strong>. Kami tunjukkan di mana untuk memilih pertandingan dan pancang, kemudian cara bayaran.</>,
+    },
+    {
+      target: '[data-tour="competition"]',
+      fallbackChip: 1,
+      title: 'Pilih pertandingan',
+      body: <>Di sini anda pilih <strong>pertandingan</strong> yang tempahannya sedang dibuka. Tarikh, masa dan yuran ditunjukkan pada setiap kad. Menukar pertandingan akan set semula pilihan kolam dan pancang.</>,
+    },
+    {
+      target: '[data-tour="pond"]',
+      fallbackChip: 2,
+      title: 'Pilih kolam',
+      body: <>Selepas pilih pertandingan, bahagian <strong>kolam</strong> muncul. Pilih kolam yang anda mahu; bilangan pancang kosong ditunjukkan pada setiap kolam.</>,
+    },
+    {
+      target: '[data-tour="seat"]',
+      fallbackChip: 3,
+      title: 'Pilih pancang',
+      body: <>Tekan <strong>Buka Peta Pancang</strong> dan pilih satu atau lebih pancang yang masih kosong. Pancang yang sudah ditempah tidak boleh dipilih.</>,
+    },
+    {
+      target: '[data-tour="summary"]',
+      title: 'Semak & teruskan',
+      body: <>Ringkasan menunjukkan pertandingan, pancang dan <strong>jumlah bayaran</strong>. Tekan <strong>Teruskan</strong>; pancang anda ditahan <strong>10 minit</strong> sementara anda membuat bayaran.</>,
+    },
+  ],
+  details: [
+    {
+      target: '[data-tour="contact"]',
+      title: 'Kenapa perlu nombor telefon & e-mel?',
+      body: (
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          <li><strong>E-mel:</strong> pengesahan tempahan dan <strong>QR setiap peg</strong> dihantar ke e-mel ini. Anda perlukan QR itu untuk check-in dan timbang ikan.</li>
+          <li><strong>Telefon:</strong> staf menghubungi anda jika ada masalah bayaran atau perubahan pada tempahan.</li>
+          <li>Pastikan kedua-duanya betul. Boleh dikemas kini di <strong>Profil</strong>.</li>
+        </ul>
+      ),
+    },
+    {
+      target: '[data-tour="payment"]',
+      title: 'Cara membayar',
+      body: <>Bayar jumlah yang <strong>tepat</strong> melalui <strong>DuitNow QR</strong> atau pemindahan bank ke akaun di sini. Tekan imej QR untuk membesarkan dan menyimpannya ke galeri, supaya boleh dimuat naik dalam aplikasi bank.</>,
+    },
+    {
+      target: '[data-tour="receipt"]',
+      title: 'Muat naik resit',
+      body: (
+        <ol style={{ margin: 0, paddingLeft: 20 }}>
+          <li>Muat naik <strong>resit / tangkapan skrin</strong> bayaran (JPG, PNG atau PDF).</li>
+          <li>Isi <strong>No. Rujukan Bank</strong> daripada resit.</li>
+          <li>Tandakan persetujuan syarat, kemudian tekan hantar.</li>
+          <li>Kami semak bayaran dan hantar e-mel pengesahan.</li>
         </ol>
-        Kami semak bayaran, kemudian anda terima e-mel pengesahan dengan <strong>QR setiap peg</strong>.
-      </>
-    ),
-  },
-];
+      ),
+    },
+  ],
+};
+
+const SEEN_KEYS: Record<TourPhase, string> = {
+  select: 'kks.bookingTourSeen',
+  details: 'kks.bookingTourDetailsSeen',
+};
 
 const PAD = 8;
 
-const BookingTour: React.FC = () => {
+const readSeen = (phase: TourPhase): boolean => {
+  try { return localStorage.getItem(SEEN_KEYS[phase]) === '1'; } catch { return false; }
+};
+const markSeen = (phase: TourPhase) => {
+  try { localStorage.setItem(SEEN_KEYS[phase], '1'); } catch { /* ignore */ }
+};
+
+const findTarget = (step: TourStep): HTMLElement | null => {
+  if (step.target) {
+    const el = document.querySelector<HTMLElement>(step.target);
+    if (el) return el;
+  }
+  if (step.fallbackChip) return document.querySelector<HTMLElement>(`.bk-progress > :nth-child(${step.fallbackChip})`);
+  return null;
+};
+
+const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
-  const step = STEPS[index];
+  const steps = FLOWS[phase];
+  const step = steps[Math.min(index, steps.length - 1)];
+  // True when the real panel is missing and a progress chip is shown instead.
+  const usingFallback = !!step.target && !!step.fallbackChip && !document.querySelector(step.target);
 
-  // First visit only. Delay slightly so the page has laid out.
+  // Open once per phase on first sight; a phase change closes the previous tour.
   useEffect(() => {
-    let seen = false;
-    try { seen = localStorage.getItem(SEEN_KEY) === '1'; } catch { /* storage blocked — treat as unseen */ }
-    if (seen) return;
+    setOpen(false);
+    setIndex(0);
+    if (readSeen(phase)) return;
     const timer = window.setTimeout(() => setOpen(true), 900);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [phase]);
 
   const close = useCallback(() => {
     setOpen(false);
     setIndex(0);
-    try { localStorage.setItem(SEEN_KEY, '1'); } catch { /* ignore */ }
-  }, []);
+    markSeen(phase);
+  }, [phase]);
 
   const measure = useCallback(() => {
-    if (step.chip == null) { setRect(null); return; }
-    const el = document.querySelector<HTMLElement>(`.bk-progress > :nth-child(${step.chip})`);
+    const el = findTarget(step);
     setRect(el ? el.getBoundingClientRect() : null);
-  }, [step.chip]);
+  }, [step]);
 
-  // Bring the chip into view, then track it while the page scrolls/resizes.
+  // Bring the target into view, then track it while the page scrolls/resizes.
   useLayoutEffect(() => {
     if (!open) return;
-    if (step.chip != null) {
-      document.querySelector<HTMLElement>(`.bk-progress > :nth-child(${step.chip})`)
-        ?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
+    const el = findTarget(step);
+    if (el) {
+      const r = el.getBoundingClientRect();
+      if (r.height > window.innerHeight * 0.55) {
+        window.scrollTo({ top: window.scrollY + r.top - 100, behavior: 'auto' });
+      } else {
+        el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
+      }
     }
     measure();
     window.addEventListener('resize', measure);
@@ -96,20 +153,22 @@ const BookingTour: React.FC = () => {
       window.removeEventListener('resize', measure);
       window.removeEventListener('scroll', measure, true);
     };
-  }, [open, index, step.chip, measure]);
+  }, [open, index, step, measure]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') close();
-      if (event.key === 'ArrowRight') setIndex((i) => Math.min(STEPS.length - 1, i + 1));
+      if (event.key === 'ArrowRight') setIndex((i) => Math.min(steps.length - 1, i + 1));
       if (event.key === 'ArrowLeft') setIndex((i) => Math.max(0, i - 1));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, close]);
+  }, [open, close, steps.length]);
 
-  const last = index === STEPS.length - 1;
+  const last = index === steps.length - 1;
+  // Card goes opposite the spotlight so it never covers what it explains.
+  const cardAtTop = !!rect && rect.top + rect.height / 2 > window.innerHeight * 0.5;
 
   return (
     <>
@@ -120,7 +179,6 @@ const BookingTour: React.FC = () => {
       </div>
       {open && createPortal(
         <div role="dialog" aria-modal="true" aria-label="Panduan cara tempah" style={{ position: 'fixed', inset: 0, zIndex: 10000 }}>
-          {/* Dim layer: a spotlight cut-out when a chip is targeted, flat dim otherwise. */}
           {rect ? (
             <div
               style={{
@@ -140,17 +198,22 @@ const BookingTour: React.FC = () => {
           <div
             style={{
               position: 'fixed', left: '50%', transform: 'translateX(-50%)',
-              ...(step.chip == null ? { top: '50%', marginTop: -110 } : { bottom: 16 }),
-              width: 'min(440px, calc(100vw - 24px))', maxHeight: '60vh', overflowY: 'auto',
-              background: '#fff', color: '#112a41', borderRadius: 16, padding: '18px 20px',
-              boxShadow: '0 20px 50px rgba(0,0,0,.4)', fontSize: 14, lineHeight: 1.6,
+              ...(!rect ? { top: '50%', marginTop: -110 } : cardAtTop ? { top: 12 } : { bottom: 12 }),
+              width: 'min(440px, calc(100vw - 24px))', maxHeight: '48vh', overflowY: 'auto',
+              background: '#fff', color: '#112a41', borderRadius: 16, padding: '16px 18px',
+              boxShadow: '0 20px 50px rgba(0,0,0,.4)', fontSize: 14, lineHeight: 1.55,
             }}
           >
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.1em', textTransform: 'uppercase', color: '#c1121f', marginBottom: 4 }}>
-              {index + 1} / {STEPS.length}
+              {index + 1} / {steps.length}
             </div>
             <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>{step.title}</div>
             <div>{step.body}</div>
+            {usingFallback && (
+              <div style={{ marginTop: 8, fontSize: 12.5, color: '#6b7280' }}>
+                Bahagian ini muncul selepas anda membuat pilihan sebelumnya (ditunjukkan di bar langkah).
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
               <button type="button" className="btn btn-ghost btn-sm" onClick={close}>Langkau</button>
               <span style={{ flex: 1 }} />
@@ -158,7 +221,7 @@ const BookingTour: React.FC = () => {
                 <button type="button" className="btn btn-light btn-sm" onClick={() => setIndex(index - 1)}>Kembali</button>
               )}
               <button type="button" className="btn btn-red btn-sm" onClick={() => (last ? close() : setIndex(index + 1))}>
-                {last ? 'Faham, mula tempah' : 'Seterusnya'}
+                {last ? 'Faham' : 'Seterusnya'}
               </button>
             </div>
           </div>

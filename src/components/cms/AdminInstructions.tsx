@@ -45,7 +45,7 @@ const toneStyles: Record<NonNullable<GuideCardProps['tone']>, React.CSSPropertie
 // One full-width card per topic: heading and summary first, then short steps,
 // then shortcut buttons. A single column is far easier to read than a grid.
 const GuideCard: React.FC<GuideCardProps> = ({ eyebrow, title, summary, children, links, tone = 'default', onNavigate }) => (
-  <section className="card" style={{ ...toneStyles[tone], marginBottom: 16 }}>
+  <div className="card" style={{ ...toneStyles[tone], marginBottom: 16 }}>
     <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '20px 22px' }}>
       <div>
         <div style={{ color: 'var(--red)', fontSize: '0.74rem', fontWeight: 900, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>
@@ -63,7 +63,7 @@ const GuideCard: React.FC<GuideCardProps> = ({ eyebrow, title, summary, children
         ))}
       </div>
     </div>
-  </section>
+  </div>
 );
 
 const List: React.FC<{ children: React.ReactNode }> = ({ children }) => (

@@ -198,6 +198,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
       {alert}
 
       {/* ── Account details reminder (self-service booking only) ── */}
+      <div data-tour="contact">
       {!isAdminProxyMode && (
         <div style={{ background: 'var(--cream)', border: '1px solid var(--line)', borderRadius: '10px', padding: '14px 16px', marginBottom: '16px' }}>
           <div style={{ fontSize: '.72rem', color: 'var(--navy)', letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700, marginBottom: '8px' }}>Maklumat Akaun Anda</div>
@@ -236,6 +237,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
           </div>
         </div>
       )}
+      </div>
 
       {/* ── Counter/Admin: book on behalf of customer ── */}
       {isBookingManager && (
@@ -297,7 +299,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
       </div>
 
       {(settings.qrBank || settings.qrName || settings.qrAccNo || settings.qrImg) && (
-        <div style={{ marginBottom: '16px', padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--border, #e5e0d8)', background: 'var(--cream, #f7f7f5)', display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div data-tour="payment" style={{ marginBottom: '16px', padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--border, #e5e0d8)', background: 'var(--cream, #f7f7f5)', display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
           {settings.qrImg && (
             <button
               type="button"
@@ -345,6 +347,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
         onClose={() => setQrZoomOpen(false)}
       />
 
+      <div data-tour="receipt">
       <label className="form-label">Muat Naik Resit <span style={{ color: 'var(--red)' }}>*</span></label>
       <div
         className={`upload-zone${!receiptData ? ' bk-hint' : ''}`}
@@ -383,6 +386,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
         onChange={(event) => onBankReferenceChange(event.target.value)}
         placeholder="Masukkan nombor rujukan transaksi"
       />
+      </div>
       <label className="form-label">Nota (pilihan)</label>
       <textarea
         className="form-input"

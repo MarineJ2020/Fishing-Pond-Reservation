@@ -1401,14 +1401,14 @@ const AppContent: React.FC = () => {
                 <div className={stepClass(step3 as any)}><span>3</span>Pilih Tempat</div>
                 <div className={stepClass(step4 as any)}><span>4</span>Maklumat &amp; Bayaran</div>
               </div>
-              <BookingTour />
+              <BookingTour phase={detailsPhase ? 'details' : 'select'} />
 
               <div className={`bk-grid${detailsPhase ? ' is-details' : ''}`}>
                 <div className="bk-stack">
                   {!detailsPhase ? (
                     <>
                       {/* Step 1 — Pilih Pertandingan */}
-                      <section className="bk-panel">
+                      <section className="bk-panel" data-tour="competition">
                         <div className="bk-panel-head">
                           <div className="bk-eyebrow">Langkah 01</div>
                           <h2>Pilih Pertandingan</h2>
@@ -1482,7 +1482,7 @@ const AppContent: React.FC = () => {
                       {hasCompetition && (
                         <>
                           {/* Step 2 — Pilih Kolam */}
-                          <section className="bk-panel booking-stage-enter">
+                          <section className="bk-panel booking-stage-enter" data-tour="pond">
                             <div className="bk-panel-head bk-panel-head-row">
                               <div>
                                 <div className="bk-eyebrow">Langkah 02</div>
@@ -1522,7 +1522,7 @@ const AppContent: React.FC = () => {
                           </section>
 
                           {/* Step 3 — Pilih Tempat */}
-                          <section className="bk-panel booking-stage-enter">
+                          <section className="bk-panel booking-stage-enter" data-tour="seat">
                             <div className="bk-panel-head">
                               <div>
                                 <div className="bk-eyebrow">Langkah 03</div>
@@ -1608,7 +1608,7 @@ const AppContent: React.FC = () => {
                 </div>
 
                 {/* Summary cart */}
-                <aside className="bk-summary" aria-label="Ringkasan tempahan">
+                <aside className="bk-summary" aria-label="Ringkasan tempahan" data-tour="summary">
                   <div className="bk-summary-head">
                     <small>Ringkasan Tempahan</small>
                   </div>
