@@ -3666,8 +3666,12 @@ nav.kks-legacy-v3-nav::before {
   padding: 34px 38px 22px;
   display: flex; align-items: flex-start; justify-content: space-between; gap: 20px;
 }
+/* Badge floats in the top-right corner so the title can use the full card width. */
+.kks-event-top { position: relative; }
+.kks-event-top .kks-badge { position: absolute; top: 28px; right: 38px; }
+.kks-event-title { flex: 1; min-width: 0; }
 .kks-event-title h3 {
-  margin: 0; font-family: "Barlow Condensed"; font-size: 42px;
+  margin: 18px 0 0; font-family: "Barlow Condensed"; font-size: 42px; line-height: 1.08;
   text-transform: uppercase; font-style: italic; color: var(--red);
 }
 .kks-badge {
@@ -3942,6 +3946,7 @@ nav.kks-legacy-v3-nav::before {
   .kks-time strong { font-size: 30px; }
   .kks-event-main { border-radius: 22px; }
   .kks-event-top { display: block; padding: 28px 22px 16px; }
+  .kks-event-top .kks-badge { position: static; margin-top: 12px; }
   .kks-event-title h3 { font-size: 36px; line-height: .95; }
   .kks-badge { margin-top: 14px; }
   .kks-event-body { padding: 0 22px 24px; }
