@@ -70,7 +70,7 @@ const QrZoomModal: React.FC<QrZoomModalProps> = ({ open, src, bank, name, accNo,
 
   return (
     <div className="modal-overlay open" style={{ zIndex: 1200 }} onClick={onClose}>
-      <div className="modal" style={{ maxWidth: '420px', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: '780px', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header" style={{ flex: '0 0 auto' }}>
           <div className="modal-title">QR Pembayaran</div>
           <button className="modal-close" onClick={onClose} aria-label="Tutup">×</button>
@@ -78,12 +78,15 @@ const QrZoomModal: React.FC<QrZoomModalProps> = ({ open, src, bank, name, accNo,
         {/* flex:1 + minHeight:0 lets the body scroll inside the 92vh-capped .modal
             without depending on the header's exact height. */}
         <div className="modal-body" style={{ padding: '22px', flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
+          {/* Two columns on desktop (QR + save | tips); wraps to one column on phones. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '22px', alignItems: 'flex-start' }}>
+          <div style={{ flex: '1 1 340px', minWidth: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <img
               src={src}
               alt="QR Pembayaran"
               style={{
-                width: 'min(230px, 60vw)', height: 'auto', display: 'block',
+                width: 'min(340px, 70vw)', height: 'auto', display: 'block',
                 borderRadius: '12px', border: '1px solid var(--border, #e5e0d8)',
                 background: '#fff', padding: '10px',
               }}
@@ -118,7 +121,9 @@ const QrZoomModal: React.FC<QrZoomModalProps> = ({ open, src, bank, name, accNo,
             </div>
           )}
 
-          <div style={{ marginTop: '18px', padding: '14px', borderRadius: '10px', background: 'var(--cream, #f7f7f5)', border: '1px solid var(--border, #e5e0d8)' }}>
+          </div>
+
+          <div style={{ flex: '1 1 280px', minWidth: 0, padding: '14px', borderRadius: '10px', background: 'var(--cream, #f7f7f5)', border: '1px solid var(--border, #e5e0d8)' }}>
             <div style={{ fontSize: '.7rem', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '8px' }}>
               Tips Bayaran DuitNow QR
             </div>
@@ -127,6 +132,7 @@ const QrZoomModal: React.FC<QrZoomModalProps> = ({ open, src, bank, name, accNo,
                 <li key={i} style={{ marginBottom: i === TIPS.length - 1 ? 0 : '6px' }}>{tip}</li>
               ))}
             </ul>
+          </div>
           </div>
         </div>
       </div>
