@@ -1139,10 +1139,12 @@ const ScaleScanModal: React.FC<Props> = ({
 
           {/* STEP: capture weight photo */}
           {step === 'capture' && (
-            <div style={{ textAlign: 'center', padding: '24px 12px' }}>
-              <div style={{ display: capCamActive ? 'block' : 'none', marginBottom: 14 }}>
-                <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 10, background: '#0f172a', lineHeight: 0 }}>
-                  <video ref={capVideoRef} playsInline muted style={{ width: '100%', maxHeight: '60vh', display: 'block' }} />
+            <div style={{ textAlign: 'center', padding: capCamActive ? '0' : '24px 12px' }}>
+              <div style={{ display: capCamActive ? 'block' : 'none' }}>
+                {/* Sized by the video itself (not stretched) so the guide box lines up
+                    with the saved frame, and short enough that the button needs no scrolling. */}
+                <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', borderRadius: 10, background: '#0f172a', lineHeight: 0, verticalAlign: 'top' }}>
+                  <video ref={capVideoRef} playsInline muted style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '38vh', display: 'block' }} />
                   <div style={{
                     position: 'absolute',
                     left: `${GUIDE_CROP.x * 100}%`, top: `${GUIDE_CROP.y * 100}%`,
@@ -1151,10 +1153,12 @@ const ScaleScanModal: React.FC<Props> = ({
                     boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)', pointerEvents: 'none',
                   }} />
                 </div>
-                <p style={{ margin: '8px 0 10px', fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                  Letak <strong>hanya baris angka</strong> di dalam kotak kuning (tanpa label "TARE" / "WEIGHT" dan tanpa "kg"), kemudian tekan butang.
+                <div style={{ margin: '10px 0 6px' }}>
+                  <button className="btn btn-primary" onClick={handleLiveCapture}>📸 Ambil &amp; Imbas</button>
+                </div>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  Letak <strong>hanya angka</strong> dalam kotak kuning (tanpa label &amp; "kg").
                 </p>
-                <button className="btn btn-primary" onClick={handleLiveCapture}>📸 Ambil &amp; Imbas</button>
               </div>
               {!capCamActive && (
                 <>
@@ -1187,14 +1191,16 @@ const ScaleScanModal: React.FC<Props> = ({
                   e.target.value = '';
                 }}
               />
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" onClick={() => weightCameraInputRef.current?.click()}>
-                  📷 Ambil Gambar Timbangan
-                </button>
-                <button className="btn" onClick={() => weightUploadInputRef.current?.click()}>
-                  🖼️ Pilih Gambar Timbangan
-                </button>
-              </div>
+              {!capCamActive && (
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary" onClick={() => weightCameraInputRef.current?.click()}>
+                    📷 Ambil Gambar Timbangan
+                  </button>
+                  <button className="btn" onClick={() => weightUploadInputRef.current?.click()}>
+                    🖼️ Pilih Gambar Timbangan
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
