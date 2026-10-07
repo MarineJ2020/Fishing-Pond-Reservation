@@ -262,7 +262,7 @@ const AdminInstructions: React.FC<AdminInstructionsProps> = ({ onNavigate }) => 
       </div>
     </div>
 
-    <div style={{ maxWidth: 880 }}>
+    <div style={{ maxWidth: 1040, margin: '0 auto' }}>
       <div style={{
         padding: '20px 22px', marginBottom: 18, borderRadius: 14,
         background: '#ffffff', border: '1px solid var(--line)', borderTop: '5px solid var(--navy)',
