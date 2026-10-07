@@ -134,24 +134,28 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
     setRect(el ? el.getBoundingClientRect() : null);
   }, [step]);
 
-  // Bring the target into view, then track it while the page scrolls/resizes.
+  // Bring the target into view, then measure once the page has settled. The site
+  // sets `html { scroll-behavior: smooth }`, so scrolling must be forced to
+  // 'instant'; otherwise the rect was measured mid-animation and the spotlight and
+  // card kept drifting up and down. Manual scrolling is locked while open, so no
+  // scroll listener is needed.
   useLayoutEffect(() => {
     if (!open) return;
     const el = findTarget(step);
     if (el) {
       const r = el.getBoundingClientRect();
-      if (r.height > window.innerHeight * 0.55) {
-        window.scrollTo({ top: window.scrollY + r.top - 100, behavior: 'auto' });
-      } else {
-        el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
-      }
+      const wanted = r.height > window.innerHeight * 0.55
+        ? r.top - 100
+        : r.top - (window.innerHeight - r.height) / 2;
+      window.scrollTo({ top: Math.max(0, window.scrollY + wanted), behavior: 'instant' as ScrollBehavior });
     }
     measure();
+    // Re-measure after layout settles (images, sticky header, panel animations).
+    const timers = [window.setTimeout(measure, 60), window.setTimeout(measure, 300)];
     window.addEventListener('resize', measure);
-    window.addEventListener('scroll', measure, true);
     return () => {
+      timers.forEach((t) => window.clearTimeout(t));
       window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, true);
     };
   }, [open, index, step, measure]);
 
@@ -207,7 +211,7 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
                 width: rect.width + PAD * 2, height: rect.height + PAD * 2,
                 borderRadius: 14, border: '2px solid #fcd34d',
                 boxShadow: '0 0 0 9999px rgba(8,16,28,0.72)',
-                pointerEvents: 'none', transition: 'all .2s ease',
+                pointerEvents: 'none',
               }}
             />
           ) : (
