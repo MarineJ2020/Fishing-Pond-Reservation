@@ -59,6 +59,7 @@ import { useBooking } from '../context/BookingContext';
 import { RECENT_COMPETITION_DAYS } from '../lib/firestore';
 import { formatSeat, formatSeatList, pondDisplayName } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
+import { downloadQrCard } from '../utils/qrDownload';
 import { prizeRange, formatDate } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull, ScannedSeatEntry } from './cms/ScaleScanModal';
 import { prewarmOcr } from '../utils/scaleOcr';
@@ -6228,25 +6229,87 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         <div className="modal-overlay open" style={{ zIndex: 1300 }} onClick={closeQrPreview}>
           {/* flex column + a scrollable body: a booking with many pegs renders more
               QR tiles than fit in the 92vh-capped .modal (which is overflow:hidden). */}
-          <div className="modal" style={{ maxWidth: '520px', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: '760px', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header" style={{ flex: '0 0 auto' }}>
               <div className="modal-title">QR Tempahan — {qrPreviewBooking.bookingRef || qrPreviewBooking.id.slice(0, 10)}</div>
               <button className="modal-close" onClick={closeQrPreview}>×</button>
             </div>
             <div className="modal-body" style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '14px' }}>
-                {bookingSeatEntries(qrPreviewBooking).map((entry) => (
-                  <button
-                    key={entry.key}
-                    type="button"
-                    onClick={() => setEnlargedQrSeat(entry)}
-                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', background: '#fff', padding: '12px', borderRadius: '10px', border: '1px solid var(--line)', cursor: 'zoom-in' }}
-                  >
-                    <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, entry.seatNum, entry.pondId)} size={120} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
-                    <span className="seat-pill">{formatSeat(entry.pondCode, entry.seatNum)}</span>
-                  </button>
-                ))}
-              </div>
+              {(() => {
+                // Same details as the emailed / in-app QR cards, so staff can print
+                // a complete copy for a player who forgot theirs.
+                const qrComp = competitions.find((c) => c.id === qrPreviewBooking.competitionId);
+                const qrCompName = qrPreviewBooking.competitionName || qrComp?.name || 'Pertandingan';
+                const qrDate = qrComp?.startDate ? formatDate(qrComp.startDate, { time: true }) : '';
+                const qrRef = qrPreviewBooking.bookingRef || qrPreviewBooking.id.slice(0, 8).toUpperCase();
+                const cardLines = (entry: BookingSeatEntry) => [
+                  `No Pancang ${formatSeat(entry.pondCode, entry.seatNum)}`,
+                  qrCompName,
+                  ...(qrDate ? [qrDate] : []),
+                  `Kolam ${entry.pondName}`,
+                  `Ref: ${qrRef}`,
+                ];
+                const printAll = () => {
+                  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+                  const tiles = Array.from(document.querySelectorAll('.cms-qr-tile')).map((tile) => {
+                    const svg = tile.querySelector('svg');
+                    const lines = (tile.getAttribute('data-lines') || '').split('\n');
+                    return `<div class="card">${svg ? new XMLSerializer().serializeToString(svg) : ''}<b>${esc(lines[0] || '')}</b>${lines.slice(1).map((l) => `<span>${esc(l)}</span>`).join('')}</div>`;
+                  }).join('');
+                  const w = window.open('', '_blank');
+                  if (!w) { alert('Pop-up disekat. Benarkan pop-up untuk mencetak, atau muat turun QR satu per satu.'); return; }
+                  w.document.write(`<!doctype html><title>QR ${esc(qrRef)}</title><style>
+                    body{font-family:system-ui,sans-serif;color:#112a41;margin:16px}
+                    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+                    .card{border:1px solid #ccc;border-radius:10px;padding:14px;text-align:center;break-inside:avoid}
+                    .card svg{width:240px;height:240px}
+                    .card b{display:block;font-size:20px;margin-top:6px}
+                    .card span{display:block;font-size:14px;margin-top:3px}
+                  </style><div class="grid">${tiles}</div><script>window.onload=function(){window.print()}<\/script>`);
+                  w.document.close();
+                };
+                return (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={printAll}>🖨 Cetak Semua QR</button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
+                      {bookingSeatEntries(qrPreviewBooking).map((entry) => {
+                        const lines = cardLines(entry);
+                        return (
+                          <div
+                            key={entry.key}
+                            className="cms-qr-tile"
+                            data-lines={lines.join('\n')}
+                            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', background: '#fff', padding: '12px', borderRadius: '10px', border: '1px solid var(--line)' }}
+                          >
+                            <button type="button" onClick={() => setEnlargedQrSeat(entry)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'zoom-in' }} aria-label="Besarkan QR">
+                              <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, entry.seatNum, entry.pondId)} size={150} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
+                            </button>
+                            <span className="seat-pill">{formatSeat(entry.pondCode, entry.seatNum)}</span>
+                            <div className="qr-print-details">
+                              <strong>{qrCompName}</strong>
+                              {qrDate && <span>{qrDate}</span>}
+                              <span>Kolam {entry.pondName}</span>
+                              <span>Ref: {qrRef}</span>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              onClick={(e) => {
+                                const svg = e.currentTarget.closest('.cms-qr-tile')?.querySelector('svg');
+                                if (svg) void downloadQrCard(svg as SVGSVGElement, lines, `QR-${qrRef}-${formatSeat(entry.pondCode, entry.seatNum)}.png`);
+                              }}
+                            >
+                              ⬇ Muat turun
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>,
