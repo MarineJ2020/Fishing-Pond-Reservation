@@ -204,6 +204,8 @@
 @media (max-width: 1024px) {
   .bk-grid { grid-template-columns: 1fr; }
   .bk-summary { position: static; }
+  /* Step 4 on phones: show the booking summary first, above the payment QR / receipt upload. */
+  .bk-grid.is-details .bk-summary { order: -1; }
   .bk-choice-grid { grid-template-columns: 1fr 1fr; }
   .bk-pond-grid { grid-template-columns: repeat(2, 1fr); }
 }

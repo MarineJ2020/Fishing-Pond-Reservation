@@ -1394,7 +1394,7 @@ const AppContent: React.FC = () => {
                 <div className={stepClass(step4 as any)}><span>4</span>Maklumat &amp; Bayaran</div>
               </div>
 
-              <div className="bk-grid">
+              <div className={`bk-grid${detailsPhase ? ' is-details' : ''}`}>
                 <div className="bk-stack">
                   {!detailsPhase ? (
                     <>
