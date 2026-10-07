@@ -169,10 +169,20 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
     const blockKeys = (event: KeyboardEvent) => {
       if ([' ', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) event.preventDefault();
     };
+    // Hiding the page overflow also removes the scrollbar, so it can't be dragged.
+    // The scrollbar's width is added back as padding so nothing shifts sideways.
+    const root = document.documentElement;
+    const prevOverflow = root.style.overflow;
+    const prevPadding = root.style.paddingRight;
+    const barWidth = window.innerWidth - root.clientWidth;
+    root.style.overflow = 'hidden';
+    if (barWidth > 0) root.style.paddingRight = `${barWidth}px`;
     window.addEventListener('wheel', block, { passive: false });
     window.addEventListener('touchmove', block, { passive: false });
     window.addEventListener('keydown', blockKeys);
     return () => {
+      root.style.overflow = prevOverflow;
+      root.style.paddingRight = prevPadding;
       window.removeEventListener('wheel', block);
       window.removeEventListener('touchmove', block);
       window.removeEventListener('keydown', blockKeys);
