@@ -29,6 +29,9 @@ export interface ScannedBookingFull {
   pondCode?: string;
   competitionId?: string;
   competitionName?: string;
+  /** Booking status; a 'rejected' (cancelled) booking is refused when scanned. */
+  bookingStatus?: string;
+  cancelReason?: string;
   seatEntries?: ScannedSeatEntry[];
   seats: number[];
   amount?: number;
@@ -228,6 +231,10 @@ async function decodeQrFromFile(file: Blob): Promise<string | null> {
     }
   }
   return null;
+}
+
+function cancelledQrMessage(b: ScannedBookingFull): string {
+  return `QR TIDAK SAH — tempahan ${b.bookingRef || ''} (${b.anglerName}) telah dibatalkan (status: rejected). Sebab: ${b.cancelReason || 'tiada sebab direkodkan'}.`;
 }
 
 function seatChoices(full: ScannedBookingFull): ScannedSeatEntry[] {
@@ -604,7 +611,13 @@ const ScaleScanModal: React.FC<Props> = ({
     if (decoded) {
       const parsed = parseQrPayload(decoded);
       const booking = parsed ? lookupBookingFull(parsed.bookingId, parsed.pondId) : null;
-      if (booking) {
+      if (booking && booking.bookingStatus === 'rejected') {
+        // Cancelled booking: show why it is invalid and keep scanning.
+        if (lastInvalidQrRef.current !== decoded) {
+          lastInvalidQrRef.current = decoded;
+          setError(cancelledQrMessage(booking));
+        }
+      } else if (booking) {
         // Valid booking QR → auto-close the camera and proceed.
         lastInvalidQrRef.current = null;
         stopLiveQrScan();
@@ -664,6 +677,11 @@ const ScaleScanModal: React.FC<Props> = ({
       const booking = lookupBookingFull(parsed.bookingId, parsed.pondId);
       if (!booking) {
         setError('Tempahan tidak dijumpai untuk QR ini. Pastikan QR untuk pertandingan semasa.');
+        setStep('identify');
+        return;
+      }
+      if (booking.bookingStatus === 'rejected') {
+        setError(cancelledQrMessage(booking));
         setStep('identify');
         return;
       }

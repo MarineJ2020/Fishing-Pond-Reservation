@@ -664,6 +664,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     return effectiveBookings
       .filter((booking) =>
         booking.status === 'confirmed'
+        && !booking.cancelledAt
         && (!checkinCompetitionId || (booking.competitionId || comp.id || '') === checkinCompetitionId))
       .flatMap((booking) => bookingSeatEntries(booking).map((entry) => ({ booking, entry })));
   }, [effectiveBookings, checkinCompetitionId, comp.id]);
@@ -2316,6 +2317,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       checkedInSeatKeys: booking.checkedInSeatKeys,
       competitionId: booking.competitionId,
       competitionName: booking.competitionName,
+      bookingStatus: booking.status,
+      cancelReason: booking.cancelReason,
     };
   };
 
@@ -3978,7 +3981,24 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                 )}
               </div>
-              {checkinResult && (() => {
+              {checkinResult && checkinResult.status === 'rejected' && (
+                <div className="checkin-result" style={{ border: '2px solid #dc2626' }}>
+                  <div className="checkin-result-header" style={{ background: 'rgba(220,38,38,0.1)' }}>
+                    <h3 style={{ color: '#b91c1c' }}>✗ QR Tidak Sah — Tempahan Dibatalkan</h3>
+                    <span className="badge badge-rejected">Dibatalkan</span>
+                  </div>
+                  <div className="checkin-result-body">
+                    <div className="checkin-detail-row"><span className="checkin-detail-key">Status</span><span className="checkin-detail-val">Dibatalkan / Ditolak (rejected)</span></div>
+                    <div className="checkin-detail-row"><span className="checkin-detail-key">Sebab</span><span className="checkin-detail-val">{checkinResult.cancelReason || checkinResult.rejectReason || 'Tiada sebab direkodkan'}</span></div>
+                    {checkinResult.cancelledAt && <div className="checkin-detail-row"><span className="checkin-detail-key">Dibatalkan pada</span><span className="checkin-detail-val">{formatDate(checkinResult.cancelledAt, { time: true })}</span></div>}
+                    <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.bookingRef || checkinResult.id}</span></div>
+                    <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
+                    <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingPondList(checkinResult)} · {bookingSeatList(checkinResult)}</span></div>
+                    <div className="warning-banner">⛔ Jangan benarkan check-in atau timbang dengan QR ini.</div>
+                  </div>
+                </div>
+              )}
+              {checkinResult && checkinResult.status !== 'rejected' && (() => {
                 const allSeatEntries = bookingSeatEntries(checkinResult);
                 const allDone = allSeatEntries.length > 0
                   && allSeatEntries.every((entry) => isBookingSeatCheckedIn(checkinResult, entry));
@@ -4734,6 +4754,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                             {prizeScanBooking.bookingRef || prizeScanBooking.id} · {bookingPondList(prizeScanBooking)} · {bookingSeatList(prizeScanBooking)}
                           </div>
+                          {prizeScanBooking.status === 'rejected' && (
+                            <div style={{ marginTop: 6, fontSize: 13, fontWeight: 800, color: '#b91c1c' }}>
+                              ✗ QR tidak sah — tempahan dibatalkan{prizeScanBooking.cancelReason ? `: ${prizeScanBooking.cancelReason}` : ''}
+                            </div>
+                          )}
                           <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, color: scannedRows.length ? 'var(--green-dark, #15803d)' : '#b45309' }}>
                             {scannedRows.length
                               ? `Layak tuntut hadiah: ${scannedRows.map((row) => `#${row.rank} ${row.prize}`).join(', ')}`
