@@ -1925,7 +1925,7 @@ const AppContent: React.FC = () => {
                   Pancang: {bookingPancangList(lastBooking)}<br />
                   Jumlah Bayaran: RM {lastBooking.amount} (Bayaran Penuh)<br />
                   <br />
-                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami di +6017-9735002.
+                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami di {db.settings.phone || db.settings.whatsapp || "+6017-9735002"}.
                 </>
               ) : (
                 <>
@@ -1933,7 +1933,7 @@ const AppContent: React.FC = () => {
                   Pancang: -<br />
                   Jumlah Bayaran: RM 0 (Bayaran Penuh)<br />
                   <br />
-                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami di +6017-9735002.
+                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami di {db.settings.phone || db.settings.whatsapp || "+6017-9735002"}.
                 </>
               )}
             </div>

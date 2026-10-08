@@ -278,14 +278,19 @@ const AdminInstructions: React.FC<AdminInstructionsProps> = ({ onNavigate }) => 
         </Callout>
       </div>
 
-      <div role="tablist" aria-label="Pilih arahan" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginBottom: 14, WebkitOverflowScrolling: 'touch' }}>
+      <div role="tablist" aria-label="Pilih arahan" style={{ position: 'relative', display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginBottom: 14, WebkitOverflowScrolling: 'touch' }}>
         {guides.map((guide, i) => (
           <button
             key={guide.label}
             type="button"
             role="tab"
             aria-selected={tab === i}
-            onClick={() => setTab(i)}
+            onClick={e => {
+              setTab(i);
+              const bar = e.currentTarget.parentElement;
+              const btn = e.currentTarget;
+              if (bar) bar.scrollTo({ left: btn.offsetLeft - (bar.clientWidth - btn.offsetWidth) / 2, behavior: 'smooth' });
+            }}
             className={tab === i ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
             style={{ whiteSpace: 'nowrap', flex: '0 0 auto' }}
           >
