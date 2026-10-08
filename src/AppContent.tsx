@@ -1300,7 +1300,7 @@ const AppContent: React.FC = () => {
               </div>
               <div className="kks-contact-item">
                 <i className="fa-solid fa-phone"></i>
-                <div><strong>Telefon</strong>{settings.phone || settings.whatsapp || '017-438 6854'}</div>
+                <div><strong>Telefon</strong>{settings.phone}</div>
               </div>
             </div>
           </div>
@@ -1925,7 +1925,7 @@ const AppContent: React.FC = () => {
                   Pancang: {bookingPancangList(lastBooking)}<br />
                   Jumlah Bayaran: RM {lastBooking.amount} (Bayaran Penuh)<br />
                   <br />
-                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami di {db.settings.phone || db.settings.whatsapp || "+6017-9735002"}.
+                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami{db.settings.phone ? ` di ${db.settings.phone}` : ''}.
                 </>
               ) : (
                 <>
@@ -1933,7 +1933,7 @@ const AppContent: React.FC = () => {
                   Pancang: -<br />
                   Jumlah Bayaran: RM 0 (Bayaran Penuh)<br />
                   <br />
-                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami di {db.settings.phone || db.settings.whatsapp || "+6017-9735002"}.
+                  Tempahan telah dihantar dan kini sedang menunggu kelulusan. Sebarang pertanyaan, sila hubungi kami{db.settings.phone ? ` di ${db.settings.phone}` : ''}.
                 </>
               )}
             </div>

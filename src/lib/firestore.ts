@@ -205,7 +205,7 @@ const normalizeSettings = (data: any): Settings => ({
   qrImg: data.qrImg || '',
   heroLogo: data.heroLogo || '',
   phone: data.phone || '',
-  whatsapp: data.whatsapp || 'https://wa.me/60123456789',
+  whatsapp: data.whatsapp || '',
   email: data.email || 'info@kks.com',
   location: data.location || 'Alor Setar, Kedah',
   openingHours: data.openingHours || {
