@@ -1112,14 +1112,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       await acceptBookingReceipt({ bookingId, receiptIndex });
       await refetchCurrentBookingList(bookingId);
       await logAuditEvent({
-        action: 'booking.receipt_accept', actionLabel: 'Sahkan Resit', entityType: 'booking',
+        action: 'booking.receipt_accept', actionLabel: 'Sahkan Slip Bayaran', entityType: 'booking',
         entityId: bookingId, entityLabel: target?.bookingRef || bookingId,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
       setReviewTarget(null);
     } catch (err) {
-      console.error('Failed to accept receipt:', err);
-      window.alert(`Gagal mengesahkan resit / Failed to accept receipt: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
+      console.error('Failed to accept payment slip:', err);
+      window.alert(`Gagal mengesahkan slip bayaran / Failed to accept payment slip: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
     }
     setSaving(false);
   };
@@ -1130,16 +1130,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       await rejectBookingReceipt({ bookingId, receiptIndex, reason });
       await refetchCurrentBookingList(bookingId);
       await logAuditEvent({
-        action: 'booking.receipt_reject', actionLabel: 'Tolak Resit', entityType: 'booking',
+        action: 'booking.receipt_reject', actionLabel: 'Tolak Slip Bayaran', entityType: 'booking',
         entityId: bookingId, entityLabel: bookingById.get(bookingId)?.bookingRef || bookingId,
-        details: `Resit #${receiptIndex + 1}`, reason,
+        details: `Slip Bayaran #${receiptIndex + 1}`, reason,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
       setReviewTarget(null);
     }
     catch (err) {
-      console.error('Failed to reject receipt:', err);
-      window.alert(`Gagal menolak resit / Failed to reject receipt: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
+      console.error('Failed to reject payment slip:', err);
+      window.alert(`Gagal menolak slip bayaran / Failed to reject payment slip: ${err instanceof Error ? err.message : 'Ralat tidak diketahui / Unknown error'}`);
     }
     setSaving(false);
   };
@@ -3672,12 +3672,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="cms-notice-bar">
                 <div>
                   <h4>Peranan halaman ini</h4>
-                  <p>Halaman ini memaparkan tempahan yang <strong>belum dibuat sebarang keputusan</strong>. Sebaik sahaja resit bayaran disahkan/ditolak, tempahan berpindah ke <strong>Semua Tempahan</strong>.</p>
+                  <p>Halaman ini memaparkan tempahan yang <strong>belum dibuat sebarang keputusan</strong>. Sebaik sahaja slip bayaran disahkan/ditolak, tempahan berpindah ke <strong>Semua Tempahan</strong>.</p>
                 </div>
               </div>
 
               <div className="cms-filter-row">
-                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, no resit..." value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} /></div>
+                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, no slip bayaran..." value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} /></div>
                 <div className="field"><label>Pertandingan</label><select className="form-input" value={approvalCompFilter} onChange={e => setApprovalCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
                 <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalSearch(''); setApprovalCompFilter(latestCompId); }}>Reset</button></div>
               </div>
@@ -3767,7 +3767,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <div style={{ minWidth: 28, height: 28, borderRadius: '50%', background: 'var(--gold)', color: '#1a0e05', fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</div>
                       <div>
                         <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Pilih Tempat &amp; Hantar</div>
-                        <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Pilih kolam, tempat peserta, muat naik resit, dan hantar tempahan. Tempahan akan ditanda sebagai "Dibuat oleh Admin".</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Pilih kolam, tempat peserta, muat naik slip bayaran, dan hantar tempahan. Tempahan akan ditanda sebagai "Dibuat oleh Admin".</div>
                       </div>
                     </div>
                   </div>
@@ -3809,7 +3809,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="cms-notice-bar">
                 <div>
                   <h4>Peranan halaman ini</h4>
-                  <p>Halaman ini memaparkan tempahan yang <strong>sudah dibuat keputusan</strong> (disahkan/ditolak). Semakan rekod, resit dan Batal Paksa diuruskan di sini.</p>
+                  <p>Halaman ini memaparkan tempahan yang <strong>sudah dibuat keputusan</strong> (disahkan/ditolak). Semakan rekod, slip bayaran dan Batal Paksa diuruskan di sini.</p>
                 </div>
               </div>
 
@@ -3900,7 +3900,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           RM {b.totalAmount ?? b.amount}
                           {(b.receipts?.some(receipt => receipt.url) || b.receiptData) && (
                             <div style={{ display: 'block', marginTop: 6 }}>
-                              <button className="btn btn-sm btn-ghost" onClick={() => setReceiptHistoryBooking(b)}>Resit</button>
+                              <button className="btn btn-sm btn-ghost" onClick={() => setReceiptHistoryBooking(b)}>Slip Bayaran</button>
                             </div>
                           )}
                         </td>
@@ -3925,7 +3925,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 : kind === 'balance_reminder'
                                   ? 'Peringatan baki'
                                   : kind === 'receipt_rejected'
-                                    ? 'Resit ditolak'
+                                    ? 'Slip Bayaran ditolak'
                                     : kind === 'booking_cancelled'
                                       ? 'Pembatalan'
                                       : kind;
@@ -4887,7 +4887,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-header"><div className="card-title">Maklumat Bank &amp; QR Pembayaran</div></div>
                 <div className="card-body">
                   <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
-                    Dipaparkan kepada pelanggan di borang tempahan, antara jumlah bayaran dan muat naik resit.
+                    Dipaparkan kepada pelanggan di borang tempahan, antara jumlah bayaran dan muat naik slip bayaran.
                   </div>
                   <div className="form-grid">
                     <div className="form-group"><label className="form-label">Bank</label><input className="form-input" value={settingsEdit.qrBank || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, qrBank: e.target.value })} placeholder="Maybank / DuitNow" /></div>
@@ -5621,7 +5621,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               booking_received: 'Tempahan Diterima',
               booking_approved: 'Tempahan Diluluskan',
               balance_reminder: 'Peringatan Baki',
-              receipt_rejected: 'Resit Ditolak',
+              receipt_rejected: 'Slip Bayaran Ditolak',
               booking_cancelled: 'Tempahan Dibatalkan',
               unknown: 'Tidak Diketahui',
             };
@@ -5781,7 +5781,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="form-group">
                     <label className="form-label">Maks. Tempahan Belum Disahkan / Pengguna</label>
                     <input className="form-input" type="number" min="1" step="1" value={compEdit.maxPendingBookingsPerUser ?? 10} onChange={(e) => setCompEdit({ ...compEdit, maxPendingBookingsPerUser: Math.max(1, parseInt(e.target.value) || 1) })} />
-                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Menghalang satu akaun daripada menahan banyak pancang dengan resit palsu.</div>
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Menghalang satu akaun daripada menahan banyak pancang dengan slip bayaran palsu.</div>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Jumlah Kedudukan Dipaparkan</label>
@@ -6050,7 +6050,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           <div className="modal-overlay open" style={{ zIndex: 1080 }} onClick={() => setReceiptHistoryBooking(null)}>
             <div className="modal" style={{ maxWidth: 620, width: '94%' }} onClick={(event) => event.stopPropagation()}>
               <div className="modal-header">
-                <div className="modal-title">Receipt — {receiptHistoryBooking.bookingRef || receiptHistoryBooking.id.slice(0, 10)}</div>
+                <div className="modal-title">Slip Bayaran — {receiptHistoryBooking.bookingRef || receiptHistoryBooking.id.slice(0, 10)}</div>
                 <button className="modal-close" onClick={() => setReceiptHistoryBooking(null)}>×</button>
               </div>
               <div className="modal-body">
@@ -6063,10 +6063,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <div style={{ marginTop: 2, fontSize: '0.78rem', color: 'var(--text-muted)' }}>RM {receipt.amount} · {receipt.status === 'accepted' ? 'Disahkan' : receipt.status === 'rejected' ? 'Ditolak' : 'Menunggu Semakan'}</div>
                         <div style={{ marginTop: 2, fontSize: '0.78rem', color: 'var(--text-muted)' }}>No. Rujukan Bank: <strong style={{ fontFamily: 'monospace' }}>{receiptBankReference(receiptHistoryBooking, receipt, index) || '-'}</strong></div>
                       </div>
-                      {receipt.url && <button className="btn btn-sm btn-primary" onClick={() => handleViewReceipt(receipt.url)}>Lihat Receipt</button>}
+                      {receipt.url && <button className="btn btn-sm btn-primary" onClick={() => handleViewReceipt(receipt.url)}>Lihat Slip Bayaran</button>}
                     </div>
                   ))}
-                  {receipts.length === 0 && <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>Tiada receipt diterima.</div>}
+                  {receipts.length === 0 && <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>Tiada slip bayaran diterima.</div>}
                 </div>
               </div>
             </div>
@@ -6088,14 +6088,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             >×</button>
             {isPdf ? (
               <iframe
-                title="Resit PDF"
+                title="Slip Bayaran PDF"
                 src={receiptViewerUrl}
                 style={{ width: '90vw', height: '85vh', border: 'none', borderRadius: 8, background: '#fff', display: 'block' }}
               />
             ) : (
               <img
                 src={receiptViewerUrl}
-                alt="Resit"
+                alt="Slip Bayaran"
                 onLoad={(e) => { const w = e.currentTarget.naturalWidth; const h = e.currentTarget.naturalHeight; setReceiptViewerMeta(m => ({ ...m, width: w, height: h })); }}
                 style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, display: 'block', background: '#000' }}
               />

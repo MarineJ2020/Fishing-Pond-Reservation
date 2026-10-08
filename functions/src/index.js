@@ -254,7 +254,7 @@ app.post('/acceptBookingReceipt', verifyToken, requireBookingManager, async (req
         return res.json({ success: true, paidAmount, fullyPaid, justConfirmed, balanceStage, status: update.status || booking.status });
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ error: 'Failed to accept receipt.' });
+        return res.status(500).json({ error: 'Failed to accept payment slip.' });
     }
 });
 
@@ -310,7 +310,7 @@ app.post('/rejectBookingReceipt', verifyToken, requireBookingManager, async (req
         return res.json({ success: true, paidAmount, bookingRejected: !alreadyConfirmed });
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ error: 'Failed to reject receipt.' });
+        return res.status(500).json({ error: 'Failed to reject payment slip.' });
     }
 });
 

@@ -69,11 +69,11 @@ const FLOWS: Record<TourPhase, TourStep[]> = {
     },
     {
       target: '[data-tour="receipt"]',
-      title: 'Muat naik resit',
+      title: 'Muat naik slip bayaran',
       body: (
         <ol style={{ margin: 0, paddingLeft: 20 }}>
-          <li>Muat naik <strong>resit / tangkapan skrin</strong> bayaran (JPG, PNG atau PDF).</li>
-          <li>Isi <strong>No. Rujukan Bank</strong> daripada resit.</li>
+          <li>Muat naik <strong>slip bayaran / tangkapan skrin</strong> bayaran (JPG, PNG atau PDF).</li>
+          <li>Isi <strong>No. Rujukan Bank</strong> daripada slip bayaran.</li>
           <li>Tandakan persetujuan syarat, kemudian tekan hantar.</li>
           <li>Kami semak bayaran dan hantar e-mel pengesahan.</li>
         </ol>

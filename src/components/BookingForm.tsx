@@ -55,7 +55,7 @@ const PegHoldBanner: React.FC<{ expiresAt: string; busy: boolean; onRehold?: () 
         <i className="fa-solid fa-lock"></i>
         <div>
           <strong>No Pancang anda ditahan: {mins}:{String(secs).padStart(2, '0')}</strong>
-          <span>Sila buat bayaran dan hantar resit sebelum masa tamat. / Your pegs are held for you while you pay.</span>
+          <span>Sila buat bayaran dan hantar slip bayaran sebelum masa tamat. / Your pegs are held for you while you pay.</span>
         </div>
       </div>
     );
@@ -324,7 +324,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
             {settings.qrBank && <div style={{ fontSize: '.85rem', fontWeight: 700 }}>{settings.qrBank}</div>}
             {settings.qrName && <div style={{ fontSize: '.82rem', marginTop: '2px' }}>{settings.qrName}</div>}
             {settings.qrAccNo && <div style={{ fontSize: '.82rem', marginTop: '2px', fontFamily: 'monospace', letterSpacing: '.5px' }}>{settings.qrAccNo}</div>}
-            <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '6px' }}>Imbas QR atau pemindahan dalam talian, kemudian muat naik resit di bawah.</div>
+            <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '6px' }}>Imbas QR atau pemindahan dalam talian, kemudian muat naik slip bayaran di bawah.</div>
             {settings.qrImg && (
               <button
                 type="button"
@@ -348,7 +348,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
       />
 
       <div data-tour="receipt">
-      <label className="form-label">Muat Naik Resit <span style={{ color: 'var(--red)' }}>*</span></label>
+      <label className="form-label">Muat Naik Slip Bayaran <span style={{ color: 'var(--red)' }}>*</span></label>
       <div
         className={`upload-zone${!receiptData ? ' bk-hint' : ''}`}
         onClick={() => fileInputRef.current?.click()}
@@ -365,13 +365,13 @@ const BookingForm: React.FC<BookingFormProps> = ({
         />
         <div className="upload-icon">📤</div>
         <div className="upload-text">
-          Muat naik resit bayaran di sini<br />
+          Muat naik slip bayaran di sini<br />
           <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>JPG, PNG atau PDF</span>
         </div>
       </div>
       {receiptData && (
         <div className="upload-preview">
-          ✅ <span>Resit telah dimuat naik</span>
+          ✅ <span>Slip Bayaran telah dimuat naik</span>
           <span style={{ marginLeft: 'auto', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={onClearReceipt}>✕</span>
         </div>
       )}

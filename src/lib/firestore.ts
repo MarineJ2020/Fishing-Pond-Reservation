@@ -1671,7 +1671,7 @@ export const acceptBookingReceiptDirect = async (bookingId: string, receiptIndex
   const booking = snap.data() as any;
   assertStillHoldsPegs(booking);
   const receipts = deriveReceiptsFromBooking(booking);
-  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Indeks resit tidak sah. / Invalid receipt index.');
+  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Indeks slip bayaran tidak sah. / Invalid payment slip index.');
 
   const wasAccepted = receipts[receiptIndex]?.status === 'accepted';
   receipts[receiptIndex] = { ...receipts[receiptIndex], status: 'accepted' };
@@ -1802,7 +1802,7 @@ export const rejectBookingReceiptDirect = async (bookingId: string, receiptIndex
   if (!snap.exists()) throw new Error('Tempahan tidak dijumpai. / Booking not found.');
   const booking = snap.data() as any;
   const receipts = deriveReceiptsFromBooking(booking);
-  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Indeks resit tidak sah. / Invalid receipt index.');
+  if (receiptIndex < 0 || receiptIndex >= receipts.length) throw new Error('Indeks slip bayaran tidak sah. / Invalid payment slip index.');
 
   const trimmedReason = reason.trim().slice(0, 500);
   receipts[receiptIndex] = {

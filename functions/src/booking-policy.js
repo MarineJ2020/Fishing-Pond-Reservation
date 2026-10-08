@@ -30,14 +30,14 @@ export function validateBookingWindow(competition, now = Date.now()) {
 
 export function receiptPath(url, uid, bucket, emulatorHost) {
     let parsed;
-    try { parsed = new URL(url); } catch { fail('Fail resit tidak sah.'); }
+    try { parsed = new URL(url); } catch { fail('Fail slip bayaran tidak sah.'); }
     const prefix = `/v0/b/${bucket}/o/`;
     const trustedOrigin = parsed.protocol === 'https:' && parsed.hostname === 'firebasestorage.googleapis.com'
         || (!!emulatorHost && parsed.protocol === 'http:' && parsed.host === emulatorHost);
-    if (!trustedOrigin || !parsed.pathname.startsWith(prefix)) fail('Fail resit tidak sah.');
+    if (!trustedOrigin || !parsed.pathname.startsWith(prefix)) fail('Fail slip bayaran tidak sah.');
     let path;
-    try { path = decodeURIComponent(parsed.pathname.slice(prefix.length)); } catch { fail('Fail resit tidak sah.'); }
-    if (!path.startsWith(`fishing-pond-receipts/${uid}/`) || path.includes('..')) fail('Fail resit bukan milik akaun ini.', 403);
+    try { path = decodeURIComponent(parsed.pathname.slice(prefix.length)); } catch { fail('Fail slip bayaran tidak sah.'); }
+    if (!path.startsWith(`fishing-pond-receipts/${uid}/`) || path.includes('..')) fail('Fail slip bayaran bukan milik akaun ini.', 403);
     return path;
 }
 
@@ -47,14 +47,14 @@ export function deriveReceipts(booking) {
 }
 
 export function receiptUpdate(booking, { receiptUrl, amount, bankReference, receiptIndex }, now = new Date()) {
-    if (!occupiesSeats(booking)) fail('Tempahan ini tidak lagi menerima resit.', 409);
+    if (!occupiesSeats(booking)) fail('Tempahan ini tidak lagi menerima slip bayaran.', 409);
     const receipts = deriveReceipts(booking);
     if (receiptIndex !== undefined) {
-        if (!Number.isInteger(receiptIndex) || receiptIndex < 0 || receiptIndex >= receipts.length) fail('Indeks resit tidak sah.');
-        if (!['pending', 'rejected'].includes(receipts[receiptIndex].status)) fail('Resit yang telah disahkan tidak boleh digantikan.', 409);
+        if (!Number.isInteger(receiptIndex) || receiptIndex < 0 || receiptIndex >= receipts.length) fail('Indeks slip bayaran tidak sah.');
+        if (!['pending', 'rejected'].includes(receipts[receiptIndex].status)) fail('Slip Bayaran yang telah disahkan tidak boleh digantikan.', 409);
         receipts[receiptIndex] = { ...receipts[receiptIndex], url: receiptUrl, status: 'pending', submittedAt: now };
     } else {
-        if (receipts.length >= 3) fail('Maksimum 3 resit telah dicapai.', 409);
+        if (receipts.length >= 3) fail('Maksimum 3 slip bayaran telah dicapai.', 409);
         const accepted = receipts.filter((r) => r.status === 'accepted').reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
         const paid = Math.max(accepted, Number(booking.paidAmount) || 0);
         const remaining = (Number(booking.totalAmount) || 0) - paid;

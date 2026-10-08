@@ -52,7 +52,7 @@ const rankWeight = (entry: ScoreEntry, decimalPlaces: Settings['ocrDecimalPlaces
 
 const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, competitionDateLabel, decimalPlaces, inPage, onClose, onReceiptSubmitted }) => {
   const [docPreview, setDocPreview] = useState<string | null>(null);
-  const [docPreviewTitle, setDocPreviewTitle] = useState('Resit Bayaran');
+  const [docPreviewTitle, setDocPreviewTitle] = useState('Slip Bayaran');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
   const [scoresLoading, setScoresLoading] = useState(false);
   // Start of the event ("dd/mm/yyyy hh:mm"), short enough to print under a QR.
@@ -398,7 +398,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
       {receipts.length > 0 && (
         <div style={{ background: 'var(--cream)', padding: '18px', borderRadius: '14px', border: '1px solid var(--line)' }}>
           <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '14px', fontWeight: 700 }}>
-            Resit Bayaran ({receipts.length})
+            Slip Bayaran ({receipts.length})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {receipts.map((r, i) => {
@@ -408,7 +408,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                 <div key={i}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reference ? '4px' : '8px' }}>
                     <span style={{ fontSize: '.82rem', fontWeight: 700 }}>
-                      Resit #{i + 1} · RM {r.amount}
+                      Slip Bayaran #{i + 1} · RM {r.amount}
                     </span>
                     <span style={{ fontSize: '.72rem', fontWeight: 700, color: meta.color }}>{meta.label}</span>
                   </div>
@@ -434,14 +434,14 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                             style={{ width: '100%', height: '360px', borderRadius: '12px', border: '1px solid var(--line)', background: '#fff' }}
                           />
                         ) : (
-                          <img src={r.url} alt={`Receipt ${i + 1}`} style={{ width: '100%', maxHeight: '300px', borderRadius: '12px', objectFit: 'cover', border: '1px solid var(--line)' }} />
+                          <img src={r.url} alt={`Slip Bayaran ${i + 1}`} style={{ width: '100%', maxHeight: '300px', borderRadius: '12px', objectFit: 'cover', border: '1px solid var(--line)' }} />
                         )}
                         <button
                           className="btn btn-ghost btn-sm"
-                          onClick={() => { setDocPreviewTitle('Resit Bayaran'); setDocPreview(r.url); }}
+                          onClick={() => { setDocPreviewTitle('Slip Bayaran'); setDocPreview(r.url); }}
                           style={{ marginTop: '10px', width: '100%', justifyContent: 'center' }}
                         >
-                          {isPdf ? 'Buka PDF Penuh (semua halaman)' : 'Lihat Resit Penuh'}
+                          {isPdf ? 'Buka PDF Penuh (semua halaman)' : 'Lihat Slip Bayaran Penuh'}
                         </button>
                       </>
                     );

@@ -29,7 +29,7 @@ const BookingApprovedEmail: React.FC<BookingApprovedEmailProps> = ({ bookingRef,
                           View Booking
                         </a>
                       </p>
-                      <p style={{ color: '#64748b', marginTop: '24px' }}>Please keep your receipt and bring it on event day.</p>
+                      <p style={{ color: '#64748b', marginTop: '24px' }}>Please keep your payment slip and bring it on event day.</p>
                     </td>
                   </tr>
                 </tbody>

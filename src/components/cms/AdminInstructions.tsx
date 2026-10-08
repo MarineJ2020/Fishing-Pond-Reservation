@@ -125,10 +125,10 @@ const AdminInstructions: React.FC<AdminInstructionsProps> = ({ onNavigate }) => 
       >
         <List>
           <li><strong>Kelulusan</strong> hanya memaparkan tempahan yang belum menerima keputusan pertama. Bandingkan telefon profil/tempahan dan beri perhatian pada amaran peg bertindih.</li>
-          <li>Mengesahkan resit pertama terus mengesahkan tempahan dan mengunci peg, termasuk bayaran deposit. Menolak resit pertama menolak tempahan dan melepaskan peg.</li>
-          <li>Untuk resit baki, keputusan hanya mengubah rekod pembayaran; tempahan yang sudah disahkan kekal disahkan.</li>
+          <li>Mengesahkan slip bayaran pertama terus mengesahkan tempahan dan mengunci peg, termasuk bayaran deposit. Menolak slip bayaran pertama menolak tempahan dan melepaskan peg.</li>
+          <li>Untuk slip bayaran baki, keputusan hanya mengubah rekod pembayaran; tempahan yang sudah disahkan kekal disahkan.</li>
           <li>Bayaran luar sistem mesti direkod melalui <strong>Rekod secara manual</strong> bersama bukti. Gunakan <strong>Catatan Staf</strong> untuk maklumat dalaman.</li>
-          <li>Di Semua Tempahan, semak sejarah resit dan status penghantaran e-mel. Peringatan baki menetapkan semula kiraan tujuh hari hanya selepas e-mel berjaya dihantar.</li>
+          <li>Di Semua Tempahan, semak sejarah slip bayaran dan status penghantaran e-mel. Peringatan baki menetapkan semula kiraan tujuh hari hanya selepas e-mel berjaya dihantar.</li>
         </List>
       </GuideCard>
     ) },
@@ -161,7 +161,7 @@ const AdminInstructions: React.FC<AdminInstructionsProps> = ({ onNavigate }) => 
       >
         <List>
           <li>Butang Tempahan Manual membuka halaman tempahan awam. Apabila admin log masuk, medan pelanggan dipaparkan tetapi nama, e-mel dan telefon masih perlu ditaip.</li>
-          <li>Pilih pertandingan, kolam dan peg seperti pelanggan biasa, kemudian muat naik resit. Rekod ditanda <strong>Ditempah oleh Admin</strong> dan tidak memerlukan akaun pelanggan.</li>
+          <li>Pilih pertandingan, kolam dan peg seperti pelanggan biasa, kemudian muat naik slip bayaran. Rekod ditanda <strong>Ditempah oleh Admin</strong> dan tidak memerlukan akaun pelanggan.</li>
           <li><strong>Batal Paksa</strong> hanya untuk tempahan disahkan. Ia memerlukan dua pengesahan, wajib ada sebab, dan melepaskan semua peg tempahan.</li>
           <li><strong>QR tempahan yang dibatalkan menjadi tidak sah.</strong> Apabila diimbas, CMS memaparkan &quot;QR Tidak Sah&quot; bersama status dan sebab pembatalan; check-in dan timbangan disekat. Tempahan dibatalkan juga tidak muncul dalam Senarai Check in.</li>
           <li>Selepas tindakan, cari semula rujukan tempahan dan pastikan status serta peg telah berubah seperti yang dijangka.</li>
@@ -302,7 +302,7 @@ const AdminInstructions: React.FC<AdminInstructionsProps> = ({ onNavigate }) => 
 
       <div style={{ display: 'grid', gap: 12, marginBottom: 8 }}>
         <Callout tone="amber" title="Amaran - keputusan pembayaran:">
-          semak resit, jumlah, rujukan bank dan peg sebelum Sahkan/Tolak. Keputusan pertama mengubah status tempahan dan ketersediaan peg.
+          semak slip bayaran, jumlah, rujukan bank dan peg sebelum Sahkan/Tolak. Keputusan pertama mengubah status tempahan dan ketersediaan peg.
         </Callout>
         <Callout tone="red" title="Amaran - tindakan kekal:">
           Batal Paksa, Padam Pertandingan, Padam Kolam dan padam rekod keputusan perlu semakan silang kerana pemulihan tidak tersedia dalam CMS.

@@ -71,11 +71,11 @@ const validateReceipt = async (url, uid) => {
     const bucket = admin.storage().bucket();
     const path = receiptPath(url, uid, bucket.name, process.env.FIREBASE_STORAGE_EMULATOR_HOST);
     let metadata;
-    try { [metadata] = await bucket.file(path).getMetadata(); } catch { fail('Fail resit tidak dijumpai.'); }
+    try { [metadata] = await bucket.file(path).getMetadata(); } catch { fail('Fail slip bayaran tidak dijumpai.'); }
     if (!(Number(metadata.size) > 0 && Number(metadata.size) <= 10 * 1024 * 1024)
-        || !/^(image\/[^;]+|application\/pdf)$/.test(metadata.contentType || '')) fail('Format atau saiz fail resit tidak sah.');
+        || !/^(image\/[^;]+|application\/pdf)$/.test(metadata.contentType || '')) fail('Format atau saiz fail slip bayaran tidak sah.');
     const token = new URL(url).searchParams.get('token');
-    if (!token || !String(metadata.metadata?.firebaseStorageDownloadTokens || '').split(',').includes(token)) fail('Pautan resit tidak sah.');
+    if (!token || !String(metadata.metadata?.firebaseStorageDownloadTokens || '').split(',').includes(token)) fail('Pautan slip bayaran tidak sah.');
 };
 
 // Cloudflare Turnstile bot check for customer bookings. Active only once the
@@ -290,7 +290,7 @@ export async function createSecureBooking(db, payload, user) {
 
 export async function updateCustomerReceipt(db, payload, user, replace = false) {
     if (!validId(payload.bookingId)) fail('Tempahan tidak sah.');
-    if (replace && !Number.isInteger(payload.receiptIndex)) fail('Indeks resit tidak sah.');
+    if (replace && !Number.isInteger(payload.receiptIndex)) fail('Indeks slip bayaran tidak sah.');
     return db.runTransaction(async (tx) => {
         const ref = db.collection('bookings').doc(payload.bookingId);
         const snap = await tx.get(ref);

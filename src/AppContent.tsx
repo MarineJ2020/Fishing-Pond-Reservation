@@ -486,7 +486,7 @@ const AppContent: React.FC = () => {
       return;
     }
     if (!receiptData) {
-      showBookingAlert('Sila muat naik resit bayaran. / Upload your payment receipt.');
+      showBookingAlert('Sila muat naik slip bayaran. / Upload your payment slip.');
       return;
     }
     if (!bankReference.trim()) {
@@ -509,7 +509,7 @@ const AppContent: React.FC = () => {
       booking = await submitBooking(pond, setSubmitStage);
     } catch (err: any) {
       setBookingError(String(err?.code || '').startsWith('storage/')
-        ? 'Resit gagal dimuat naik. Sila guna gambar (JPG/PNG) atau PDF sahaja dan cuba lagi. / Receipt upload failed — use an image or PDF and try again.'
+        ? 'Slip Bayaran gagal dimuat naik. Sila guna gambar (JPG/PNG) atau PDF sahaja dan cuba lagi. / Payment slip upload failed — use an image or PDF and try again.'
         : friendlyError(err, 'Ralat semasa menghantar tempahan. Sila cuba lagi. / Booking could not be sent, please try again.'));
       setBookingSubmitting(false);
       return;
@@ -1412,7 +1412,7 @@ const AppContent: React.FC = () => {
                         <div className="bk-panel-head">
                           <div className="bk-eyebrow">Langkah 01</div>
                           <h2>Pilih Pertandingan</h2>
-                          <p>Menukar pertandingan akan reset pilihan kolam, pancang, dan resit bayaran.</p>
+                          <p>Menukar pertandingan akan reset pilihan kolam, pancang, dan slip bayaran.</p>
                         </div>
                         <div className="bk-panel-body">
                           <div className="bk-choice-grid">
@@ -1742,7 +1742,7 @@ const AppContent: React.FC = () => {
                       <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
                     </div>
                     <div style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: 6 }}>
-                      {submitStage === 'upload' ? 'Langkah 1/2: Memuat naik resit...' : 'Langkah 2/2: Menyimpan tempahan...'}
+                      {submitStage === 'upload' ? 'Langkah 1/2: Memuat naik slip bayaran...' : 'Langkah 2/2: Menyimpan tempahan...'}
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                       Proses ini mungkin mengambil masa sehingga 30 saat. Jangan tutup atau muat semula halaman ini.

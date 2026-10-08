@@ -23,7 +23,7 @@ const buildTimeline = (booking: Booking, entries: BookingActivityEntry[], create
   }
   (booking.receipts || []).forEach((r, i) => {
     if (i > 0 && r.submittedAt) {
-      rows.push({ key: `receipt-${i}`, at: r.submittedAt, label: `Resit #${i + 1} dihantar`, actor: booking.userName, details: `RM ${r.amount}` });
+      rows.push({ key: `receipt-${i}`, at: r.submittedAt, label: `Slip Bayaran #${i + 1} dihantar`, actor: booking.userName, details: `RM ${r.amount}` });
     }
   });
   (booking.staffRemarks || []).forEach((r, i) => {
@@ -124,7 +124,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
             <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Ref: {booking.bookingRef || booking.id}</div>
             {/* Booking-level reference = the reference keyed in with the first
                 (deposit) receipt. Each later receipt carries its own, shown below. */}
-            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>No. Rujukan Bank (resit pertama): {booking.bankReference || '-'}</div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>No. Rujukan Bank (slip bayaran pertama): {booking.bankReference || '-'}</div>
             <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
               📱 Profil: {booking.userPhone || '—'}
               {' · '}
@@ -144,8 +144,8 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
           {reviewableReceipt ? (
             <div style={{ background: 'var(--cream, #f7f7f5)', borderRadius: 10, padding: '14px', marginBottom: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontWeight: 700 }}>Resit #{pendingIndex + 1} · RM {reviewableReceipt.amount}</span>
-                {reviewableReceipt.url && <button className="btn btn-sm btn-ghost" onClick={() => onViewReceipt(reviewableReceipt.url)}>Lihat Resit</button>}
+                <span style={{ fontWeight: 700 }}>Slip Bayaran #{pendingIndex + 1} · RM {reviewableReceipt.amount}</span>
+                {reviewableReceipt.url && <button className="btn btn-sm btn-ghost" onClick={() => onViewReceipt(reviewableReceipt.url)}>Lihat Slip Bayaran</button>}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
                 Dihantar: {reviewableReceipt.submittedAt ? formatDate(reviewableReceipt.submittedAt, { time: true }) : '-'}
@@ -165,7 +165,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
                     id="reject-reason"
                     className="form-input"
                     style={{ width: '100%', minHeight: 60, marginBottom: 8 }}
-                    placeholder="Cth: Jumlah tidak sepadan, resit tidak jelas"
+                    placeholder="Cth: Jumlah tidak sepadan, slip bayaran tidak jelas"
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
                     maxLength={500}
@@ -179,7 +179,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
               )}
             </div>
           ) : (
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '14px' }}>Tiada resit menunggu semakan untuk tempahan ini.</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '14px' }}>Tiada slip bayaran menunggu semakan untuk tempahan ini.</div>
           )}
 
           {canRecordManualPayment && (!manualMode ? (
@@ -189,7 +189,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
           ) : (
             <div style={{ border: '1px dashed var(--border)', borderRadius: 10, padding: '14px' }}>
               <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                Muat naik bukti bayaran (cth. resit bank/tunai) untuk sahkan RM {manualAmount} secara manual.
+                Muat naik bukti bayaran (cth. slip bayaran bank/tunai) untuk sahkan RM {manualAmount} secara manual.
               </div>
               <input
                 ref={fileInputRef}

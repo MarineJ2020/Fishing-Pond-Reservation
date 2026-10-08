@@ -16,7 +16,7 @@ const TIPS: React.ReactNode[] = [
   <>Jika anda membayar dari telefon yang sama, simpan QR ini dahulu, kemudian pilih <b>Muat naik dari galeri</b> dalam aplikasi bank.</>,
   <>Pastikan nama penerima yang dipaparkan dalam aplikasi sama seperti di atas sebelum mengesahkan.</>,
   <>Masukkan jumlah bayaran tepat seperti yang dipaparkan pada borang tempahan.</>,
-  <>Simpan resit atau tangkap layar transaksi — anda perlu memuat naiknya selepas pembayaran.</>,
+  <>Simpan slip bayaran atau tangkap layar transaksi — anda perlu memuat naiknya selepas pembayaran.</>,
 ];
 
 /** Enlarged view of the payment QR with save-to-gallery and generic DuitNow guidance. */

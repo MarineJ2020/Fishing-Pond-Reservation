@@ -43,11 +43,11 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, receiptStat
             return uploadDataUrlToFirebaseStorage(dataUrl, receiptUploadFolder(), file.name);
           })();
       await replaceBookingReceipt(bookingId, receiptIndex, receiptUrl);
-      addToast('Resit telah dikemaskini. / Receipt updated.', 'success');
+      addToast('Slip Bayaran telah dikemaskini. / Payment slip updated.', 'success');
       await onSubmitted();
     } catch (err: any) {
       console.error('Receipt re-upload failed:', err);
-      addToast(friendlyError(err, 'Gagal menggantikan resit. Sila cuba lagi. / Failed to replace receipt. Please try again.'), 'error');
+      addToast(friendlyError(err, 'Gagal menggantikan slip bayaran. Sila cuba lagi. / Failed to replace payment slip. Please try again.'), 'error');
     } finally {
       setBusy(false);
       setConfirming(false);
@@ -60,14 +60,14 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, receiptStat
   return (
     <div style={{ marginTop: '10px', background: isRejected ? 'rgba(231,25,45,0.06)' : 'var(--cream)', padding: '14px', borderRadius: '12px', border: `1px dashed ${isRejected ? 'var(--red)' : 'var(--gold, #d4a017)'}` }}>
       <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>
-        {isRejected ? 'Resit Ditolak · Muat Naik Semula / Rejected — Re-upload' : 'Tukar Resit / Replace Receipt'}
+        {isRejected ? 'Slip Bayaran Ditolak · Muat Naik Semula / Rejected — Re-upload' : 'Tukar Slip Bayaran / Replace Payment Slip'}
       </div>
       <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
         {isRejected ? (
-          <>Resit ini telah ditolak oleh petugas. Sila muat naik resit yang betul untuk semakan semula.
-          <br /><em>This receipt was rejected. Upload a corrected receipt for re-review.</em></>
+          <>Slip Bayaran ini telah ditolak oleh petugas. Sila muat naik slip bayaran yang betul untuk semakan semula.
+          <br /><em>This payment slip was rejected. Upload a corrected payment slip for re-review.</em></>
         ) : (
-          <>Tersilap muat naik gambar/resit? Anda boleh menggantikannya selagi belum disahkan petugas.
+          <>Tersilap muat naik gambar/slip bayaran? Anda boleh menggantikannya selagi belum disahkan petugas.
           <br /><em>Uploaded the wrong file? You can replace it any time before staff approves it.</em></>
         )}
       </div>
@@ -85,7 +85,7 @@ const ReceiptReupload: React.FC<Props> = ({ bookingId, receiptIndex, receiptStat
           onClick={() => setConfirming(true)}
           style={{ width: '100%', justifyContent: 'center' }}
         >
-          {isRejected ? 'Muat Naik Semula / Re-upload' : 'Tukar Resit / Replace Receipt'}
+          {isRejected ? 'Muat Naik Semula / Re-upload' : 'Tukar Slip Bayaran / Replace Payment Slip'}
         </button>
       ) : (
         <div style={{ display: 'flex', gap: '8px' }}>

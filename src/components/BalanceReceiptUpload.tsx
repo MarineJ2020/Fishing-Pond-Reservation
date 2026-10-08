@@ -38,7 +38,7 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
   if (remaining <= 0) {
     return (
       <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '8px' }}>
-        Resit maksimum ({MAX_RECEIPTS}) telah dihantar. Sila tunggu pengesahan petugas.
+        Slip Bayaran maksimum ({MAX_RECEIPTS}) telah dihantar. Sila tunggu pengesahan petugas.
       </div>
     );
   }
@@ -63,12 +63,12 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
             return uploadDataUrlToFirebaseStorage(dataUrl, receiptUploadFolder(), file.name);
           })();
       await submitBookingReceipt({ bookingId, receiptUrl, amount: balanceDue, bankReference: bankReference.trim() });
-      addToast('Resit baki dihantar. Petugas akan mengesahkan pembayaran anda.', 'success');
+      addToast('Slip bayaran baki dihantar. Petugas akan mengesahkan pembayaran anda.', 'success');
       setBankReference('');
       await onSubmitted();
     } catch (err: any) {
       console.error('Balance receipt submit failed:', err);
-      addToast(friendlyError(err, 'Gagal menghantar resit. Sila cuba lagi. / Receipt could not be sent, please try again.'), 'error');
+      addToast(friendlyError(err, 'Gagal menghantar slip bayaran. Sila cuba lagi. / Payment slip could not be sent, please try again.'), 'error');
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = '';
@@ -78,11 +78,11 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
   return (
     <div style={{ background: 'var(--cream)', padding: '18px', borderRadius: '14px', border: '1px dashed var(--red)' }}>
       <div style={{ fontSize: '.68rem', color: 'var(--red)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>
-        Hantar Resit Baki
+        Hantar Slip bayaran Baki
       </div>
       <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
-        Baki tertunggak: <strong style={{ color: 'var(--red)' }}>RM {balanceDue}</strong>. Muat naik resit
-        pembayaran baki untuk pengesahan petugas. ({remaining} resit lagi dibenarkan)
+        Baki tertunggak: <strong style={{ color: 'var(--red)' }}>RM {balanceDue}</strong>. Muat naik slip bayaran
+        pembayaran baki untuk pengesahan petugas. ({remaining} slip bayaran lagi dibenarkan)
       </div>
       <label className="form-label" htmlFor={`balance-bank-reference-${bookingId}`} style={{ display: 'block', marginBottom: '6px' }}>
         NO.RUJUKAN BANK <span style={{ color: 'var(--red)' }}>*</span>
@@ -112,11 +112,11 @@ const BalanceReceiptUpload: React.FC<Props> = ({ bookingId, balanceDue, receiptC
         onClick={() => inputRef.current?.click()}
         style={{ width: '100%', justifyContent: 'center' }}
       >
-        {busy ? 'Menghantar…' : 'Muat Naik Resit Baki'}
+        {busy ? 'Menghantar…' : 'Muat Naik Slip bayaran Baki'}
       </button>
       {!referenceOk && (
         <div style={{ fontSize: '.72rem', color: 'var(--text-muted)', marginTop: '7px', textAlign: 'center' }}>
-          Masukkan No. Rujukan Bank untuk membuka muat naik resit.
+          Masukkan No. Rujukan Bank untuk membuka muat naik slip bayaran.
         </div>
       )}
     </div>

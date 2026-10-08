@@ -154,7 +154,7 @@ export const renderBookingReceivedEmail = ({ booking, competition }) => {
         text: `Tempahan ${bookingRef} diterima dan menunggu pengesahan.\n${selectionText(booking, competition)}\nJumlah bayaran: RM ${Number(booking.amount || 0).toFixed(2)}`,
         html: layout('Tempahan Diterima', `
             <p>Salam sejahtera,</p>
-            <p>Kami telah menerima permohonan tempahan anda. Pasukan kami akan menyemak resit bayaran dan mengesahkan tempahan sebentar lagi.</p>
+            <p>Kami telah menerima permohonan tempahan anda. Pasukan kami akan menyemak slip bayaran dan mengesahkan tempahan sebentar lagi.</p>
             <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
             <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
             <p><strong>Jumlah Bayaran:</strong> <span style="color:${BRAND_RED};">RM ${Number(booking.amount || 0).toFixed(2)}</span></p>
@@ -228,14 +228,14 @@ export const renderBalanceReminderEmail = ({ bookingId, booking, competition, ba
     const bookingUrl = `${appUrl}/bookings/${encodeURIComponent(bookingId)}`;
     return {
         subject: `Peringatan Baki Bayaran - ${bookingRef}`,
-        text: `Baki RM ${Number(balanceDue || 0).toFixed(2)} untuk tempahan ${bookingRef} masih tertunggak.\n${selectionText(booking, competition)}\nMuat naik resit: ${bookingUrl}`,
+        text: `Baki RM ${Number(balanceDue || 0).toFixed(2)} untuk tempahan ${bookingRef} masih tertunggak.\n${selectionText(booking, competition)}\nMuat naik slip bayaran: ${bookingUrl}`,
         html: layout('Peringatan: Baki Bayaran Tertunggak', `
             <p>Salam sejahtera,</p>
-            <p>Tempahan deposit anda masih menunggu <strong style="color:${BRAND_RED};">baki bayaran</strong>. Sila muat naik resit bayaran baki anda untuk mengesahkan tempahan dan mengekalkan tempat anda.</p>
+            <p>Tempahan deposit anda masih menunggu <strong style="color:${BRAND_RED};">baki bayaran</strong>. Sila muat naik slip bayaran baki anda untuk mengesahkan tempahan dan mengekalkan tempat anda.</p>
             <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
             <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
             <p><strong>Baki Tertunggak:</strong> <span style="color:${BRAND_RED};">RM ${Number(balanceDue || 0).toFixed(2)}</span></p>
-            <p style="text-align:center;margin:24px 0;"><a href="${escapeHtml(bookingUrl)}" style="display:inline-block;background:${BRAND_RED};color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">Muat Naik Resit Baki</a></p>
+            <p style="text-align:center;margin:24px 0;"><a href="${escapeHtml(bookingUrl)}" style="display:inline-block;background:${BRAND_RED};color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;">Muat Naik Slip bayaran Baki</a></p>
             <p style="font-size:12px;color:#666;">Pautan terus: <a href="${escapeHtml(bookingUrl)}" style="color:${BRAND_NAVY};">${escapeHtml(bookingUrl)}</a></p>
             <p style="font-size:12px;color:#888;">Jika anda telah membuat bayaran, sila abaikan e-mel ini.</p>`),
     };
@@ -249,16 +249,16 @@ export const renderReceiptRejectedEmail = ({ bookingId, booking, competition, re
     const reasonText = String(reason || '').trim() || 'Tiada sebab dinyatakan. Sila hubungi kami untuk maklumat lanjut.';
     const amountText = `RM ${Number(amount || 0).toFixed(2)}`;
     const nextStep = bookingCancelled
-        ? 'Tempahan ini telah dibatalkan dan peg telah dilepaskan. Anda boleh membuat tempahan baharu dengan resit yang betul.'
-        : 'Sila muat naik resit yang betul melalui halaman tempahan anda untuk semakan semula.';
+        ? 'Tempahan ini telah dibatalkan dan peg telah dilepaskan. Anda boleh membuat tempahan baharu dengan slip bayaran yang betul.'
+        : 'Sila muat naik slip bayaran yang betul melalui halaman tempahan anda untuk semakan semula.';
     const ctaUrl = bookingCancelled ? `${appUrl}/book` : bookingUrl;
-    const ctaLabel = bookingCancelled ? 'Buat Tempahan Baharu' : 'Muat Naik Resit Semula';
+    const ctaLabel = bookingCancelled ? 'Buat Tempahan Baharu' : 'Muat Naik Slip Bayaran Semula';
     return {
-        subject: `${bookingCancelled ? 'Tempahan Tidak Diluluskan' : 'Resit Ditolak'} - ${bookingRef}`,
-        text: `Resit #${receiptIndex + 1} (${amountText}) untuk tempahan ${bookingRef} telah ditolak.\nSebab: ${reasonText}\n${nextStep}\n${ctaUrl}`,
-        html: layout(bookingCancelled ? 'Tempahan Tidak Diluluskan' : 'Resit Bayaran Ditolak', `
+        subject: `${bookingCancelled ? 'Tempahan Tidak Diluluskan' : 'Slip Bayaran Ditolak'} - ${bookingRef}`,
+        text: `Slip Bayaran #${receiptIndex + 1} (${amountText}) untuk tempahan ${bookingRef} telah ditolak.\nSebab: ${reasonText}\n${nextStep}\n${ctaUrl}`,
+        html: layout(bookingCancelled ? 'Tempahan Tidak Diluluskan' : 'Slip Bayaran Ditolak', `
             <p>Salam sejahtera,</p>
-            <p>Resit bayaran <strong>#${receiptIndex + 1}</strong> (${escapeHtml(amountText)}) untuk tempahan anda telah <strong style="color:${BRAND_RED};">ditolak</strong> oleh petugas kami.</p>
+            <p>Slip bayaran <strong>#${receiptIndex + 1}</strong> (${escapeHtml(amountText)}) untuk tempahan anda telah <strong style="color:${BRAND_RED};">ditolak</strong> oleh petugas kami.</p>
             <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
             <div style="background:#fdf2f2;border-left:4px solid ${BRAND_RED};padding:12px 14px;margin:16px 0;border-radius:4px;">
               <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">Sebab ditolak</div>

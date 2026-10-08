@@ -83,7 +83,7 @@ test('booking-controlled fields are HTML escaped', () => {
 test('receipt rejection email shows the escaped reason and the right next step', () => {
     const booking = { bookingRef: 'KKS-AB12', pondName: 'Aisyah', pondCode: 'A', seatNumbers: [5] };
     const reupload = renderReceiptRejectedEmail({ bookingId: 'b1', booking, receiptIndex: 1, amount: 60, reason: 'Jumlah <salah>', bookingCancelled: false, appUrl: 'https://x.my' });
-    assert.match(reupload.subject, /^Resit Ditolak - KKS-AB12$/);
+    assert.match(reupload.subject, /^Slip Bayaran Ditolak - KKS-AB12$/);
     assert.match(reupload.html, /Jumlah &lt;salah&gt;/);
     assert.doesNotMatch(reupload.html, /<salah>/);
     assert.match(reupload.html, /https:\/\/x\.my\/bookings\/b1/);

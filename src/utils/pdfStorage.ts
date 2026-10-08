@@ -16,7 +16,7 @@ export const isAllowedReceiptFile = (file: File): boolean =>
   || (!file.type && /\.(jpe?g|png|webp|heic|heif|gif)$/i.test(file.name));
 
 export const RECEIPT_TYPE_ERROR =
-  'Hanya gambar (JPG/PNG) atau PDF dibenarkan untuk resit. / Only image (JPG/PNG) or PDF receipts are allowed.';
+  'Hanya gambar (JPG/PNG) atau PDF dibenarkan untuk slip bayaran. / Only image (JPG/PNG) or PDF payment slips are allowed.';
 
 const sanitizeName = (name: string): string => {
   const trimmed = name.trim().replace(/\s+/g, '-');
