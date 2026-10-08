@@ -6058,7 +6058,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {receipts.map((receipt, index) => (
                     <div key={`${receipt.url}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--cream)' }}>
                       <div>
-                        <strong>Receipt #{index + 1}</strong>
+                        <strong>Slip Bayaran #{index + 1}</strong>
                         <div style={{ marginTop: 4, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Tarikh diterima: {receipt.submittedAt ? formatDate(receipt.submittedAt, { time: true }) : '-'}</div>
                         <div style={{ marginTop: 2, fontSize: '0.78rem', color: 'var(--text-muted)' }}>RM {receipt.amount} · {receipt.status === 'accepted' ? 'Disahkan' : receipt.status === 'rejected' ? 'Ditolak' : 'Menunggu Semakan'}</div>
                         <div style={{ marginTop: 2, fontSize: '0.78rem', color: 'var(--text-muted)' }}>No. Rujukan Bank: <strong style={{ fontFamily: 'monospace' }}>{receiptBankReference(receiptHistoryBooking, receipt, index) || '-'}</strong></div>

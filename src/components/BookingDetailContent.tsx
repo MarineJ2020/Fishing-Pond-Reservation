@@ -429,7 +429,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                       <>
                         {isPdf ? (
                           <iframe
-                            title={`Receipt ${i + 1}`}
+                            title={`Slip Bayaran ${i + 1}`}
                             src={r.url}
                             style={{ width: '100%', height: '360px', borderRadius: '12px', border: '1px solid var(--line)', background: '#fff' }}
                           />
