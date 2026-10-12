@@ -5798,6 +5798,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                   <div className="card-body">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {ponds.length > 0 && (() => {
+                        const editPondKeys = ponds.map((pond) => pond._docId || pond.id.toString());
+                        const allSelected = editPondKeys.every((key) => (compEdit.activePondIds || []).includes(key));
+                        return (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 11px', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 800 }}>
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              onChange={() => setCompEdit({ ...compEdit, activePondIds: allSelected ? [] : editPondKeys })}
+                            />
+                            Pilih Semua
+                          </label>
+                        );
+                      })()}
                       {ponds.map((pond) => {
                         const pondKey = pond._docId || pond.id.toString();
                         const checked = (compEdit.activePondIds || []).includes(pondKey);
