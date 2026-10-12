@@ -40,3 +40,4 @@ functions/src/template.html
 
 # TypeScript incremental build info
 *.tsbuildinfo
+backups/
