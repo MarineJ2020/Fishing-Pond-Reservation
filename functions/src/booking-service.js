@@ -185,7 +185,7 @@ async function loadSelection(tx, db, payload, user, { checkout }) {
 }
 
 // Messages name the peg ("A-11") so the customer knows which one to swap.
-const pegLabel = (group, num) => (group.pondCode ? `${String(group.pondCode).trim().toUpperCase()}-${num}` : `${num}`);
+const pegLabel = (group, num) => `${num}`;
 const PEG_TAKEN = (peg) => `No Pancang ${peg} telah ditempah. Sila pilih No Pancang lain. / Peg ${peg} is already booked. Please pick another peg.`;
 const PEG_HELD = (peg) => `No Pancang ${peg} sedang ditahan oleh pelanggan lain yang sedang membuat bayaran. Sila pilih No Pancang lain atau cuba semula selepas 10 minit. / Peg ${peg} is on hold for another customer who is paying. Pick another peg or try again in 10 minutes.`;
 const holdActive = (claim, now) => !claim.bookingId && !!claim.holdUid && (claim.holdExpiresAt?.toMillis?.() ?? new Date(claim.holdExpiresAt || 0).getTime()) > now;

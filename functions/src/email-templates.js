@@ -56,10 +56,8 @@ const competitionSchedule = (competition) => {
         : `${myDateTime.format(start)} – ${myDateTime.format(end)}`;
 };
 
-const seatLabel = (seat, pondCode) => {
-    const code = String(pondCode || '').trim().toUpperCase();
-    return code ? `${code}-${seat}` : `#${seat}`;
-};
+// Peg numbers are plain, globally unique numbers (the legacy pond letter is ignored).
+const seatLabel = (seat) => `${seat}`;
 
 const selectionList = (booking) => {
     if (Array.isArray(booking.pondSelections) && booking.pondSelections.length) {

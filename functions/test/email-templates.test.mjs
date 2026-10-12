@@ -23,9 +23,9 @@ test('booking emails include every pond and seat selection', () => {
     const received = renderBookingReceivedEmail({ booking: multiPondBooking });
     assert.match(received.html, /Kolam Utara/);
     assert.match(received.html, /Kolam Selatan/);
-    assert.match(received.html, /A-1/);
-    assert.match(received.html, /A-2/);
-    assert.match(received.html, /B-7/);
+    assert.match(received.html, /1/);
+    assert.match(received.html, /2/);
+    assert.match(received.html, /7/);
     assert.equal(bookingSelectionsForTest(multiPondBooking).length, 2);
 });
 
@@ -45,8 +45,8 @@ test('approved email creates one QR for every selected peg', () => {
     assert.equal((approved.html.match(/https:\/\/example\.test\/qr-card\?v=/g) || []).length, 6);
     assert.match(approved.html, /&amp;c=Piala\+%3CKeli%3E/);
     assert.equal((approved.html.match(/Muat turun QR/g) || []).length, 3);
-    assert.match(approved.html, /Kolam Utara &middot; A-1/);
-    assert.match(approved.html, /Kolam Selatan &middot; B-7/);
+    assert.match(approved.html, /Kolam Utara &middot; 1/);
+    assert.match(approved.html, /Kolam Selatan &middot; 7/);
     assert.match(approved.html, /pond%3D1/);
     assert.match(approved.html, /pond%3D2/);
 });
@@ -100,7 +100,7 @@ test('cancellation email shows the escaped reason and the booking pegs', () => {
     assert.equal(mail.subject, 'Tempahan Dibatalkan - KKS-CX99');
     assert.match(mail.html, /Kolam &lt;ditutup&gt;/);
     assert.doesNotMatch(mail.html, /<ditutup>/);
-    assert.match(mail.html, /B-7, B-8/);
+    assert.match(mail.html, /7, 8/);
     assert.match(renderBookingCancelledEmail({ bookingId: 'b9', booking, reason: '', appUrl: 'https://x.my' }).html, /Tiada sebab dinyatakan/);
 });
 
@@ -116,9 +116,9 @@ test('booking summary shows booking time, competition schedule and pegs in Malay
     assert.match(mail.html, /Jum, 2 Okt 2026, 12:15 PTG/);
     assert.match(mail.html, /Pertandingan Bulanan Okt/);
     assert.match(mail.html, /Ahd, 4 Okt 2026, 8:00 PG – 6:00 PTG/);
-    assert.match(mail.html, /Bella: B-7, B-8<br\/>Aisyah: A-3/);
+    assert.match(mail.html, /Bella: 7, 8<br\/>Aisyah: 3/);
     assert.doesNotMatch(mail.html, /Tarikh: -/);
-    assert.match(mail.text, /Kolam & No\. Pancang: Bella: B-7, B-8; Aisyah: A-3/);
+    assert.match(mail.text, /Kolam & No\. Pancang: Bella: 7, 8; Aisyah: 3/);
     // Missing competition doc degrades to '-' rather than failing the email.
     assert.match(renderBookingReceivedEmail({ booking }).html, /Tarikh &amp; Masa Pertandingan<\/td>\s*<td[^>]*>-<\/td>/);
 });

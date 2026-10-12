@@ -141,6 +141,8 @@ const normalizeSeats = (
   seatDocs: Array<{ id: string; seatNumber: number; row?: string; zone?: string; price?: number }>,
   seatLayout?: Array<{ num: number; px: number; py: number; active: boolean }>,
   pricePerSeat?: unknown,
+  startNumber = 1,
+  zoneACount = Math.ceil(totalSeats / 2),
 ): Seat[] => {
   const layoutMap = new Map<number, { px: number; py: number; active: boolean }>(
     (seatLayout ?? []).map(sl => [sl.num, { px: sl.px, py: sl.py, active: sl.active }])
@@ -153,7 +155,7 @@ const normalizeSeats = (
         return {
           id: seat.id,
           num: seat.seatNumber,
-          zone: seat.zone || (seat.seatNumber <= totalSeats / 2 ? 'A' : 'B'),
+          zone: seat.seatNumber - startNumber < zoneACount ? 'A' : 'B',
           price: seat.price ?? 100,
           status: 'available' as const,
           ...(layout ? { px: layout.px, py: layout.py, active: layout.active } : {}),
@@ -163,11 +165,11 @@ const normalizeSeats = (
   }
 
   return Array.from({ length: totalSeats }, (_, index) => {
-    const num = index + 1;
+    const num = startNumber + index;
     const layout = layoutMap.get(num);
     return {
       num,
-      zone: index < totalSeats / 2 ? 'A' : 'B',
+      zone: index < zoneACount ? 'A' : 'B',
       price: typeof pricePerSeat === 'number' && Number.isFinite(pricePerSeat) ? pricePerSeat : 100,
       status: 'available' as const,
       ...(layout ? { px: layout.px, py: layout.py, active: layout.active } : {}),
@@ -580,6 +582,10 @@ export const getPondsWithSeats = async (
     const totalSeats = data.totalSeats || 30;
     const seatDocs = seatsByPond.get(pondSnap.id) || [];
     const numId = Number(pondSnap.id);
+    const startNumber = Number.isInteger(data.startNumber) && data.startNumber >= 1 ? data.startNumber : 1;
+    const zoneACount = Number.isInteger(data.zoneACount)
+      ? Math.max(0, Math.min(totalSeats, data.zoneACount))
+      : Math.ceil(totalSeats / 2);
     return {
       id: Number.isFinite(numId) ? numId : (index + 1),
       _docId: pondSnap.id,
@@ -589,7 +595,10 @@ export const getPondsWithSeats = async (
       date: normalizeTimestamp(data.eventDate) || new Date().toISOString(),
       open: data.open !== false,
       maxSeats: data.totalSeats || undefined,
-      seats: normalizeSeats(pondSnap.id, totalSeats, seatDocs, data.seatLayout, data.pricePerSeat),
+      startNumber,
+      zoneACount,
+      leftZone: data.leftZone === 'B' ? 'B' : 'A',
+      seats: normalizeSeats(pondSnap.id, totalSeats, seatDocs, data.seatLayout, data.pricePerSeat, startNumber, zoneACount),
       shape: Array.isArray(data.shape) && data.shape.length > 0 ? data.shape : undefined,
       order: typeof data.order === 'number' ? data.order : undefined,
       _idx: index,
@@ -1208,7 +1217,13 @@ export const updateCompetition = async (competitionId: string, updates: Partial<
   await setDoc(compRef, payload, { merge: true });
 };
 
-export const syncPondSeats = async (pondId: string, targetCount: number, pricePerSeat: number) => {
+export const syncPondSeats = async (
+  pondId: string,
+  targetCount: number,
+  pricePerSeat: number,
+  startNumber = 1,
+  zoneACount = Math.ceil(targetCount / 2),
+) => {
   const seatsRef = collection(db, 'seats');
   const seatsQuery = query(seatsRef, where('pondId', '==', pondId));
   const seatsSnapshot = await getDocs(seatsQuery);
@@ -1218,36 +1233,34 @@ export const syncPondSeats = async (pondId: string, targetCount: number, pricePe
 
   const safeTarget = Math.max(0, Math.floor(targetCount));
   const safePrice = Math.max(0, Number(pricePerSeat || 0));
+  const safeStart = Math.max(1, Math.floor(startNumber) || 1);
   const currentCount = existingSeats.length;
+  const zoneOf = (index: number) => (index < zoneACount ? 'A' : 'B');
 
-  if (currentCount < safeTarget) {
-    const addPromises: Promise<any>[] = [];
-    for (let i = currentCount + 1; i <= safeTarget; i += 1) {
-      addPromises.push(addDoc(seatsRef, {
-        pondId,
-        seatNumber: i,
-        zone: i <= safeTarget / 2 ? 'A' : 'B',
-        price: safePrice,
-        status: 'available',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }));
-    }
-    await Promise.all(addPromises);
-  }
-
-  if (currentCount > safeTarget) {
-    const removeSeats = existingSeats.slice(safeTarget);
-    await Promise.all(removeSeats.map((seat) => deleteDoc(doc(db, 'seats', seat.id))));
-  }
-
-  const keepSeats = existingSeats.slice(0, Math.min(currentCount, safeTarget));
-  if (keepSeats.length) {
-    await Promise.all(keepSeats.map((seat) => setDoc(doc(db, 'seats', seat.id), {
+  // The i-th seat doc always carries peg number start + i, so a changed start
+  // number renumbers the existing docs in place (ranges are locked once booked).
+  const writes: Promise<unknown>[] = [];
+  existingSeats.slice(0, safeTarget).forEach((seat, i) => {
+    writes.push(setDoc(doc(db, 'seats', seat.id), {
+      seatNumber: safeStart + i,
+      zone: zoneOf(i),
       price: safePrice,
       updatedAt: serverTimestamp(),
-    }, { merge: true })));
+    }, { merge: true }));
+  });
+  for (let i = currentCount; i < safeTarget; i += 1) {
+    writes.push(addDoc(seatsRef, {
+      pondId,
+      seatNumber: safeStart + i,
+      zone: zoneOf(i),
+      price: safePrice,
+      status: 'available',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
   }
+  existingSeats.slice(safeTarget).forEach((seat) => writes.push(deleteDoc(doc(db, 'seats', seat.id))));
+  await Promise.all(writes);
 };
 
 export const deleteCompetition = async (competitionId: string) => {
@@ -1316,11 +1329,13 @@ export const createPond = async (pondData: Omit<Pond, 'id' | 'seats'>) => {
   const totalSeats = (pondData as any).totalSeats || 30;
   const pricePerSeat = (pondData as any).pricePerSeat || 100;
   const seatPromises: Promise<unknown>[] = [];
-  for (let i = 1; i <= totalSeats; i++) {
+  const startNumber = Math.max(1, Math.floor((pondData as any).startNumber) || 1);
+  const zoneACount = Number.isInteger((pondData as any).zoneACount) ? (pondData as any).zoneACount : Math.ceil(totalSeats / 2);
+  for (let i = 0; i < totalSeats; i++) {
     seatPromises.push(addDoc(seatsRef, {
       pondId: docRef.id,
-      seatNumber: i,
-      zone: i <= totalSeats / 2 ? 'A' : 'B',
+      seatNumber: startNumber + i,
+      zone: i < zoneACount ? 'A' : 'B',
       price: pricePerSeat,
       status: 'available',
       createdAt: serverTimestamp(),

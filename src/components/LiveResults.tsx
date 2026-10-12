@@ -276,13 +276,9 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const pastMost = pastMostRanking.winners;
   // Everyone on the highest count, so tied players can see why the winner won.
   const pastMostRows = pastMostRanking.rows.filter(r => r.records.length === pastMost[0]?.records.length);
-  const seatLabelOf = (pondId: number, seatNum: number) => {
-    const code = ponds.find(pond => pond.id === pondId)?.code;
-    return code ? formatSeat(code, seatNum) : `#${seatNum}`;
-  };
-  const pastChampionPond = pastChampion ? ponds.find(pond => pond.id === pastChampion.pondId) : null;
+  const seatLabelOf = (_pondId: number, seatNum: number) => formatSeat(undefined, seatNum);
   const pastChampionSeat = pastChampion
-    ? pastChampionPond?.code ? formatSeat(pastChampionPond.code, pastChampion.peg) : `#${pastChampion.peg}`
+    ? formatSeat(undefined, pastChampion.peg)
     : '—';
 
   const statusLabel = cdStatus === 'upcoming' ? 'Akan Datang' : cdStatus === 'live' ? 'Live' : 'Tamat';
@@ -389,7 +385,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                   const isMe = isUserEntry(e);
                   const pond = ponds.find(p => p.id === e.pondId);
                   const pondName = (pond?.name || e.pondName || '').split('—')[0].trim();
-                  const seatLabel = pond?.code ? formatSeat(pond.code, e.peg) : `#${e.peg}`;
+                  const seatLabel = formatSeat(pond?.code, e.peg);
                   const time = timeByPeg[e.peg];
                   return (
                     <article key={e.peg} className={`kl-rank-row ${rank === 1 ? 'champ' : ''} ${isMe ? 'me' : ''}`}>
@@ -642,7 +638,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 const prize = selectedPastComp ? getPrize(rank, selectedPastComp.prizes) : '';
                 const pond = ponds.find(p => p.id === e.pondId);
                 const pondName = (pond?.name || e.pondName || '').split('—')[0].trim();
-                const seatLabel = pond?.code ? formatSeat(pond.code, e.peg) : `#${e.peg}`;
+                const seatLabel = formatSeat(pond?.code, e.peg);
                 return (
                   <div key={e.peg} className={`kl-winner-row${rank === 1 ? ' is-champion' : ''}`}>
                     <div><span className="kl-winner-rank">{p2(rank)}</span></div>

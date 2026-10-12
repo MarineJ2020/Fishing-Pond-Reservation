@@ -12,16 +12,38 @@ export function pondDisplayName(pond?: Pick<Pond, 'name' | 'code'> | null): stri
 }
 
 /**
- * Format a single seat as "<code>-<num>" with no zero padding, e.g. "A-23".
- * Falls back to the plain number when the pond has no alphabet code yet
- * (e.g. legacy ponds before a code is assigned in the CMS).
+ * Peg numbers are plain, globally unique numbers (a pond owns a range such as
+ * 501–1000). The first argument is the legacy pond letter and is ignored; it is
+ * kept so existing call sites keep working.
  */
-export function formatSeat(code: string | undefined | null, num: number): string {
-  const c = (code || '').trim().toUpperCase();
-  return c ? `${c}-${num}` : `${num}`;
+export function formatSeat(_code: string | undefined | null, num: number): string {
+  return `${num}`;
 }
 
-/** Format a list of seat numbers for a pond, e.g. "A-1, A-23, A-125". */
+/** Format a list of seat numbers for a pond, e.g. "1, 23, 125". */
 export function formatSeatList(code: string | undefined | null, nums: number[]): string {
   return nums.map((n) => formatSeat(code, n)).join(', ');
+}
+
+/** Pond peg-range helpers. Defaults match ponds created before ranges existed (1..N, half/half). */
+export function pondRange(pond: Pick<Pond, 'startNumber' | 'maxSeats' | 'seats' | 'zoneACount'>) {
+  const start = Number.isInteger(pond.startNumber) && (pond.startNumber as number) >= 1 ? (pond.startNumber as number) : 1;
+  const total = pond.maxSeats ?? pond.seats?.length ?? 0;
+  const zoneA = Number.isInteger(pond.zoneACount) ? Math.max(0, Math.min(total, pond.zoneACount as number)) : Math.ceil(total / 2);
+  return { start, total, end: start + total - 1, zoneA, zoneB: total - zoneA };
+}
+
+/** Returns an error message when `candidate`'s peg range overlaps another pond's range. */
+export function pegRangeOverlapError(
+  candidate: { start: number; total: number },
+  others: Array<Pick<Pond, 'name' | 'startNumber' | 'maxSeats' | 'seats' | 'zoneACount'>>,
+): string | null {
+  const end = candidate.start + candidate.total - 1;
+  for (const other of others) {
+    const r = pondRange(other);
+    if (candidate.start <= r.end && r.start <= end) {
+      return `Nombor pancang ${candidate.start}–${end} bertindih dengan ${other.name || 'kolam lain'} (${r.start}–${r.end}). Nombor tidak boleh berulang.`;
+    }
+  }
+  return null;
 }

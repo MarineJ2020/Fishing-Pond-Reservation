@@ -89,6 +89,18 @@ test('partial seat loads (claim-mode checkout) apply the same caps and existence
     assert.throws(() => validateSelections(pick([6]), competition, [{ ...ponds[0], seats: [], totalSeats: 5, seatsPartial: true, hasSeatDocs: false }]));
 });
 
+test('ponds with a start number cap by position, not by absolute peg number', () => {
+    const pond = { ...ponds[0], startNumber: 501 };
+    const seat = (n) => ({ id: `a${n}`, seatNumber: n });
+    const partial = (seats) => [{ ...pond, seats, seatsPartial: true, hasSeatDocs: true }];
+    const pick = (seats) => ({ ...payload, pondSelections: [{ pondId: 1, seats }] });
+    const capped = { ...competition, pondSeats: { 'pond-a': 2 } };
+    assert.doesNotThrow(() => validateSelections(pick([502]), capped, partial([seat(502)])));
+    assert.throws(() => validateSelections(pick([503]), capped, partial([seat(503)])), /tidak tersedia/);
+    assert.doesNotThrow(() => validateSelections(pick([505]), competition, [{ ...pond, seats: [], totalSeats: 5, seatsPartial: true, hasSeatDocs: false }]) === undefined);
+    assert.throws(() => validateSelections(pick([1]), competition, [{ ...pond, seats: [], totalSeats: 5, seatsPartial: true, hasSeatDocs: false }]));
+});
+
 test('booking pegs resolve numeric and doc-id ponds and legacy seat ids to claim keys', () => {
     const catalog = [{ id: 1, docId: 'pond-a' }, { id: 2, docId: 'pond-b' }];
     assert.deepEqual(bookingPegs({ pondSelections: [{ pondId: 1, seats: [3, 3, 4] }, { pondId: 'pond-b', seats: [1] }] }, catalog, []),

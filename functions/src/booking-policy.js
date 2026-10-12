@@ -114,13 +114,14 @@ export function validateSelections(payload, competition, ponds) {
         const pond = ponds.find((p) => p.id === group.pondId);
         if (!pond || pond.open === false || (competition.activePondIds?.length && !competition.activePondIds.map(refId).includes(pond.docId))) fail('Kolam tidak tersedia.');
         // seatsPartial: checkout loaded only the requested seat docs, so ranking by
-        // position is impossible; pond seats are numbered 1..N (verified by
-        // scripts/backfill-seat-claims.mjs), which makes "first cap seats" == "number <= cap".
+        // position is impossible; pond seats are numbered start..start+N-1 (start defaults
+        // to 1), which makes "first cap seats" == "number < start + cap".
+        const start = Number.isInteger(pond.startNumber) && pond.startNumber >= 1 ? pond.startNumber : 1;
         const hasSeatDocs = pond.seatsPartial ? pond.hasSeatDocs : pond.seats.length > 0;
-        const allSeats = hasSeatDocs ? pond.seats : Array.from({ length: pond.totalSeats || 30 }, (_, i) => ({ seatNumber: i + 1, price: 100 }));
+        const allSeats = hasSeatDocs ? pond.seats : Array.from({ length: pond.totalSeats || 30 }, (_, i) => ({ seatNumber: start + i, price: 100 }));
         const configuredCap = competition.pondSeats?.[pond.docId] ?? competition.pondSeats?.[String(pond.id)];
         const allowed = pond.seatsPartial && hasSeatDocs
-            ? (configuredCap == null ? allSeats : allSeats.filter((s) => s.seatNumber <= Math.max(0, Math.floor(configuredCap))))
+            ? (configuredCap == null ? allSeats : allSeats.filter((s) => s.seatNumber < start + Math.max(0, Math.floor(configuredCap))))
             : allSeats.slice(0, Math.max(0, Math.floor(configuredCap ?? allSeats.length)));
         if (!Array.isArray(group.seats) || !group.seats.length) fail('No Pancang tidak sah.');
         const selectedSeats = group.seats.map((num) => {

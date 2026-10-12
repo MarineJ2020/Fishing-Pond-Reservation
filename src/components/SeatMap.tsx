@@ -130,11 +130,15 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
   const lastTouchDist   = useRef<number | null>(null);
   const expandContainer = useRef<HTMLDivElement>(null);
 
+  // Zon A = first pegs of the pond's range, Zon B = the rest. The CMS picks which
+  // zone sits on the left (a pond on the left of the venue has A on its left).
+  const leftZone  = pond?.leftZone === 'B' ? 'B' : 'A';
+  const rightZone = leftZone === 'A' ? 'B' : 'A';
   const splitSeats = useMemo(() => {
     if (!pond) return { left: [] as Seat[], right: [] as Seat[] };
-    const ordered    = [...pond.seats].sort((a, b) => a.num - b.num);
-    const leftCount  = Math.ceil(ordered.length / 2);
-    return { left: ordered.slice(0, leftCount), right: ordered.slice(leftCount) };
+    const ordered = [...pond.seats].sort((a, b) => a.num - b.num);
+    const left = pond.leftZone === 'B' ? 'B' : 'A';
+    return { left: ordered.filter(s => s.zone === left), right: ordered.filter(s => s.zone !== left) };
   }, [pond]);
 
   // Zoom toward (cx, cy) in container-pixel space
@@ -315,7 +319,7 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
             <>
               <div className="seat-zone-wrap left">
                 <div className="seat-bank-label-anchor" aria-hidden="true">
-                  <span className="seat-bank-label">Kiri</span>
+                  <span className="seat-bank-label">Zon {leftZone}</span>
                 </div>
                 <div className="seat-col">
                   {splitSeats.left.map(s => {
@@ -344,7 +348,7 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
               </div>
               <div className="seat-zone-wrap right">
                 <div className="seat-bank-label-anchor" aria-hidden="true">
-                  <span className="seat-bank-label">Kanan</span>
+                  <span className="seat-bank-label">Zon {rightZone}</span>
                 </div>
                 <div className="seat-col">
                   {splitSeats.right.map(s => {
@@ -365,7 +369,8 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
             <div className="v5-seatmap-wrap">
               <div className="v5-seatmap">
                 <div>
-                    <div className="v5-seat-bank">
+                  <div className="v5-bank-title">Zon {leftZone}</div>
+                  <div className="v5-seat-bank">
                     {splitSeats.left.map(s => renderBankSeat(s))}
                   </div>
                 </div>
@@ -378,6 +383,7 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
                   <span className="v5-fish v5-fish-5">🐠</span>
                 </div>
                 <div>
+                  <div className="v5-bank-title">Zon {rightZone}</div>
                   <div className="v5-seat-bank">
                     {splitSeats.right.map(s => renderBankSeat(s))}
                   </div>
