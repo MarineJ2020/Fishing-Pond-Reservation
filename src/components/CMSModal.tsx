@@ -840,11 +840,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     );
     if (overlap) { setPondSaveError(overlap); return; }
 
-    // 3. Numbering is locked once the pond has bookings (start / Zon A / Zon B counts).
+    // 3. Numbering is locked once the pond has bookings (start / Kiri / Kanan counts).
     const original = ponds.find((p) => (p._docId || p.id.toString()) === pondDocKey);
     if (original && pondHasActiveBookings(pond.id)) {
       const before = pondRange(original);
-      if (before.start !== range.start || before.total !== range.total || before.zoneA !== range.zoneA) {
+      if (before.start !== range.start || before.total !== range.total || before.left !== range.left) {
         setPondSaveError('Nombor pancang dikunci kerana kolam ini sudah ada tempahan. Batalkan tempahan dahulu untuk menukar nombor atau bilangan pancang.');
         return;
       }
@@ -870,18 +870,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         open: pond.open,
         totalSeats: effectiveMaxSeats,
         startNumber: range.start,
-        zoneACount: range.zoneA,
+        leftCount: range.left,
         leftZone: pond.leftZone === 'B' ? 'B' : 'A',
         pricePerSeat: safePrice,
         shape: pond.shape ?? [],
         seatLayout,
       } as any);
-      await syncPondSeatsFirestore(pondDocId, effectiveMaxSeats, safePrice, range.start, range.zoneA);
+      await syncPondSeatsFirestore(pondDocId, effectiveMaxSeats, safePrice, range.start, range.left, pond.leftZone === 'B' ? 'B' : 'A');
       await reloadDB();
       await logAuditEvent({
         action: 'pond.edit', actionLabel: 'Edit Kolam', entityType: 'pond',
         entityId: pondDocId, entityLabel: pond.name,
-        details: `Pancang ${range.start}–${range.end} · Zon A ${range.zoneA} / Zon B ${range.zoneB}`,
+        details: `Pancang ${range.start}–${range.end} · Kiri ${range.left} / Kanan ${range.right}`,
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
       setEditingPond(null);
@@ -2498,7 +2498,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setNewPondSeatPrice(100);
     setNewPondMaxSeats(30);
     setPondSaveError(null);
-    setNewPond((p) => ({ ...p, startNumber: nextFreeStartNumber(ponds), zoneACount: 15, leftZone: 'A' }));
+    setNewPond((p) => ({ ...p, startNumber: nextFreeStartNumber(ponds), leftCount: 15, leftZone: 'A' }));
     setEditingPond({} as any);
   };
 
@@ -5860,7 +5860,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           const seatCountOk = !hasPolygon || seatsPlaced === 0 || seatsPlaced === curMaxSeats;
           const rng = pondRange({
             startNumber: isEdit ? editingPond.startNumber : newPond.startNumber,
-            zoneACount: isEdit ? editingPond.zoneACount : newPond.zoneACount,
+            leftCount: isEdit ? editingPond.leftCount : newPond.leftCount,
             maxSeats: curMaxSeats,
             seats: curSeats,
           });
@@ -5871,14 +5871,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             { start: rng.start, total: rng.total },
             ponds.filter((p) => !isEdit || (p._docId || p.id.toString()) !== (editingPond._docId || editingPond.id.toString())),
           );
-          const setRange = (patch: { start?: number; a?: number; b?: number; leftZone?: 'A' | 'B' }) => {
+          const setRange = (patch: { start?: number; l?: number; r?: number; leftZone?: 'A' | 'B' }) => {
             const start = Math.max(1, patch.start ?? rng.start);
-            const a = Math.max(0, patch.a ?? rng.zoneA);
-            const b = Math.max(0, patch.b ?? rng.zoneB);
+            const a = Math.max(0, patch.l ?? rng.left);
+            const b = Math.max(0, patch.r ?? rng.right);
             const lz = patch.leftZone ?? leftZone;
             setPondSaveError(null);
-            if (isEdit) setEditingPond({ ...editingPond, startNumber: start, zoneACount: a, maxSeats: Math.max(1, a + b), leftZone: lz });
-            else { setNewPond({ ...newPond, startNumber: start, zoneACount: a, leftZone: lz }); setNewPondMaxSeats(Math.max(1, a + b)); }
+            if (isEdit) setEditingPond({ ...editingPond, startNumber: start, leftCount: a, maxSeats: Math.max(1, a + b), leftZone: lz });
+            else { setNewPond({ ...newPond, startNumber: start, leftCount: a, leftZone: lz }); setNewPondMaxSeats(Math.max(1, a + b)); }
           };
           const toInt = (v: string) => Math.max(0, parseInt(v, 10) || 0);
           return (
@@ -5896,31 +5896,33 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     Harga Pancang diuruskan di menu <strong>Pertandingan</strong>, bukan di Kolam.
                   </div>
                   <div className="form-group form-span">
-                    <label className="form-label">Nombor Pancang &amp; Zon</label>
+                    <label className="form-label">Nombor Pancang</label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
                       <div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Nombor permulaan</div>
                         <input className="form-input" type="number" min="1" disabled={numbersLocked} value={rng.start} onChange={e => setRange({ start: Math.max(1, toInt(e.target.value)) })} />
                       </div>
                       <div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Pancang Tersedia: Zon A</div>
-                        <input className="form-input" type="number" min="0" max="1000" disabled={numbersLocked} value={rng.zoneA} onChange={e => setRange({ a: toInt(e.target.value) })} />
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Pancang Tersedia: Kiri</div>
+                        <input className="form-input" type="number" min="0" max="1000" disabled={numbersLocked} value={rng.left} onChange={e => setRange({ l: toInt(e.target.value) })} />
                       </div>
                       <div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Pancang Tersedia: Zon B</div>
-                        <input className="form-input" type="number" min="0" max="1000" disabled={numbersLocked} value={rng.zoneB} onChange={e => setRange({ b: toInt(e.target.value) })} />
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Pancang Tersedia: Kanan</div>
+                        <input className="form-input" type="number" min="0" max="1000" disabled={numbersLocked} value={rng.right} onChange={e => setRange({ r: toInt(e.target.value) })} />
                       </div>
                     </div>
                     <div style={{ fontSize: '0.8rem', marginTop: 8, lineHeight: 1.6 }}>
                       Jumlah <strong>{rng.total}</strong> pancang · nombor <strong>{rng.start}–{rng.end}</strong>
                       <br />
-                      Zon A: {rng.zoneA > 0 ? <strong>{rng.start}–{rng.start + rng.zoneA - 1}</strong> : '—'} · Zon B: {rng.zoneB > 0 ? <strong>{rng.start + rng.zoneA}–{rng.end}</strong> : '—'}
+                      Kiri (Zon {leftZone}): {rng.left > 0 ? <strong>{rng.start}–{rng.start + rng.left - 1}</strong> : '—'} · Kanan (Zon {rightZone}): {rng.right > 0 ? <strong>{rng.start + rng.left}–{rng.end}</strong> : '—'}
+                      <br />
+                      <span style={{ color: 'var(--text-muted)' }}>Nombor bermula dari kiri atas ke bawah, kemudian disambung dari kanan atas ke bawah.</span>
                     </div>
                     {rangeOverlap && <div style={{ fontSize: '0.8rem', marginTop: 6, color: '#f87171' }}>⚠ {rangeOverlap}</div>}
                     {numbersLocked && <div style={{ fontSize: '0.78rem', marginTop: 6, color: '#facc15' }}>🔒 Nombor dikunci kerana kolam ini sudah ada tempahan.</div>}
                   </div>
                   <div className="form-group form-span">
-                    <label className="form-label">Kedudukan Zon di Paparan Tempahan</label>
+                    <label className="form-label">Nama Zon</label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
                       <div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Kiri</div>
@@ -5937,7 +5939,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </select>
                       </div>
                     </div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Kolam di sebelah kiri: kiri = Zon A, kanan = Zon B. Kolam di sebelah kanan: kiri = Zon B, kanan = Zon A. Memilih satu sisi akan menetapkan sisi lain secara automatik.</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Pilih nama zon bagi setiap sisi. Kolam di sebelah kiri tempat: Kiri = Zon A, Kanan = Zon B. Kolam di sebelah kanan: Kiri = Zon B, Kanan = Zon A. Memilih satu sisi akan menetapkan sisi lain secara automatik.</div>
                   </div>
                 </div>
 
@@ -5993,7 +5995,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         setSaving(true);
                         try {
                           const effectiveMax = isLegacy ? newPondMaxSeats : ((newPond.seats ?? []).length || newPondMaxSeats);
-                          const newDocId = await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: effectiveMax, startNumber: rng.start, zoneACount: rng.zoneA, leftZone, pricePerSeat: 100 } as any);
+                          const newDocId = await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: effectiveMax, startNumber: rng.start, leftCount: rng.left, leftZone, pricePerSeat: 100 } as any);
                           // Save shape + seatLayout if present (polygon mode)
                           const shape = (newPond as any).shape ?? [];
                           const seats = newPond.seats ?? [];

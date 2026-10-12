@@ -142,8 +142,10 @@ const normalizeSeats = (
   seatLayout?: Array<{ num: number; px: number; py: number; active: boolean }>,
   pricePerSeat?: unknown,
   startNumber = 1,
-  zoneACount = Math.ceil(totalSeats / 2),
+  leftCount = Math.ceil(totalSeats / 2),
+  leftZone: 'A' | 'B' = 'A',
 ): Seat[] => {
+  const otherZone = leftZone === 'A' ? 'B' : 'A';
   const layoutMap = new Map<number, { px: number; py: number; active: boolean }>(
     (seatLayout ?? []).map(sl => [sl.num, { px: sl.px, py: sl.py, active: sl.active }])
   );
@@ -155,7 +157,7 @@ const normalizeSeats = (
         return {
           id: seat.id,
           num: seat.seatNumber,
-          zone: seat.seatNumber - startNumber < zoneACount ? 'A' : 'B',
+          zone: seat.seatNumber - startNumber < leftCount ? leftZone : otherZone,
           price: seat.price ?? 100,
           status: 'available' as const,
           ...(layout ? { px: layout.px, py: layout.py, active: layout.active } : {}),
@@ -169,7 +171,7 @@ const normalizeSeats = (
     const layout = layoutMap.get(num);
     return {
       num,
-      zone: index < zoneACount ? 'A' : 'B',
+      zone: index < leftCount ? leftZone : otherZone,
       price: typeof pricePerSeat === 'number' && Number.isFinite(pricePerSeat) ? pricePerSeat : 100,
       status: 'available' as const,
       ...(layout ? { px: layout.px, py: layout.py, active: layout.active } : {}),
@@ -583,9 +585,13 @@ export const getPondsWithSeats = async (
     const seatDocs = seatsByPond.get(pondSnap.id) || [];
     const numId = Number(pondSnap.id);
     const startNumber = Number.isInteger(data.startNumber) && data.startNumber >= 1 ? data.startNumber : 1;
-    const zoneACount = Number.isInteger(data.zoneACount)
-      ? Math.max(0, Math.min(totalSeats, data.zoneACount))
-      : Math.ceil(totalSeats / 2);
+    const leftZone: 'A' | 'B' = data.leftZone === 'B' ? 'B' : 'A';
+    // Older docs stored Zon A's count (numbered first); the left side is Zon A unless leftZone is B.
+    const leftCount = Number.isInteger(data.leftCount)
+      ? Math.max(0, Math.min(totalSeats, data.leftCount))
+      : Number.isInteger(data.zoneACount)
+        ? Math.max(0, Math.min(totalSeats, leftZone === 'B' ? totalSeats - data.zoneACount : data.zoneACount))
+        : Math.ceil(totalSeats / 2);
     return {
       id: Number.isFinite(numId) ? numId : (index + 1),
       _docId: pondSnap.id,
@@ -596,9 +602,9 @@ export const getPondsWithSeats = async (
       open: data.open !== false,
       maxSeats: data.totalSeats || undefined,
       startNumber,
-      zoneACount,
-      leftZone: data.leftZone === 'B' ? 'B' : 'A',
-      seats: normalizeSeats(pondSnap.id, totalSeats, seatDocs, data.seatLayout, data.pricePerSeat, startNumber, zoneACount),
+      leftCount,
+      leftZone,
+      seats: normalizeSeats(pondSnap.id, totalSeats, seatDocs, data.seatLayout, data.pricePerSeat, startNumber, leftCount, leftZone),
       shape: Array.isArray(data.shape) && data.shape.length > 0 ? data.shape : undefined,
       order: typeof data.order === 'number' ? data.order : undefined,
       _idx: index,
@@ -1222,7 +1228,8 @@ export const syncPondSeats = async (
   targetCount: number,
   pricePerSeat: number,
   startNumber = 1,
-  zoneACount = Math.ceil(targetCount / 2),
+  leftCount = Math.ceil(targetCount / 2),
+  leftZone: 'A' | 'B' = 'A',
 ) => {
   const seatsRef = collection(db, 'seats');
   const seatsQuery = query(seatsRef, where('pondId', '==', pondId));
@@ -1235,7 +1242,7 @@ export const syncPondSeats = async (
   const safePrice = Math.max(0, Number(pricePerSeat || 0));
   const safeStart = Math.max(1, Math.floor(startNumber) || 1);
   const currentCount = existingSeats.length;
-  const zoneOf = (index: number) => (index < zoneACount ? 'A' : 'B');
+  const zoneOf = (index: number) => (index < leftCount ? leftZone : (leftZone === 'A' ? 'B' : 'A'));
 
   // The i-th seat doc always carries peg number start + i, so a changed start
   // number renumbers the existing docs in place (ranges are locked once booked).
@@ -1330,12 +1337,13 @@ export const createPond = async (pondData: Omit<Pond, 'id' | 'seats'>) => {
   const pricePerSeat = (pondData as any).pricePerSeat || 100;
   const seatPromises: Promise<unknown>[] = [];
   const startNumber = Math.max(1, Math.floor((pondData as any).startNumber) || 1);
-  const zoneACount = Number.isInteger((pondData as any).zoneACount) ? (pondData as any).zoneACount : Math.ceil(totalSeats / 2);
+  const leftCount = Number.isInteger((pondData as any).leftCount) ? (pondData as any).leftCount : Math.ceil(totalSeats / 2);
+  const leftZone = (pondData as any).leftZone === 'B' ? 'B' : 'A';
   for (let i = 0; i < totalSeats; i++) {
     seatPromises.push(addDoc(seatsRef, {
       pondId: docRef.id,
       seatNumber: startNumber + i,
-      zone: i < zoneACount ? 'A' : 'B',
+      zone: i < leftCount ? leftZone : (leftZone === 'A' ? 'B' : 'A'),
       price: pricePerSeat,
       status: 'available',
       createdAt: serverTimestamp(),

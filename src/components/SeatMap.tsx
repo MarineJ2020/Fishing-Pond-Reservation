@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useCallback, useId } from 'react';
 import { Pond, Seat } from '../types';
-import { formatSeat, pondDisplayName } from '../utils/seatLabel';
+import { formatSeat, pondDisplayName, pondRange } from '../utils/seatLabel';
 
 const SVG_W = 600;
 const SVG_H = 400;
@@ -130,15 +130,15 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
   const lastTouchDist   = useRef<number | null>(null);
   const expandContainer = useRef<HTMLDivElement>(null);
 
-  // Zon A = first pegs of the pond's range, Zon B = the rest. The CMS picks which
-  // zone sits on the left (a pond on the left of the venue has A on its left).
+  // Numbers run down the left side first, then down the right side. The CMS picks
+  // which zone label the left side carries (Zon A or Zon B); the right gets the other.
   const leftZone  = pond?.leftZone === 'B' ? 'B' : 'A';
   const rightZone = leftZone === 'A' ? 'B' : 'A';
   const splitSeats = useMemo(() => {
     if (!pond) return { left: [] as Seat[], right: [] as Seat[] };
     const ordered = [...pond.seats].sort((a, b) => a.num - b.num);
-    const left = pond.leftZone === 'B' ? 'B' : 'A';
-    return { left: ordered.filter(s => s.zone === left), right: ordered.filter(s => s.zone !== left) };
+    const leftCount = pondRange(pond).left;
+    return { left: ordered.slice(0, leftCount), right: ordered.slice(leftCount) };
   }, [pond]);
 
   // Zoom toward (cx, cy) in container-pixel space

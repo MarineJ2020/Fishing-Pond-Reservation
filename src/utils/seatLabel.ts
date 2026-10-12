@@ -25,18 +25,21 @@ export function formatSeatList(code: string | undefined | null, nums: number[]):
   return nums.map((n) => formatSeat(code, n)).join(', ');
 }
 
-/** Pond peg-range helpers. Defaults match ponds created before ranges existed (1..N, half/half). */
-export function pondRange(pond: Pick<Pond, 'startNumber' | 'maxSeats' | 'seats' | 'zoneACount'>) {
+/**
+ * Pond peg-range helpers. Pegs are numbered left side top to bottom first, then the
+ * right side top to bottom. Defaults match ponds created before ranges existed (1..N, half/half).
+ */
+export function pondRange(pond: Pick<Pond, 'startNumber' | 'maxSeats' | 'seats' | 'leftCount'>) {
   const start = Number.isInteger(pond.startNumber) && (pond.startNumber as number) >= 1 ? (pond.startNumber as number) : 1;
   const total = pond.maxSeats ?? pond.seats?.length ?? 0;
-  const zoneA = Number.isInteger(pond.zoneACount) ? Math.max(0, Math.min(total, pond.zoneACount as number)) : Math.ceil(total / 2);
-  return { start, total, end: start + total - 1, zoneA, zoneB: total - zoneA };
+  const left = Number.isInteger(pond.leftCount) ? Math.max(0, Math.min(total, pond.leftCount as number)) : Math.ceil(total / 2);
+  return { start, total, end: start + total - 1, left, right: total - left };
 }
 
 /** Returns an error message when `candidate`'s peg range overlaps another pond's range. */
 export function pegRangeOverlapError(
   candidate: { start: number; total: number },
-  others: Array<Pick<Pond, 'name' | 'startNumber' | 'maxSeats' | 'seats' | 'zoneACount'>>,
+  others: Array<Pick<Pond, 'name' | 'startNumber' | 'maxSeats' | 'seats' | 'leftCount'>>,
 ): string | null {
   const end = candidate.start + candidate.total - 1;
   for (const other of others) {

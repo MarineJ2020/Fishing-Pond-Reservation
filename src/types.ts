@@ -27,9 +27,9 @@ export interface Pond {
   maxSeats?: number; // target seat count — drives legacy capsule count and polygon editor enforcement
   /** First peg number of this pond. Peg numbers are global and plain, e.g. A = 1–500, B = 501–1000. Default 1. */
   startNumber?: number;
-  /** Pegs in Zon A (the first pegs of the range); the rest are Zon B. Default: half. */
-  zoneACount?: number;
-  /** Which zone is on the left of the screen ('A' or 'B'); the other is on the right. Default 'A'. */
+  /** Pegs on the left (Kiri) side. Numbered first, top to bottom; the right side (Kanan) continues after it. Default: half. */
+  leftCount?: number;
+  /** Zone label of the left side ('A' or 'B'); the right side gets the other. Default 'A'. */
   leftZone?: 'A' | 'B';
   shape?: PondVertex[]; // polygon vertices for the custom visual editor
   order?: number; // display order (CMS-adjustable arrangement); lower shows first
