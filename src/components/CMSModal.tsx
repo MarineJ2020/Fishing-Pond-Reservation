@@ -3345,6 +3345,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </div>
                       <div className="card-body">
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Jumlah Pancang: <strong>{pond.seats.length}</strong> · No. <strong>{pondRange(pond).start}–{pondRange(pond).end}</strong></div>
+                        {(() => {
+                          const r = pondRange(pond);
+                          const lz = pond.leftZone === 'B' ? 'B' : 'A';
+                          const rz = lz === 'A' ? 'B' : 'A';
+                          const span = (from: number, count: number) => (count > 0 ? `${from}–${from + count - 1}` : '—');
+                          return (
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.6 }}>
+                              <div>Kiri (Zon {lz}): <strong>{span(r.start, r.left)}</strong> · {r.left} pancang</div>
+                              <div>Kanan (Zon {rz}): <strong>{span(r.start + r.left, r.right)}</strong> · {r.right} pancang</div>
+                            </div>
+                          );
+                        })()}
                         <button className="btn btn-sm btn-ghost" style={{ width: '100%', marginTop: '0.75rem' }} onClick={() => setEditingPond(pond)}>Edit</button>
                       </div>
                     </div>
