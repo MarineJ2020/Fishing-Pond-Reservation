@@ -36,17 +36,17 @@ export function pondRange(pond: Pick<Pond, 'startNumber' | 'maxSeats' | 'seats' 
   return { start, total, end: start + total - 1, left, right: total - left };
 }
 
-/** Returns an error message when `candidate`'s peg range overlaps another pond's range. */
-export function pegRangeOverlapError(
-  candidate: { start: number; total: number },
-  others: Array<Pick<Pond, 'name' | 'startNumber' | 'maxSeats' | 'seats' | 'leftCount'>>,
-): string | null {
-  const end = candidate.start + candidate.total - 1;
-  for (const other of others) {
-    const r = pondRange(other);
-    if (candidate.start <= r.end && r.start <= end) {
-      return `Nombor pancang ${candidate.start}–${end} bertindih dengan ${other.name || 'kolam lain'} (${r.start}–${r.end}). Nombor tidak boleh berulang.`;
-    }
-  }
-  return null;
+/**
+ * Consecutive numbering: the first pond (in display order) sets the base number and every
+ * following pond starts right after the previous one, so ranges can never overlap and
+ * changing one pond's count shifts the ponds after it automatically.
+ */
+export function chainStarts(ponds: Array<Pick<Pond, 'startNumber' | 'maxSeats' | 'seats' | 'leftCount'>>): number[] {
+  let next = 1;
+  return ponds.map((p, i) => {
+    const r = pondRange(p);
+    const start = i === 0 ? r.start : next;
+    next = start + r.total;
+    return start;
+  });
 }

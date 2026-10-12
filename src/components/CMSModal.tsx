@@ -57,7 +57,7 @@ import { formatWeight, weightSanityWarning } from '../utils/weight';
 import { buildDashboardStats, dashboardRangeBounds, DashboardFilter, DashboardRange } from '../utils/dashboard';
 import { useBooking } from '../context/BookingContext';
 import { RECENT_COMPETITION_DAYS } from '../lib/firestore';
-import { formatSeat, formatSeatList, pondDisplayName, pondRange, pegRangeOverlapError } from '../utils/seatLabel';
+import { formatSeat, formatSeatList, pondDisplayName, pondRange, chainStarts } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { downloadQrCard } from '../utils/qrDownload';
 import { prizeRange, formatDate } from '../utils';
@@ -68,13 +68,6 @@ import ReceiptReviewModal from './cms/ReceiptReviewModal';
 import AdminInstructions from './cms/AdminInstructions';
 import { fixLegacyRoles, LegacyRoleChange, previewLegacyRoles, updateUserRole, UserRole } from '../lib/users';
 import { ROLE_LABELS, canEditRole, isAdminRole, isBookingManagerRole, isStaffRole } from '../utils/roles';
-
-// ── Pond peg-range helpers (each pond owns a plain number range, unique across ponds) ──
-function nextFreeStartNumber(ponds: Pond[], excludeDocId?: string): number {
-  return ponds
-    .filter((p) => (p._docId || '') !== (excludeDocId || ''))
-    .reduce((max, p) => Math.max(max, pondRange(p).end), 0) + 1;
-}
 
 type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'prize-records' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'email-log' | 'audit-log';
 
@@ -816,6 +809,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   if (!isOpen) return null;
 
+  /** Renumber ponds whose chained start changed (their seat docs are renumbered in place). */
+  const applyPondShifts = async (shifts: Array<{ p: Pond; start: number }>) => {
+    for (const { p, start } of shifts) {
+      const docId = p._docId || p.id.toString();
+      const r = pondRange(p);
+      const leftZone = p.leftZone === 'B' ? 'B' : 'A';
+      await updatePondFirestore(docId, { startNumber: start } as any);
+      await syncPondSeatsFirestore(docId, r.total, p.seats[0]?.price || 100, start, r.left, leftZone);
+    }
+  };
+
   const handlePondUpdate = async (pond: Pond) => {
     setPondSaveError(null);
 
@@ -829,16 +833,24 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       return;
     }
 
-    // 2. Peg range: whole numbers, no overlap with any other pond.
+    // 2. Peg range: numbers chain on from the pond before, so only the count is edited.
     const pondDocKey = pond._docId || pond.id.toString();
-    const range = pondRange(pond);
+    const nextList = ponds.map((p) => ((p._docId || p.id.toString()) === pondDocKey ? pond : p));
+    const myIndex = nextList.findIndex((p) => (p._docId || p.id.toString()) === pondDocKey);
+    const starts = chainStarts(nextList);
+    const range = pondRange({ ...pond, startNumber: starts[myIndex] });
     if (!Number.isInteger(range.start) || range.start < 1) { setPondSaveError('Nombor permulaan pancang mesti 1 atau lebih.'); return; }
     if (range.total < 1) { setPondSaveError('Kolam mesti ada sekurang-kurangnya 1 pancang.'); return; }
-    const overlap = pegRangeOverlapError(
-      { start: range.start, total: range.total },
-      ponds.filter((p) => (p._docId || p.id.toString()) !== pondDocKey),
-    );
-    if (overlap) { setPondSaveError(overlap); return; }
+
+    // Ponds after this one whose numbers shift because this pond's count changed.
+    const shifted = nextList
+      .map((p, i) => ({ p, start: starts[i] }))
+      .filter(({ p, start }, i) => i !== myIndex && pondRange(p).start !== start);
+    const blockedShift = shifted.find(({ p }) => pondHasActiveBookings(p.id));
+    if (blockedShift) {
+      setPondSaveError(`Nombor ${blockedShift.p.name} perlu berubah tetapi kolam itu sudah ada tempahan. Batalkan tempahan dahulu.`);
+      return;
+    }
 
     // 3. Numbering is locked once the pond has bookings (start / Kiri / Kanan counts).
     const original = ponds.find((p) => (p._docId || p.id.toString()) === pondDocKey);
@@ -877,6 +889,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         seatLayout,
       } as any);
       await syncPondSeatsFirestore(pondDocId, effectiveMaxSeats, safePrice, range.start, range.left, pond.leftZone === 'B' ? 'B' : 'A');
+      await applyPondShifts(shifted);
       await reloadDB();
       await logAuditEvent({
         action: 'pond.edit', actionLabel: 'Edit Kolam', entityType: 'pond',
@@ -2498,7 +2511,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setNewPondSeatPrice(100);
     setNewPondMaxSeats(30);
     setPondSaveError(null);
-    setNewPond((p) => ({ ...p, startNumber: nextFreeStartNumber(ponds), leftCount: 15, leftZone: 'A' }));
+    setNewPond((p) => ({ ...p, leftCount: 15, leftZone: 'A' }));
     setEditingPond({} as any);
   };
 
@@ -2510,9 +2523,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const swap = dir === 'up' ? idx - 1 : idx + 1;
     if (idx < 0 || swap < 0 || swap >= ordered.length) return;
     [ordered[idx], ordered[swap]] = [ordered[swap], ordered[idx]];
+    // Numbers chain in display order, so moving a pond renumbers the ones it passes.
+    const starts = chainStarts(ordered);
+    const shifts = ordered.map((p, i) => ({ p, start: starts[i] })).filter(({ p, start }) => pondRange(p).start !== start);
+    const blockedMove = shifts.find(({ p }) => pondHasActiveBookings(p.id));
+    if (blockedMove) {
+      window.alert(`Tidak dapat susun semula — nombor ${blockedMove.p.name} perlu berubah tetapi kolam itu sudah ada tempahan.`);
+      return;
+    }
     setPondReordering(true);
     try {
       await Promise.all(ordered.map((p, i) => updatePondFirestore(p._docId || p.id.toString(), { order: i } as any)));
+      await applyPondShifts(shifts);
       await reloadDB();
       await logAuditEvent({
         action: 'pond.reorder', actionLabel: 'Susun Semula Kolam', entityType: 'pond',
@@ -5858,8 +5880,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           const seatsPlaced = curSeats.filter(s => s.px !== undefined).length;
           const hasPolygon = !isLegacy && curShape.length > 2;
           const seatCountOk = !hasPolygon || seatsPlaced === 0 || seatsPlaced === curMaxSeats;
+          const editingKey = isEdit ? (editingPond._docId || editingPond.id.toString()) : '';
+          const formList: Pond[] = isEdit
+            ? ponds.map((p) => ((p._docId || p.id.toString()) === editingKey ? editingPond : p))
+            : [...ponds, { ...newPond, name: newPond.name || '', maxSeats: curMaxSeats, seats: [] } as Pond];
+          const formIndex = isEdit ? formList.findIndex((p) => (p._docId || p.id.toString()) === editingKey) : formList.length - 1;
+          const isFirstPond = formIndex <= 0;
+          const previousPond = formIndex > 0 ? formList[formIndex - 1] : null;
           const rng = pondRange({
-            startNumber: isEdit ? editingPond.startNumber : newPond.startNumber,
+            startNumber: chainStarts(formList)[Math.max(0, formIndex)],
             leftCount: isEdit ? editingPond.leftCount : newPond.leftCount,
             maxSeats: curMaxSeats,
             seats: curSeats,
@@ -5867,10 +5896,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           const leftZone: 'A' | 'B' = (isEdit ? editingPond.leftZone : newPond.leftZone) === 'B' ? 'B' : 'A';
           const rightZone: 'A' | 'B' = leftZone === 'A' ? 'B' : 'A';
           const numbersLocked = isEdit && pondHasActiveBookings(editingPond.id);
-          const rangeOverlap = pegRangeOverlapError(
-            { start: rng.start, total: rng.total },
-            ponds.filter((p) => !isEdit || (p._docId || p.id.toString()) !== (editingPond._docId || editingPond.id.toString())),
-          );
           const setRange = (patch: { start?: number; l?: number; r?: number; leftZone?: 'A' | 'B' }) => {
             const start = Math.max(1, patch.start ?? rng.start);
             const a = Math.max(0, patch.l ?? rng.left);
@@ -5899,8 +5924,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <label className="form-label">Nombor Pancang</label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
                       <div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Nombor permulaan</div>
-                        <input className="form-input" type="number" min="1" disabled={numbersLocked} value={rng.start} onChange={e => setRange({ start: Math.max(1, toInt(e.target.value)) })} />
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Nombor permulaan{!isFirstPond && ' (auto)'}</div>
+                        <input className="form-input" type="number" min="1" disabled={numbersLocked || !isFirstPond} value={rng.start} onChange={e => setRange({ start: Math.max(1, toInt(e.target.value)) })} />
+                        {!isFirstPond && previousPond && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Bersambung selepas {previousPond.name}. Kolam selepas ini akan menyesuaikan diri secara automatik.</div>}
                       </div>
                       <div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>Pancang Tersedia: Kiri</div>
@@ -5918,7 +5944,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <br />
                       <span style={{ color: 'var(--text-muted)' }}>Nombor bermula dari kiri atas ke bawah, kemudian disambung dari kanan atas ke bawah.</span>
                     </div>
-                    {rangeOverlap && <div style={{ fontSize: '0.8rem', marginTop: 6, color: '#f87171' }}>⚠ {rangeOverlap}</div>}
                     {numbersLocked && <div style={{ fontSize: '0.78rem', marginTop: 6, color: '#facc15' }}>🔒 Nombor dikunci kerana kolam ini sudah ada tempahan.</div>}
                   </div>
                   <div className="form-group form-span">
@@ -5981,17 +6006,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {isEdit ? (<>
                     <button type="button" className="btn btn-danger" style={{ marginRight: 'auto' }} disabled={saving} onClick={() => handleDeletePond(editingPond)}>Padam Kolam</button>
                     <button className="btn btn-ghost" onClick={closePondModal}>Batal</button>
-                    <button className="btn btn-primary" disabled={saving || !seatCountOk || !!rangeOverlap} onClick={() => handlePondUpdate(editingPond)}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
+                    <button className="btn btn-primary" disabled={saving || !seatCountOk} onClick={() => handlePondUpdate(editingPond)}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
                   </>) : (<>
                     <button className="btn btn-ghost" onClick={closePondModal}>Batal</button>
-                    <button className="btn btn-primary" disabled={saving || !seatCountOk || !!rangeOverlap} onClick={async () => {
+                    <button className="btn btn-primary" disabled={saving || !seatCountOk} onClick={async () => {
                       if (newPond.name) {
                         // Conflict check for new pond: no existing bookings, so just count check
                         if (!isLegacy && hasPolygon && seatsPlaced > 0 && seatsPlaced !== newPondMaxSeats) {
                           setPondSaveError(`Letakkan tepat ${newPondMaxSeats} pancang pada peta (kini ${seatsPlaced}/${newPondMaxSeats}).`);
                           return;
                         }
-                        if (rangeOverlap) { setPondSaveError(rangeOverlap); return; }
                         setSaving(true);
                         try {
                           const effectiveMax = isLegacy ? newPondMaxSeats : ((newPond.seats ?? []).length || newPondMaxSeats);
