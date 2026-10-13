@@ -92,8 +92,13 @@ const PAD = 8;
 const readSeen = (phase: TourPhase): boolean => {
   try { return localStorage.getItem(SEEN_KEYS[phase]) === '1'; } catch { return false; }
 };
+// Finishing/skipping the first tour also retires the payment-stage one: a
+// customer who has seen the guide once doesn't need it again at payment.
 const markSeen = (phase: TourPhase) => {
-  try { localStorage.setItem(SEEN_KEYS[phase], '1'); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(SEEN_KEYS[phase], '1');
+    if (phase === 'select') localStorage.setItem(SEEN_KEYS.details, '1');
+  } catch { /* ignore */ }
 };
 
 const findTarget = (step: TourStep): HTMLElement | null => {
