@@ -145,6 +145,13 @@ const AppContent: React.FC = () => {
     if (seatModalOpen) seatModalSnapshotRef.current = selectedPondSeatsRef.current;
   }, [seatModalOpen]);
   const cancelSeatModal = () => {
+    const sameSelection = (a: Record<number, number[]>, b: Record<number, number[]>) => {
+      const key = (m: Record<number, number[]>) => Object.entries(m).map(([id, seats]) => `${id}:${[...seats].sort((x, y) => x - y).join(',')}`).sort().join('|');
+      return key(a) === key(b);
+    };
+    if (!sameSelection(selectedPondSeatsRef.current, seatModalSnapshotRef.current)) {
+      addToast('Pancang yang dipilih belum disahkan, jadi tidak disimpan. Tekan "Sahkan Pancang" untuk simpan.', 'info');
+    }
     restoreSelection(seatModalSnapshotRef.current);
     setSeatModalOpen(false);
   };
