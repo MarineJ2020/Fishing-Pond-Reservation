@@ -83,6 +83,7 @@ const AppContent: React.FC = () => {
     toggleSeat,
     removeSeat,
     setSeats,
+    restoreSelection,
     setReceiptData,
     setContactPhone,
     setAdminProxyName,
@@ -135,6 +136,18 @@ const AppContent: React.FC = () => {
   const [submitStage, setSubmitStage] = useState<BookingSubmitStage>('upload');
   const [pondMapOpen, setPondMapOpen] = useState(false);
   const [seatModalOpen, setSeatModalOpen] = useState(false);
+  // Selection as it was when the seat popup opened; the cross button restores it
+  // so unconfirmed picks (no "Sahkan Pancang") are discarded.
+  const seatModalSnapshotRef = useRef<Record<number, number[]>>({});
+  const selectedPondSeatsRef = useRef(selectedPondSeats);
+  selectedPondSeatsRef.current = selectedPondSeats;
+  useEffect(() => {
+    if (seatModalOpen) seatModalSnapshotRef.current = selectedPondSeatsRef.current;
+  }, [seatModalOpen]);
+  const cancelSeatModal = () => {
+    restoreSelection(seatModalSnapshotRef.current);
+    setSeatModalOpen(false);
+  };
   const [choiceOpen, setChoiceOpen] = useState(false);
   const [rulesPdfPreview, setRulesPdfPreview] = useState<string | null>(null);
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
@@ -1540,11 +1553,18 @@ const AppContent: React.FC = () => {
                                       ? `Pancang boleh dipilih daripada kolam yang berbeza. Jumlah yuran RM${subtotal}.`
                                       : hasPond ? 'Klik "Buka Peta Pancang" untuk pilih satu atau lebih tempat.' : 'Pilih kolam dahulu untuk membuka peta pancang.'}</p>
                                     {hasSeats && (
-                                      <div className="bk-selected-pancangs" aria-label="Pancang dipilih">
-                                        {selectedPancangs.map((selection) => (
-                                          <button key={`${selection.pondId}-${selection.seatNum}`} type="button" onClick={() => removeSeat(selection.pondId, selection.seatNum)}>
-                                            {selection.label}<span aria-hidden="true">×</span>
-                                          </button>
+                                      <div className="bk-selected-pond-groups" aria-label="Pancang dipilih">
+                                        {selectedPancangGroups.map((group) => (
+                                          <div className="bk-selected-pond-group" key={group.pondId}>
+                                            <strong>{group.pondName}</strong>
+                                            <div className="bk-selected-pancangs">
+                                              {group.selections.map((selection) => (
+                                                <button key={`${selection.pondId}-${selection.seatNum}`} type="button" onClick={() => removeSeat(selection.pondId, selection.seatNum)}>
+                                                  {selection.label}<span aria-hidden="true">×</span>
+                                                </button>
+                                              ))}
+                                            </div>
+                                          </div>
                                         ))}
                                       </div>
                                     )}
@@ -1576,6 +1596,7 @@ const AppContent: React.FC = () => {
                           pond={bookedPond}
                           selectedSeats={selectedSeatNumbers}
                           selectedSeatLabels={selectedSeatLabels}
+                          selectedPancangGroups={selectedPancangGroups}
                           pricePerPeg={currentPricePerPeg}
                           isSubmitting={bookingSubmitting}
                           receiptData={receiptData}
@@ -1660,13 +1681,13 @@ const AppContent: React.FC = () => {
 
             {/* Seat-map popup (reuses the existing SeatMap component) */}
             {seatModalOpen && bookedPond && (
-              <div className="bk-seat-modal" onClick={() => setSeatModalOpen(false)}>
+              <div className="bk-seat-modal">
                 <div className="bk-seat-dialog" onClick={(e) => e.stopPropagation()}>
                   <div className="bk-seat-modal-head">
                     <div>
                       <div className="bk-eyebrow">Pilihan Pancang</div>
                     </div>
-                    <button className="bk-icon-btn" type="button" onClick={() => setSeatModalOpen(false)} aria-label="Tutup popup">
+                    <button className="bk-icon-btn" type="button" onClick={cancelSeatModal} aria-label="Tutup popup">
                       <i className="fa-solid fa-xmark"></i>
                     </button>
                   </div>

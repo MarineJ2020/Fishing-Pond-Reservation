@@ -10,6 +10,7 @@ interface BookingFormProps {
   pond: Pond | null;
   selectedSeats: number[];
   selectedSeatLabels: string[];
+  selectedPancangGroups?: { pondId: number; pondName: string; selections: { seatNum: number; label: string }[] }[];
   pricePerPeg: number;
   isSubmitting?: boolean;
   receiptData: string | null;
@@ -80,6 +81,7 @@ const BookingForm: React.FC<BookingFormProps> = ({
   user,
   selectedSeats,
   selectedSeatLabels,
+  selectedPancangGroups,
   pricePerPeg,
   isSubmitting = false,
   receiptData,
@@ -283,7 +285,16 @@ const BookingForm: React.FC<BookingFormProps> = ({
 
       <label className="form-label">Pancang Dipilih</label>
       <div className="selected-pills">
-        {selectedSeats.length ? (
+        {selectedSeats.length && selectedPancangGroups?.length ? (
+          selectedPancangGroups.map(group => (
+            <div key={group.pondId} style={{ width: '100%', marginBottom: '8px' }}>
+              <div style={{ fontSize: '.78rem', fontWeight: 700, marginBottom: '4px' }}>{group.pondName}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {group.selections.map(sel => <span key={sel.label} className="seat-pill">{sel.label}</span>)}
+              </div>
+            </div>
+          ))
+        ) : selectedSeats.length ? (
           selectedSeatLabels.map(label => <span key={label} className="seat-pill">{label}</span>)
         ) : (
           <div style={{ fontSize: '.82rem', color: 'var(--text-muted)' }}>Belum pilih pancang</div>

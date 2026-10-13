@@ -42,6 +42,7 @@ interface BookingContextType {
   toggleSeat: (num: number) => void;
   removeSeat: (pondId: number, num: number) => void;
   setSeats: (seats: number[]) => void;
+  restoreSelection: (selection: Record<number, number[]>) => void;
   setPayType: (type: 'full') => void;
   setReceiptData: (data: string | null, file: File | null) => void;
   setBookingNotes: (notes: string) => void;
@@ -286,6 +287,10 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (!selectedPond) return;
     setSelectedPondSeats((prev) => ({ ...prev, [selectedPond]: seats }));
   }, [selectedPond]);
+
+  const restoreSelection = useCallback((selection: Record<number, number[]>) => {
+    setSelectedPondSeats(selection);
+  }, []);
 
   const removeSeat = useCallback((pondId: number, num: number) => {
     setSelectedPondSeats((prev) => {
@@ -546,6 +551,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         toggleSeat,
         removeSeat,
         setSeats,
+        restoreSelection,
         setPayType,
         setReceiptData,
         setBookingNotes,
