@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
-import { parseQrPayload, decodeQr, openQrCameraStream, openScaleCameraStream } from '../../utils/qr';
+import { parseQrPayload, decodeQr, openQrCameraStream, openScaleCameraStream, refocusStream, setStreamTorch, takeStillPhoto } from '../../utils/qr';
 import { weightSanityWarning } from '../../utils/weight';
 import { detectDisplayInBitmap } from '../../utils/displayDetect';
 
@@ -111,7 +111,7 @@ type Step =
   | 'processing'       // running OCR
   | 'verify';          // show OCR result + confirm or retake
 
-const MAX_LONG_EDGE = 1600;
+const MAX_LONG_EDGE = 960; // cap on the cropped display (the OCR model resizes it anyway)
 const DEFAULT_CROP: NormRect = { x: 0.25, y: 0.42, w: 0.5, h: 0.18 };
 /** Guide box drawn over the live camera; the saved photo is cropped to exactly this. */
 const GUIDE_CROP: NormRect = { x: 0.2, y: 0.74, w: 0.6, h: 0.18 };
@@ -356,6 +356,8 @@ const ScaleScanModal: React.FC<Props> = ({
   const [capCamError, setCapCamError] = useState<string | null>(null);
   const capVideoRef = useRef<HTMLVideoElement | null>(null);
   const capStreamRef = useRef<MediaStream | null>(null);
+  const [torchOn, setTorchOn] = useState<boolean | null>(null);
+  const [focusPing, setFocusPing] = useState<{ x: number; y: number } | null>(null);
   const qrFileInputRef = useRef<HTMLInputElement>(null);
   const weightCameraInputRef = useRef<HTMLInputElement>(null);
   const weightUploadInputRef = useRef<HTMLInputElement>(null);
@@ -457,6 +459,7 @@ const ScaleScanModal: React.FC<Props> = ({
       capStreamRef.current = null;
       if (capVideoRef.current) capVideoRef.current.srcObject = null;
       setCapCamActive(false);
+      setTorchOn(null);
     };
   }, [isOpen, step]);
 
@@ -737,27 +740,25 @@ const ScaleScanModal: React.FC<Props> = ({
 
   const buildCropCanvas = async (blob: Blob, rect: NormRect): Promise<HTMLCanvasElement> => {
     const bitmap = await createImageBitmap(blob);
-    const scale = Math.min(1, MAX_LONG_EDGE / Math.max(bitmap.width, bitmap.height));
-    const fullW = Math.round(bitmap.width * scale);
-    const fullH = Math.round(bitmap.height * scale);
-
-    const cx = Math.round(rect.x * fullW);
-    const cy = Math.round(rect.y * fullH);
-    const cw = Math.round(rect.w * fullW);
-    const ch = Math.round(rect.h * fullH);
-    if (cw < 20 || ch < 20) throw new Error('Kawasan terlalu kecil');
+    // Crop straight from the full-resolution photo: downscaling the whole frame first
+    // threw away most of the digits' pixels. Only the (small) crop is capped.
+    const cx = Math.round(rect.x * bitmap.width);
+    const cy = Math.round(rect.y * bitmap.height);
+    const sw = Math.round(rect.w * bitmap.width);
+    const sh = Math.round(rect.h * bitmap.height);
+    if (sw < 20 || sh < 20) throw new Error('Kawasan terlalu kecil');
+    const scale = Math.min(1, MAX_LONG_EDGE / Math.max(sw, sh));
+    const cw = Math.max(1, Math.round(sw * scale));
+    const ch = Math.max(1, Math.round(sh * scale));
 
     const canvas = document.createElement('canvas');
     canvas.width = cw;
     canvas.height = ch;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error('Canvas tidak disokong');
-    const srcScale = 1 / scale;
-    ctx.drawImage(
-      bitmap,
-      cx * srcScale, cy * srcScale, cw * srcScale, ch * srcScale,
-      0, 0, cw, ch,
-    );
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bitmap, cx, cy, sw, sh, 0, 0, cw, ch);
+    bitmap.close?.();
     return canvas;
   };
 
@@ -791,13 +792,27 @@ const ScaleScanModal: React.FC<Props> = ({
   const handleLiveCapture = async () => {
     const video = capVideoRef.current;
     if (!video || !video.videoWidth) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.92));
+    // Prefer the camera's real still photo (sharper, full resolution). It must have the
+    // same framing as the live view, or the guide box would not line up: otherwise use a video frame.
+    let blob: Blob | null = null;
+    const still = await takeStillPhoto(capStreamRef.current);
+    if (still) {
+      try {
+        const bmp = await createImageBitmap(still);
+        const same = Math.abs(bmp.width / bmp.height - video.videoWidth / video.videoHeight) < 0.03;
+        bmp.close?.();
+        if (same) blob = still;
+      } catch { /* fall back to the video frame */ }
+    }
+    if (!blob) {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+    }
     if (!blob) { setError('Gagal mengambil gambar. Sila cuba lagi.'); return; }
     const file = new File([blob], `scale-${Date.now()}.jpg`, { type: 'image/jpeg' });
     setError(null);
@@ -1169,7 +1184,25 @@ const ScaleScanModal: React.FC<Props> = ({
             <div style={{ textAlign: 'center' }}>
               <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', borderRadius: 10, background: '#0f172a', lineHeight: 0, verticalAlign: 'top', minWidth: capCamActive ? undefined : 240 }}>
                 {/* Sized by the video itself (not stretched) so the guide box lines up with the saved frame. */}
-                <video ref={capVideoRef} playsInline muted style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '56vh', display: capCamActive ? 'block' : 'none' }} />
+                <video
+                  ref={capVideoRef} playsInline muted
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const x = (e.clientX - r.left) / r.width;
+                    const y = (e.clientY - r.top) / r.height;
+                    setFocusPing({ x, y });
+                    window.setTimeout(() => setFocusPing(null), 900);
+                    void refocusStream(capStreamRef.current, { x, y });
+                  }}
+                  style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '56vh', display: capCamActive ? 'block' : 'none' }}
+                />
+                {capCamActive && focusPing && (
+                  <div style={{
+                    position: 'absolute', left: `${focusPing.x * 100}%`, top: `${focusPing.y * 100}%`,
+                    width: 56, height: 56, margin: '-28px 0 0 -28px', borderRadius: '50%',
+                    border: '2px solid #fff', pointerEvents: 'none',
+                  }} />
+                )}
                 {capCamActive && (
                   <div style={{
                     position: 'absolute',
@@ -1247,10 +1280,26 @@ const ScaleScanModal: React.FC<Props> = ({
                     </svg>
                   )}
                 </button>
-                <span />
+                <div style={{ justifySelf: 'end' }}>
+                  {capCamActive && (
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={async () => {
+                        const next = await setStreamTorch(capStreamRef.current, !torchOn);
+                        if (next !== null) setTorchOn(next);
+                      }}
+                      aria-label="Lampu suluh"
+                      title="Lampu suluh (jika ada)"
+                      style={{ width: 44, height: 44, borderRadius: '50%', padding: 0, fontSize: 18, background: torchOn ? '#fcd34d' : undefined }}
+                    >
+                      🔦
+                    </button>
+                  )}
+                </div>
               </div>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                Letak <strong>hanya angka</strong> dalam kotak kuning (tanpa label &amp; "kg"). Pemancing &amp; ikan boleh ada dalam gambar.
+                <strong>Ketik skrin</strong> pada angka untuk fokus; dekatkan telefon sehingga angka jelas sebelum ambil. Letak <strong>hanya angka</strong> dalam kotak kuning (tanpa label &amp; "kg"). Pemancing &amp; ikan boleh ada dalam gambar.
               </p>
             </div>
           )}

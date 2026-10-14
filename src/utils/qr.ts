@@ -101,25 +101,80 @@ export async function openQrCameraStream(): Promise<MediaStream> {
   return stream;
 }
 
-/** Rear camera at the highest practical resolution, for photographing a scale display. */
+/**
+ * Rear camera for photographing a scale display. Asks for the biggest stream
+ * the phone offers (a 7-segment display is a small part of the frame, so every
+ * pixel counts) and continuous autofocus / exposure. Constraints beyond size are
+ * applied afterwards and ignored where unsupported.
+ */
 export async function openScaleCameraStream(): Promise<MediaStream> {
   const stream = await navigator.mediaDevices.getUserMedia({
     video: {
       facingMode: { ideal: 'environment' },
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
+      width: { ideal: 3840 },
+      height: { ideal: 2160 },
     },
     audio: false,
   });
   const [track] = stream.getVideoTracks();
   if (track && typeof track.applyConstraints === 'function') {
     try {
-      await track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] });
+      await track.applyConstraints({ advanced: [{ focusMode: 'continuous', exposureMode: 'continuous' } as MediaTrackConstraintSet] });
     } catch {
       // Not supported on this browser/camera — fall back to default autofocus.
     }
   }
   return stream;
+}
+
+/** Re-run autofocus on the live stream (tap-to-focus). Returns false when unsupported. */
+export async function refocusStream(stream: MediaStream | null, point?: { x: number; y: number }): Promise<boolean> {
+  const [track] = stream?.getVideoTracks() ?? [];
+  if (!track || typeof track.applyConstraints !== 'function') return false;
+  try {
+    const caps = (track.getCapabilities?.() ?? {}) as any;
+    const modes: string[] = caps.focusMode ?? [];
+    const base: any = {};
+    if (point) base.pointsOfInterest = [point];
+    if (modes.includes('single-shot')) {
+      await track.applyConstraints({ advanced: [{ ...base, focusMode: 'single-shot' }] } as any);
+    } else {
+      await track.applyConstraints({ advanced: [{ ...base, focusMode: 'continuous' }] } as any);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Switch the torch on/off when the camera has one. Returns the new state, or null when unsupported. */
+export async function setStreamTorch(stream: MediaStream | null, on: boolean): Promise<boolean | null> {
+  const [track] = stream?.getVideoTracks() ?? [];
+  if (!track) return null;
+  try {
+    const caps = (track.getCapabilities?.() ?? {}) as any;
+    if (!caps.torch) return null;
+    await track.applyConstraints({ advanced: [{ torch: on }] } as any);
+    return on;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Take a full-resolution still from the live stream with ImageCapture (the camera's
+ * photo pipeline: real autofocus + sharpening, several times sharper than a video
+ * frame). Returns null when unsupported so callers fall back to a frame grab.
+ */
+export async function takeStillPhoto(stream: MediaStream | null): Promise<Blob | null> {
+  const [track] = stream?.getVideoTracks() ?? [];
+  const Ctor = (window as any).ImageCapture;
+  if (!track || !Ctor) return null;
+  try {
+    return await new Ctor(track).takePhoto();
+  } catch {
+    return null;
+  }
 }
 
 /** Build the booking-detail URL (origin + /bookings/:id), no seat info. */
