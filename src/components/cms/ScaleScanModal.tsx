@@ -114,7 +114,27 @@ type Step =
 const MAX_LONG_EDGE = 960; // cap on the cropped display (the OCR model resizes it anyway)
 const DEFAULT_CROP: NormRect = { x: 0.25, y: 0.42, w: 0.5, h: 0.18 };
 /** Guide box drawn over the live camera; the saved photo is cropped to exactly this. */
-const GUIDE_CROP: NormRect = { x: 0.2, y: 0.74, w: 0.6, h: 0.18 };
+const DEFAULT_GUIDE: NormRect = { x: 0.03, y: 0.66, w: 0.5, h: 0.16 };
+const GUIDE_KEY = 'kks.scaleGuideRect';
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+function loadGuide(): NormRect {
+  try {
+    const r = JSON.parse(localStorage.getItem(GUIDE_KEY) || 'null');
+    const ok = r && [r.x, r.y, r.w, r.h].every((n: unknown) => typeof n === 'number' && Number.isFinite(n))
+      && r.w >= 0.1 && r.h >= 0.05 && r.x >= 0 && r.y >= 0 && r.x + r.w <= 1.001 && r.y + r.h <= 1.001;
+    return ok ? { x: r.x, y: r.y, w: r.w, h: r.h } : DEFAULT_GUIDE;
+  } catch {
+    return DEFAULT_GUIDE;
+  }
+}
+
+/** The same box grown/shrunk about its centre — a second opinion for the OCR vote. */
+function scaledRect(r: NormRect, f: number): NormRect {
+  const w = Math.min(1, r.w * f), h = Math.min(1, r.h * (1 + (f - 1) * 0.6));
+  const x = clamp(r.x + (r.w - w) / 2, 0, 1 - w), y = clamp(r.y + (r.h - h) / 2, 0, 1 - h);
+  return { x, y, w, h };
+}
 const LAST_CROP_KEY = 'kks.scaleCropRect';
 
 /** Where the box sits on a new photo: found automatically, last used, or the stock default. */
@@ -356,6 +376,7 @@ const ScaleScanModal: React.FC<Props> = ({
   const [capCamError, setCapCamError] = useState<string | null>(null);
   const capVideoRef = useRef<HTMLVideoElement | null>(null);
   const capStreamRef = useRef<MediaStream | null>(null);
+  const [guide, setGuide] = useState<NormRect>(loadGuide);
   const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number; value: number } | null>(null);
   const [torchOn, setTorchOn] = useState<boolean | null>(null);
   const [focusPing, setFocusPing] = useState<{ x: number; y: number } | null>(null);
@@ -772,7 +793,27 @@ const ScaleScanModal: React.FC<Props> = ({
     try {
       const cropCanvas = await buildCropCanvas(blob, rect);
       setProgress('Imbas paparan…');
-      const r = await scanWeight(cloneCanvas(cropCanvas), undefined, { usePreprocess, decimalPlaces });
+      // Read the display a few times with slightly different framing and take the
+      // majority: one unlucky crop can flip a digit (0.206 -> 0.208), several rarely agree on a wrong one.
+      const variants = [rect, scaledRect(rect, 0.94), scaledRect(rect, 1.12), scaledRect(rect, 1.28)];
+      const reads: ScanResult[] = [];
+      for (let i = 0; i < variants.length; i++) {
+        try {
+          const c = i === 0 ? cropCanvas : await buildCropCanvas(blob, variants[i]);
+          reads.push(await scanWeight(cloneCanvas(c), undefined, { usePreprocess, decimalPlaces }));
+        } catch (err) {
+          if (i === 0) throw err;
+        }
+      }
+      const tally = new Map<number, { n: number; conf: number; best: ScanResult }>();
+      for (const read of reads) {
+        if (read.weight === null) continue;
+        const t = tally.get(read.weight);
+        if (!t) tally.set(read.weight, { n: 1, conf: read.confidence, best: read });
+        else { t.n++; t.conf += read.confidence; if (read.confidence > t.best.confidence) t.best = read; }
+      }
+      const winner = [...tally.values()].sort((a, b) => b.n - a.n || b.conf - a.conf)[0];
+      const r = winner ? { ...winner.best, votes: winner.n, totalRuns: reads.length } : reads[0];
       setResult(r);
       setActiveReading({
         source: 'onnx',
@@ -787,6 +828,32 @@ const ScaleScanModal: React.FC<Props> = ({
       setError(err?.message || 'Imbasan gagal. Sila cuba lagi.');
       setStep('crop');
     }
+  };
+
+  const startGuideDrag = (e: React.PointerEvent, mode: 'move' | 'resize') => {
+    const video = capVideoRef.current;
+    if (!video) return;
+    e.preventDefault();
+    const box = video.getBoundingClientRect();
+    const startX = e.clientX, startY = e.clientY, start = guide;
+    let latest = start;
+    const onMove = (ev: PointerEvent) => {
+      const dx = (ev.clientX - startX) / box.width;
+      const dy = (ev.clientY - startY) / box.height;
+      latest = mode === 'move'
+        ? { ...start, x: clamp(start.x + dx, 0, 1 - start.w), y: clamp(start.y + dy, 0, 1 - start.h) }
+        : { ...start, w: clamp(start.w + dx, 0.1, 1 - start.x), h: clamp(start.h + dy, 0.05, 1 - start.y) };
+      setGuide(latest);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      try { localStorage.setItem(GUIDE_KEY, JSON.stringify(latest)); } catch { /* ignore */ }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
 
   // Photo taken through the live guide box: the box IS the crop, so scan at once.
@@ -825,11 +892,11 @@ const ScaleScanModal: React.FC<Props> = ({
     setPhotoUrl(URL.createObjectURL(file));
     // The guide box is loose (label text and neighbouring panels creep in, which the
     // OCR misreads), so tighten it onto the digit row when the detector finds one.
-    let rect = GUIDE_CROP;
+    let rect = guide;
     let source: CropSource = 'guide';
     try {
       const bmp = await createImageBitmap(file);
-      const g = GUIDE_CROP;
+      const g = guide;
       const region = await createImageBitmap(
         bmp, Math.round(g.x * bmp.width), Math.round(g.y * bmp.height),
         Math.round(g.w * bmp.width), Math.round(g.h * bmp.height),
@@ -1227,13 +1294,22 @@ const ScaleScanModal: React.FC<Props> = ({
                   }} />
                 )}
                 {capCamActive && (
-                  <div style={{
-                    position: 'absolute',
-                    left: `${GUIDE_CROP.x * 100}%`, top: `${GUIDE_CROP.y * 100}%`,
-                    width: `${GUIDE_CROP.w * 100}%`, height: `${GUIDE_CROP.h * 100}%`,
-                    border: '2px solid #fcd34d', borderRadius: 4, boxSizing: 'border-box',
-                    boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)', pointerEvents: 'none',
-                  }} />
+                  <div
+                    // Drag the box onto the scale's digits; the corner handle resizes it. Remembered for next time.
+                    onPointerDown={(e) => startGuideDrag(e, 'move')}
+                    style={{
+                      position: 'absolute',
+                      left: `${guide.x * 100}%`, top: `${guide.y * 100}%`,
+                      width: `${guide.w * 100}%`, height: `${guide.h * 100}%`,
+                      border: '2px solid #fcd34d', borderRadius: 4, boxSizing: 'border-box',
+                      boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)', touchAction: 'none', cursor: 'move',
+                    }}
+                  >
+                    <div
+                      onPointerDown={(e) => { e.stopPropagation(); startGuideDrag(e, 'resize'); }}
+                      style={{ position: 'absolute', right: -6, bottom: -6, width: 28, height: 28, borderRadius: '50%', background: '#fcd34d', border: '2px solid #0f172a', touchAction: 'none', cursor: 'nwse-resize' }}
+                    />
+                  </div>
                 )}
                 {!capCamActive && (
                   <div style={{ padding: '44px 16px', color: '#cbd5e1', fontSize: 13, lineHeight: 1.5 }}>
@@ -1337,7 +1413,7 @@ const ScaleScanModal: React.FC<Props> = ({
                 </div>
               </div>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                <strong>Ketik skrin</strong> pada angka untuk fokus; dekatkan telefon sehingga angka jelas sebelum ambil. Letak <strong>hanya angka</strong> dalam kotak kuning (tanpa label &amp; "kg"). Pemancing &amp; ikan boleh ada dalam gambar.
+                <strong>Ketik skrin</strong> pada angka untuk fokus; dekatkan telefon sehingga angka jelas sebelum ambil. <strong>Seret kotak kuning</strong> ke atas angka (pemegang bulat = saiz). Letak <strong>hanya angka</strong> dalam kotak kuning (tanpa label &amp; "kg"). Pemancing &amp; ikan boleh ada dalam gambar.
               </p>
             </div>
           )}
