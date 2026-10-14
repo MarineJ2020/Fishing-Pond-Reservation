@@ -212,7 +212,7 @@ function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number, minG = 
     }
   }
   // Close the gaps left by the dark digit strokes so the panel is one blob.
-  const fused = dilate(mask, w, h, Math.max(3, Math.round(w / 90)), Math.max(3, Math.round(h / 90)));
+  const fused = dilate(mask, w, h, Math.max(2, Math.round(w / 150)), Math.max(2, Math.round(h / 150)));
   const seen = new Uint8Array(w * h);
   const stack = new Int32Array(w * h);
   const panels: { x0: number; y0: number; x1: number; y1: number; area: number }[] = [];
@@ -234,7 +234,7 @@ function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number, minG = 
     }
     const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
     const aspect = bw / bh;
-    if (bh < 0.025 * h || bw < 0.05 * w || aspect < 1.3 || aspect > 9) continue;
+    if (bh < 0.012 * h || bw < 0.03 * w || aspect < 1.3 || aspect > 9) continue; // small: a wide dark shot can make the panel tiny
     if (area / (bw * bh) < 0.3) continue;
     panels.push({ x0, y0, x1, y1, area });
   }
@@ -246,7 +246,7 @@ function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number, minG = 
     .sort((a, b) => a.x0 - b.x0);
   const pick = peers[0] ?? big;
   // Undo the dilation growth so the box hugs the panel.
-  const sx = Math.max(3, Math.round(w / 90)), sy = Math.max(3, Math.round(h / 90));
+  const sx = Math.max(2, Math.round(w / 150)), sy = Math.max(2, Math.round(h / 150));
   const x0 = pick.x0 + sx, x1 = pick.x1 - sx, y0 = pick.y0 + sy, y1 = pick.y1 - sy;
   if (x1 <= x0 || y1 <= y0) return null;
   return { x: x0 / w, y: y0 / h, w: (x1 - x0 + 1) / w, h: (y1 - y0 + 1) / h };
@@ -254,7 +254,7 @@ function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number, minG = 
 
 /** Canvas wrapper: downsizes the photo, then runs the detector. */
 export function detectDisplayInBitmap(bitmap: ImageBitmap): DetectedRect | null {
-  const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, 800 / Math.max(bitmap.width, bitmap.height));
   const w = Math.max(1, Math.round(bitmap.width * scale));
   const h = Math.max(1, Math.round(bitmap.height * scale));
   const canvas = document.createElement('canvas');
