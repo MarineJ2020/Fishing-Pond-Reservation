@@ -448,6 +448,15 @@ const AppContent: React.FC = () => {
     addToast('Pertandingan tempahan telah ditukar.', 'info');
   };
 
+  // Staff edits in the CMS don't all reload the shared data, so reload (bypassing the
+  // CDN cache) when leaving the CMS; the public pages then show the edits at once.
+  const prevSectionRef = useRef(currentSection);
+  useEffect(() => {
+    const prev = prevSectionRef.current;
+    prevSectionRef.current = currentSection;
+    if (prev === 'cms' && currentSection !== 'cms') void reloadDB();
+  }, [currentSection, reloadDB]);
+
   // Places (or renews) the 10-minute payment hold. Returns false and explains
   // when a peg was taken or is held by someone else.
   const tryHoldPegs = async (): Promise<boolean> => {
