@@ -760,6 +760,11 @@ const ScaleScanModal: React.FC<Props> = ({
     const url = URL.createObjectURL(file);
     if (photoUrl) URL.revokeObjectURL(photoUrl);
     setPhotoUrl(url);
+    // Digits found automatically: scan at once, no manual cropping. Otherwise let staff place the box.
+    if (source === 'auto' && rect) {
+      await handleScan(file, rect);
+      return;
+    }
     setStep('crop');
   };
 

@@ -112,6 +112,7 @@ function digitBlobs(mask: Uint8Array, w: number, h: number, shrinkX: number, shr
 /** Best left-to-right chain of similar, aligned, closely spaced digit blobs. */
 function bestRow(blobs: Blob[]): { row: Blob[]; score: number } | null {
   let best: { row: Blob[]; score: number } | null = null;
+  const all: { row: Blob[]; score: number }[] = [];
   for (const seed of blobs) {
     const mates = blobs
       .filter((b) => Math.abs(b.cy - seed.cy) < 0.35 * seed.h && b.h > 0.7 * seed.h && b.h < 1.43 * seed.h)
@@ -122,6 +123,7 @@ function bestRow(blobs: Blob[]): { row: Blob[]; score: number } | null {
       if (run.length >= MIN_DIGITS && run.includes(seed)) {
         const avgH = run.reduce((s, b) => s + b.h, 0) / run.length;
         const score = run.length * avgH;
+        all.push({ row: run, score });
         if (!best || score > best.score) best = { row: run, score };
       }
       run = [];
@@ -133,7 +135,16 @@ function bestRow(blobs: Blob[]): { row: Blob[]; score: number } | null {
     }
     flush();
   }
-  return best;
+  const top = best as { row: Blob[]; score: number } | null;
+  if (!top) return null;
+  // Price scales show weight | unit price | total side by side in the same size, and the
+  // weight is always the leftmost. Prefer the leftmost row that sits level with the best one.
+  const avgH = (r: Blob[]) => r.reduce((s, b) => s + b.h, 0) / r.length;
+  const midY = (r: Blob[]) => r.reduce((s, b) => s + b.cy, 0) / r.length;
+  const bh = avgH(top.row), by = midY(top.row);
+  const peers = all.filter((c) => avgH(c.row) >= 0.75 * bh && avgH(c.row) <= 1.33 * bh && Math.abs(midY(c.row) - by) < 0.6 * bh);
+  peers.sort((a, b) => a.row[0].x0 - b.row[0].x0);
+  return peers[0] ? { row: peers[0].row, score: top.score } : top;
 }
 
 /**
