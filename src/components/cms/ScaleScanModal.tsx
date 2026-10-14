@@ -1202,7 +1202,7 @@ const ScaleScanModal: React.FC<Props> = ({
                 <span />
               </div>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                Dekatkan telefon sehingga angka <strong>jelas &amp; tajam</strong>, ketik pada angka untuk fokus, kemudian ambil gambar. Pemancing &amp; ikan boleh ada dalam gambar.
+                Dekatkan telefon sehingga angka <strong>jelas &amp; tajam</strong>, ketik pada angka untuk fokus, kemudian ambil gambar. Tempat gelap: hidupkan <strong>lampu suluh</strong> / suluh timbangan dari tepi (bukan flash terus, ia menyilaukan paparan) supaya kamera boleh fokus. Pemancing &amp; ikan boleh ada dalam gambar.
               </p>
             </div>
           )}

@@ -758,6 +758,17 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
   };
 };
 
+/** Just the seat occupancy + peg holds, from the CDN-cached route (cheap enough to poll). */
+export const loadAvailabilityOnly = async (): Promise<{ availability: any[]; holds: any[] } | null> => {
+  try {
+    const result = await withTimeout(bookingRequest('/bookingAvailability'), AVAILABILITY_TIMEOUT_MS, 'Availability request timed out.');
+    if (!Array.isArray(result.availability)) return null;
+    return { availability: result.availability, holds: Array.isArray((result as any).holds) ? (result as any).holds : [] };
+  } catch {
+    return null;
+  }
+};
+
 // `fresh` skips the CDN-cached pond list (used after CMS edits via reloadDB).
 export const loadAppDB = async (onCoreLoaded?: (core: DB) => void, opts: { fresh?: boolean } = {}): Promise<DB> => {
   try {

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, ReactNode, useCallback, use
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { DB, User, Pond, Booking, BookingPondSelection, Settings } from '../types';
 import { emptyDB, setDB } from '../data';
-import { getAllBookingDocs, getBookingById, getBookingDocsForCompetitions, getBookings, getRefundBookingDocs, loadAppDB, subscribeSettings } from '../lib/firestore';
+import { getAllBookingDocs, getBookingById, getBookingDocsForCompetitions, getBookings, getRefundBookingDocs, loadAppDB, loadAvailabilityOnly, subscribeSettings } from '../lib/firestore';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { createBooking as createBookingApi, holdPegs as holdPegsApi, releaseHold as releaseHoldApi } from '../lib/api';
 import { heldPegKeys, holderKeyFor } from '../utils/pegHolds';
@@ -58,6 +58,8 @@ interface BookingContextType {
   reloadDB: () => Promise<void>;
   /** Re-read the shared data when it is older than `maxAgeMs`, via the cheap CDN-cached routes (safe for public visitors). */
   reloadIfStale: (maxAgeMs: number) => Promise<void>;
+  /** Update only seat occupancy + holds (used to keep the booking page live). */
+  refreshAvailability: () => Promise<void>;
   /** Re-read one booking and patch it into db.bookings (cheap CMS refresh after an edit). */
   refreshBooking: (bookingId: string) => Promise<void>;
   calculateTotal: () => number;
@@ -242,6 +244,12 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       reloadInFlight.current = false;
     }
   }, [applyLoadedDB]);
+
+  const refreshAvailability = useCallback(async () => {
+    const result = await loadAvailabilityOnly();
+    if (!result) return;
+    setDbState((current) => ({ ...current, availability: result.availability, holds: result.holds, availabilityError: false }));
+  }, []);
 
   const setPond = useCallback((id: number | null) => {
     setSelectedPond(id);
@@ -586,6 +594,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         updateDB,
         reloadDB,
         reloadIfStale,
+        refreshAvailability,
         refreshBooking,
         calculateTotal,
         pegHold,

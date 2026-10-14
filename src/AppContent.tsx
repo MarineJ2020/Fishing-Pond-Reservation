@@ -94,6 +94,7 @@ const AppContent: React.FC = () => {
     updateDB,
     reloadDB,
     reloadIfStale,
+    refreshAvailability,
     refreshBooking,
     pegHold,
     holdSelectedPegs,
@@ -468,6 +469,16 @@ const AppContent: React.FC = () => {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [reloadIfStale]);
+
+  // Keep seat availability live on the booking page: poll the CDN-cached availability route
+  // (one backend call per ~10s no matter how many people watch) while the tab is visible.
+  useEffect(() => {
+    if (currentSection !== 'book') return;
+    const tick = () => { if (document.visibilityState === 'visible') void refreshAvailability(); };
+    const timer = window.setInterval(tick, 12_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', tick); };
+  }, [currentSection, refreshAvailability]);
 
   // Places (or renews) the 10-minute payment hold. Returns false and explains
   // when a peg was taken or is held by someone else.

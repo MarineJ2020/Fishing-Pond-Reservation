@@ -178,11 +178,11 @@ export function detectDisplayRect(gray: Uint8ClampedArray, w: number, h: number)
  * gives a tight, reliable box (just the digits' own display, no labels or neighbours).
  * Several panels sit in a row (weight | unit price | total): the leftmost is the weight.
  */
-function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number): DetectedRect | null {
+function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number, minG = 130, minDiff = 35): DetectedRect | null {
   const mask = new Uint8Array(w * h);
   for (let i = 0, p = 0; p < w * h; i += 4, p++) {
     const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
-    if (g >= 130 && g - r >= 35 && g - b >= 35) mask[p] = 1;
+    if (g >= minG && g - r >= minDiff && g - b >= minDiff) mask[p] = 1;
   }
   // Close the gaps left by the dark digit strokes so the panel is one blob.
   const fused = dilate(mask, w, h, Math.max(3, Math.round(w / 90)), Math.max(3, Math.round(h / 90)));
@@ -242,5 +242,6 @@ export function detectDisplayInBitmap(bitmap: ImageBitmap): DetectedRect | null 
     gray[j] = rgba[i] * 0.299 + rgba[i + 1] * 0.587 + rgba[i + 2] * 0.114;
   }
   // Green LCD panel first (tightest, works even when the digit blobs are hard to separate).
-  return detectGreenPanel(rgba, w, h) ?? detectDisplayRect(gray, w, h);
+  // Dim rooms: the panel is still green but darker, so retry with looser thresholds.
+  return detectGreenPanel(rgba, w, h) ?? detectGreenPanel(rgba, w, h, 80, 22) ?? detectDisplayRect(gray, w, h);
 }
