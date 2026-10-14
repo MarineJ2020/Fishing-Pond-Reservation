@@ -114,8 +114,8 @@ type Step =
 const MAX_LONG_EDGE = 960; // cap on the cropped display (the OCR model resizes it anyway)
 const DEFAULT_CROP: NormRect = { x: 0.25, y: 0.42, w: 0.5, h: 0.18 };
 /** Guide box drawn over the live camera; the saved photo is cropped to exactly this. */
-const DEFAULT_GUIDE: NormRect = { x: 0.03, y: 0.66, w: 0.5, h: 0.16 };
-const GUIDE_KEY = 'kks.scaleGuideRect';
+const DEFAULT_GUIDE: NormRect = { x: 0.04, y: 0.65, w: 0.22, h: 0.08 };
+const GUIDE_KEY = 'kks.scaleGuideRect.v2';
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 function loadGuide(): NormRect {
@@ -844,7 +844,7 @@ const ScaleScanModal: React.FC<Props> = ({
       const dy = (ev.clientY - startY) / box.height;
       latest = mode === 'move'
         ? { ...start, x: clamp(start.x + dx, 0, 1 - start.w), y: clamp(start.y + dy, 0, 1 - start.h) }
-        : { ...start, w: clamp(start.w + dx, 0.1, 1 - start.x), h: clamp(start.h + dy, 0.05, 1 - start.y) };
+        : { ...start, w: clamp(start.w + dx, 0.1, 1 - start.x), h: clamp(start.h + dy, 0.04, 1 - start.y) };
       setGuide(latest);
     };
     const onUp = () => {
