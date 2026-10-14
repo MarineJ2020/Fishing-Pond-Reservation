@@ -186,7 +186,15 @@ function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number, minG = 
     const score = new Uint8Array(w * h);
     const hist = new Uint32Array(256);
     for (let i = 0, p = 0; p < w * h; i += 4, p++) {
-      const v = Math.max(0, Math.min(255, rgba[i + 1] - Math.max(rgba[i], rgba[i + 2])));
+      // Hue-based, so yellow-green or cyan-green LCDs (phone cameras differ: iPhones tend to
+      // render them yellower) score just like pure green. Score = saturation x brightness.
+      const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      let v = 0;
+      if (g === mx && mx - mn > 8) {
+        const hue = 60 * (2 + (b - r) / (mx - mn)); // 0-360, green sector is 120
+        if (hue >= 70 && hue <= 170) v = Math.round(((mx - mn) / mx) * mx);
+      }
       score[p] = v;
       hist[v]++;
     }
