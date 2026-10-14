@@ -193,16 +193,17 @@ function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number, minG = 
       let v = 0;
       if (g === mx && mx - mn > 8) {
         const hue = 60 * (2 + (b - r) / (mx - mn)); // 0-360, green sector is 120
-        if (hue >= 70 && hue <= 170) v = Math.round(((mx - mn) / mx) * mx);
+        if (hue >= 70 && hue <= 190) v = Math.round(((mx - mn) / mx) * mx);
       }
       score[p] = v;
       hist[v]++;
     }
     let acc = 0, top = 255;
-    const keep = Math.max(1, Math.round(w * h * 0.03)); // greenest 3% of pixels
+    // The panel can be tiny in a dark wide shot (well under 1% of the frame), so anchor on the greenest 0.3%.
+    const keep = Math.max(1, Math.round(w * h * 0.003));
     for (; top > 0; top--) { acc += hist[top]; if (acc >= keep) break; }
     if (top < 12) return null; // nothing green in the photo
-    const cut = Math.max(10, Math.round(top * 0.6));
+    const cut = Math.max(10, Math.round(top * 0.5));
     for (let p = 0; p < w * h; p++) if (score[p] >= cut) mask[p] = 1;
   } else {
     for (let i = 0, p = 0; p < w * h; i += 4, p++) {
