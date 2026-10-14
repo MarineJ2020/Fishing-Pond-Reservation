@@ -1421,7 +1421,7 @@ const AppContent: React.FC = () => {
                 <div className={stepClass(step3 as any)}><span>3</span>Pilih Tempat</div>
                 <div className={stepClass(step4 as any)}><span>4</span>Maklumat &amp; Bayaran</div>
               </div>
-              <BookingTour phase={detailsPhase ? 'details' : 'select'} />
+              <BookingTour phase={detailsPhase ? 'details' : 'select'} hasBooked={userBookings.length > 0} />
 
               <div className={`bk-grid${detailsPhase ? ' is-details' : ''}`}>
                 <div className="bk-stack">

@@ -113,7 +113,9 @@ const findTarget = (step: TourStep): HTMLElement | null => {
   return null;
 };
 
-const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
+// `hasBooked`: returning customers (who already have a tempahan) skip the automatic
+// tour; the "Cara Tempah" button still replays it.
+const BookingTour: React.FC<{ phase: TourPhase; hasBooked?: boolean }> = ({ phase, hasBooked = false }) => {
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -126,10 +128,10 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
   useEffect(() => {
     setOpen(false);
     setIndex(0);
-    if (readSeen(phase)) return;
+    if (hasBooked || readSeen(phase)) return;
     const timer = window.setTimeout(() => setOpen(true), 900);
     return () => window.clearTimeout(timer);
-  }, [phase]);
+  }, [phase, hasBooked]);
 
   const close = useCallback(() => {
     setOpen(false);
