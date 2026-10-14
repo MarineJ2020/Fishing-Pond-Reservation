@@ -88,6 +88,9 @@ const SEEN_KEYS: Record<TourPhase, string> = {
 };
 
 const PAD = 8;
+const isMobile = () => window.innerWidth < 640;
+// Share of the screen the card may use on phones; the spotlight is scrolled into the rest.
+const MOBILE_CARD_VH = 0.36;
 
 const readSeen = (phase: TourPhase): boolean => {
   try { return localStorage.getItem(SEEN_KEYS[phase]) === '1'; } catch { return false; }
@@ -132,6 +135,9 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
     setOpen(false);
     setIndex(0);
     markSeen(phase);
+    // Leave the user back at Langkah 1. Wait a tick so the scroll lock is released first.
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }), 50);
   }, [phase]);
 
   const measure = useCallback(() => {
@@ -149,9 +155,11 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
     const el = findTarget(step);
     if (el) {
       const r = el.getBoundingClientRect();
-      const wanted = r.height > window.innerHeight * 0.55
-        ? r.top - 100
-        : r.top - (window.innerHeight - r.height) / 2;
+      // On phones the card sits at the bottom, so centre the target in the space above it.
+      const visibleH = isMobile() ? window.innerHeight * (1 - MOBILE_CARD_VH) : window.innerHeight;
+      const wanted = r.height > visibleH * 0.8
+        ? r.top - 70
+        : r.top - (visibleH - r.height) / 2;
       window.scrollTo({ top: Math.max(0, window.scrollY + wanted), behavior: 'instant' as ScrollBehavior });
     }
     measure();
@@ -207,7 +215,8 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
 
   const last = index === steps.length - 1;
   // Card goes opposite the spotlight so it never covers what it explains.
-  const cardAtTop = !!rect && rect.top + rect.height / 2 > window.innerHeight * 0.5;
+  const mobile = isMobile();
+  const cardAtTop = !mobile && !!rect && rect.top + rect.height / 2 > window.innerHeight * 0.5;
 
   return (
     <>
@@ -238,23 +247,26 @@ const BookingTour: React.FC<{ phase: TourPhase }> = ({ phase }) => {
             data-tour-card
             style={{
               position: 'fixed', left: '50%', transform: 'translateX(-50%)',
-              ...(!rect ? { top: '50%', marginTop: -110 } : cardAtTop ? { top: 12 } : { bottom: 12 }),
-              width: 'min(440px, calc(100vw - 24px))', maxHeight: '48vh', overflowY: 'auto',
-              background: '#fff', color: '#112a41', borderRadius: 16, padding: '16px 18px',
-              boxShadow: '0 20px 50px rgba(0,0,0,.4)', fontSize: 14, lineHeight: 1.55,
+              ...(!rect ? { top: '50%', marginTop: -110 } : cardAtTop ? { top: 12 } : { bottom: mobile ? 8 : 12 }),
+              width: mobile ? 'calc(100vw - 16px)' : 'min(440px, calc(100vw - 24px))',
+              maxHeight: mobile ? `${MOBILE_CARD_VH * 100}vh` : '48vh', overflowY: 'auto',
+              background: '#fff', color: '#112a41', borderRadius: mobile ? 14 : 16, padding: mobile ? '10px 14px 12px' : '16px 18px',
+              boxShadow: '0 20px 50px rgba(0,0,0,.4)', fontSize: mobile ? 13 : 14, lineHeight: mobile ? 1.45 : 1.55,
             }}
           >
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.1em', textTransform: 'uppercase', color: '#c1121f', marginBottom: 4 }}>
-              {index + 1} / {steps.length}
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: mobile ? 4 : 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.1em', color: '#c1121f', flexShrink: 0 }}>
+                {index + 1}/{steps.length}
+              </span>
+              <span style={{ fontSize: mobile ? 15 : 18, fontWeight: 800 }}>{step.title}</span>
             </div>
-            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>{step.title}</div>
             <div>{step.body}</div>
             {usingFallback && (
-              <div style={{ marginTop: 8, fontSize: 12.5, color: '#6b7280' }}>
+              <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>
                 Bahagian ini muncul selepas anda membuat pilihan sebelumnya (ditunjukkan di bar langkah).
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: mobile ? 10 : 14, position: 'sticky', bottom: mobile ? -12 : 0, background: '#fff', paddingTop: mobile ? 4 : 0 }}>
               <button type="button" className="btn btn-ghost btn-sm" onClick={close}>Langkau</button>
               <span style={{ flex: 1 }} />
               {index > 0 && (
