@@ -242,6 +242,6 @@ export function detectDisplayInBitmap(bitmap: ImageBitmap): DetectedRect | null 
     gray[j] = rgba[i] * 0.299 + rgba[i + 1] * 0.587 + rgba[i + 2] * 0.114;
   }
   // Green LCD panel first (tightest, works even when the digit blobs are hard to separate).
-  // Dim rooms: the panel is still green but darker, so retry with looser thresholds.
-  return detectGreenPanel(rgba, w, h) ?? detectGreenPanel(rgba, w, h, 80, 22) ?? detectDisplayRect(gray, w, h);
+  // The loose green pass is last: it can latch onto greenish backgrounds, so it must never pre-empt the digit detector.
+  return detectGreenPanel(rgba, w, h) ?? detectDisplayRect(gray, w, h) ?? detectGreenPanel(rgba, w, h, 80, 22);
 }
