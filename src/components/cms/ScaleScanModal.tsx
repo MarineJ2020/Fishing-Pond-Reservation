@@ -815,6 +815,8 @@ const ScaleScanModal: React.FC<Props> = ({
     setManualPhotoUrl(null);
     setError(null);
     setStep('capture');
+    // Straight back into the camera (this runs inside the button's click, which browsers require).
+    weightCameraInputRef.current?.click();
   };
 
   const handleResetIdentify = () => {
@@ -1136,35 +1138,36 @@ const ScaleScanModal: React.FC<Props> = ({
             </div>
           )}
 
+          {/* Always mounted so "Ambil Semula" can open the camera straight from its own click. */}
+          <input
+            ref={weightCameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleWeightFileChosen(f);
+              e.target.value = '';
+            }}
+          />
+          <input
+            ref={weightUploadInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleWeightFileChosen(f);
+              e.target.value = '';
+            }}
+          />
           {/* STEP: capture weight photo — phone's own camera (sharpest); gallery pick beside the shutter */}
           {step === 'capture' && (
             <div style={{ textAlign: 'center' }}>
               <div style={{ borderRadius: 10, background: '#0f172a', color: '#cbd5e1', fontSize: 13, lineHeight: 1.5, padding: '44px 16px' }}>
                 Tekan butang kamera di bawah untuk ambil gambar guna kamera telefon. Angka akan dikesan dan diimbas secara automatik.
               </div>
-              <input
-                ref={weightCameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleWeightFileChosen(f);
-                  e.target.value = '';
-                }}
-              />
-              <input
-                ref={weightUploadInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleWeightFileChosen(f);
-                  e.target.value = '';
-                }}
-              />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', margin: '10px 0 4px' }}>
                 <div style={{ justifySelf: 'start' }}>
                   <button
