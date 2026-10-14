@@ -56,6 +56,8 @@ interface BookingContextType {
   clearBooking: () => void;
   updateDB: (newDb: DB) => void;
   reloadDB: () => Promise<void>;
+  /** Re-read the shared data when it is older than `maxAgeMs`, via the cheap CDN-cached routes (safe for public visitors). */
+  reloadIfStale: (maxAgeMs: number) => Promise<void>;
   /** Re-read one booking and patch it into db.bookings (cheap CMS refresh after an edit). */
   refreshBooking: (bookingId: string) => Promise<void>;
   calculateTotal: () => number;
@@ -134,11 +136,14 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   // A live snapshot wins over initial loads/reloads already in flight.
+  const lastLoadedAt = useRef(Date.now());
   const applyLoadedDB = useCallback((loaded: DB) => {
+    lastLoadedAt.current = Date.now();
     setDbState({ ...loaded, bookings: withExtras(loaded.bookings), settings: liveSettings.current ?? loaded.settings });
   }, []);
 
   const applyCoreLoadedDB = useCallback((loaded: DB) => {
+    lastLoadedAt.current = Date.now();
     setDbState({
       ...loaded,
       bookings: withExtras(loaded.bookings),
@@ -220,6 +225,21 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (auth.currentUser?.uid === uid) applyLoadedDB(remoteDb);
     } catch (err) {
       console.error('reloadDB failed:', err);
+    }
+  }, [applyLoadedDB]);
+
+  const reloadInFlight = useRef(false);
+  const reloadIfStale = useCallback(async (maxAgeMs: number) => {
+    if (reloadInFlight.current || Date.now() - lastLoadedAt.current < maxAgeMs) return;
+    reloadInFlight.current = true;
+    try {
+      const uid = auth.currentUser?.uid;
+      const remoteDb = await loadAppDB();
+      if (auth.currentUser?.uid === uid && remoteDb !== emptyDB) applyLoadedDB(remoteDb);
+    } catch (err) {
+      console.error('reloadIfStale failed:', err);
+    } finally {
+      reloadInFlight.current = false;
     }
   }, [applyLoadedDB]);
 
@@ -565,6 +585,7 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
         clearBooking,
         updateDB,
         reloadDB,
+        reloadIfStale,
         refreshBooking,
         calculateTotal,
         pegHold,

@@ -93,6 +93,7 @@ const AppContent: React.FC = () => {
     submitBooking,
     updateDB,
     reloadDB,
+    reloadIfStale,
     refreshBooking,
     pegHold,
     holdSelectedPegs,
@@ -456,6 +457,17 @@ const AppContent: React.FC = () => {
     prevSectionRef.current = currentSection;
     if (prev === 'cms' && currentSection !== 'cms') void reloadDB();
   }, [currentSection, reloadDB]);
+
+  // Pages keep the data loaded at start-up; refresh it (cheap CDN-cached routes) when the user
+  // opens a data page or returns to a tab left open, if it is more than a minute / five minutes old.
+  useEffect(() => {
+    if (['home', 'book', 'live', 'mybookings', 'confirmed'].includes(currentSection)) void reloadIfStale(60_000);
+  }, [currentSection, reloadIfStale]);
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') void reloadIfStale(5 * 60_000); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [reloadIfStale]);
 
   // Places (or renews) the 10-minute payment hold. Returns false and explains
   // when a peg was taken or is held by someone else.
