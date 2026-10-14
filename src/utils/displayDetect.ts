@@ -178,11 +178,29 @@ export function detectDisplayRect(gray: Uint8ClampedArray, w: number, h: number)
  * gives a tight, reliable box (just the digits' own display, no labels or neighbours).
  * Several panels sit in a row (weight | unit price | total): the leftmost is the weight.
  */
-function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number, minG = 130, minDiff = 35): DetectedRect | null {
+function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number, minG = 130, minDiff = 35, adaptive = false): DetectedRect | null {
   const mask = new Uint8Array(w * h);
-  for (let i = 0, p = 0; p < w * h; i += 4, p++) {
-    const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
-    if (g >= minG && g - r >= minDiff && g - b >= minDiff) mask[p] = 1;
+  if (adaptive) {
+    // Dark rooms wash the LCD out to a pale green, so absolute thresholds fail. Instead keep
+    // what is clearly green relative to the greenest things in THIS photo (the LCD is one of them).
+    const score = new Uint8Array(w * h);
+    const hist = new Uint32Array(256);
+    for (let i = 0, p = 0; p < w * h; i += 4, p++) {
+      const v = Math.max(0, Math.min(255, rgba[i + 1] - Math.max(rgba[i], rgba[i + 2])));
+      score[p] = v;
+      hist[v]++;
+    }
+    let acc = 0, top = 255;
+    const keep = Math.max(1, Math.round(w * h * 0.03)); // greenest 3% of pixels
+    for (; top > 0; top--) { acc += hist[top]; if (acc >= keep) break; }
+    if (top < 12) return null; // nothing green in the photo
+    const cut = Math.max(10, Math.round(top * 0.6));
+    for (let p = 0; p < w * h; p++) if (score[p] >= cut) mask[p] = 1;
+  } else {
+    for (let i = 0, p = 0; p < w * h; i += 4, p++) {
+      const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+      if (g >= minG && g - r >= minDiff && g - b >= minDiff) mask[p] = 1;
+    }
   }
   // Close the gaps left by the dark digit strokes so the panel is one blob.
   const fused = dilate(mask, w, h, Math.max(3, Math.round(w / 90)), Math.max(3, Math.round(h / 90)));
@@ -242,6 +260,7 @@ export function detectDisplayInBitmap(bitmap: ImageBitmap): DetectedRect | null 
     gray[j] = rgba[i] * 0.299 + rgba[i + 1] * 0.587 + rgba[i + 2] * 0.114;
   }
   // Green LCD panel first (tightest, works even when the digit blobs are hard to separate).
-  // The loose green pass is last: it can latch onto greenish backgrounds, so it must never pre-empt the digit detector.
-  return detectGreenPanel(rgba, w, h) ?? detectDisplayRect(gray, w, h) ?? detectGreenPanel(rgba, w, h, 80, 22);
+  // Dark/washed-out photos: the panel is only relative-green, so find it adaptively. Tried after the
+  // strict pass, before the digit-row detector (which struggles when contrast is poor).
+  return detectGreenPanel(rgba, w, h) ?? detectGreenPanel(rgba, w, h, 0, 0, true) ?? detectDisplayRect(gray, w, h);
 }
