@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
-import { parseQrPayload, decodeQr, openQrCameraStream, openScaleCameraStream, refocusStream, setStreamTorch, getStreamZoomRange, setStreamZoom, takeStillPhoto } from '../../utils/qr';
+import { parseQrPayload, decodeQr, openQrCameraStream } from '../../utils/qr';
 import { weightSanityWarning } from '../../utils/weight';
 import { detectDisplayInBitmap } from '../../utils/displayDetect';
 
@@ -114,20 +114,7 @@ type Step =
 const MAX_LONG_EDGE = 960; // cap on the cropped display (the OCR model resizes it anyway)
 const DEFAULT_CROP: NormRect = { x: 0.25, y: 0.42, w: 0.5, h: 0.18 };
 /** Guide box drawn over the live camera; the saved photo is cropped to exactly this. */
-const DEFAULT_GUIDE: NormRect = { x: 0.04, y: 0.65, w: 0.22, h: 0.08 };
-const GUIDE_KEY = 'kks.scaleGuideRect.v2';
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
-
-function loadGuide(): NormRect {
-  try {
-    const r = JSON.parse(localStorage.getItem(GUIDE_KEY) || 'null');
-    const ok = r && [r.x, r.y, r.w, r.h].every((n: unknown) => typeof n === 'number' && Number.isFinite(n))
-      && r.w >= 0.1 && r.h >= 0.05 && r.x >= 0 && r.y >= 0 && r.x + r.w <= 1.001 && r.y + r.h <= 1.001;
-    return ok ? { x: r.x, y: r.y, w: r.w, h: r.h } : DEFAULT_GUIDE;
-  } catch {
-    return DEFAULT_GUIDE;
-  }
-}
 
 /** The same box grown/shrunk about its centre — a second opinion for the OCR vote. */
 function scaledRect(r: NormRect, f: number): NormRect {
@@ -138,7 +125,7 @@ function scaledRect(r: NormRect, f: number): NormRect {
 const LAST_CROP_KEY = 'kks.scaleCropRect';
 
 /** Where the box sits on a new photo: found automatically, last used, or the stock default. */
-type CropSource = 'auto' | 'last' | 'guide' | 'default';
+type CropSource = 'auto' | 'last' | 'default';
 
 function loadLastCrop(): NormRect | null {
   try {
@@ -372,16 +359,6 @@ const ScaleScanModal: React.FC<Props> = ({
   const [manualSearch, setManualSearch] = useState('');
   const [liveQrActive, setLiveQrActive] = useState(false);
   const [liveQrBusy, setLiveQrBusy] = useState(false);
-  // Default to the phone's own camera app (sharper: real autofocus/HDR); the in-page live view is optional.
-  const [liveCam, setLiveCam] = useState(false);
-  const [capCamActive, setCapCamActive] = useState(false);
-  const [capCamError, setCapCamError] = useState<string | null>(null);
-  const capVideoRef = useRef<HTMLVideoElement | null>(null);
-  const capStreamRef = useRef<MediaStream | null>(null);
-  const [guide, setGuide] = useState<NormRect>(loadGuide);
-  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number; value: number } | null>(null);
-  const [torchOn, setTorchOn] = useState<boolean | null>(null);
-  const [focusPing, setFocusPing] = useState<{ x: number; y: number } | null>(null);
   const qrFileInputRef = useRef<HTMLInputElement>(null);
   const weightCameraInputRef = useRef<HTMLInputElement>(null);
   const weightUploadInputRef = useRef<HTMLInputElement>(null);
@@ -456,37 +433,6 @@ const ScaleScanModal: React.FC<Props> = ({
     canvas.style.borderRadius = '6px';
     box.appendChild(canvas);
   }, [step, result]);
-
-  // Live camera with the guide box: on while the capture step is showing.
-  useEffect(() => {
-    if (!isOpen || step !== 'capture' || !liveCam) return;
-    let cancelled = false;
-    setCapCamError(null);
-    (async () => {
-      try {
-        const stream = await openScaleCameraStream();
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        capStreamRef.current = stream;
-        const video = capVideoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        await video.play();
-        if (!cancelled) { setCapCamActive(true); setZoomRange(getStreamZoomRange(stream)); }
-      } catch (err) {
-        console.warn('Scale camera unavailable:', err);
-        if (!cancelled) setCapCamError('Kamera langsung tidak tersedia. Guna butang di bawah untuk ambil / pilih gambar.');
-      }
-    })();
-    return () => {
-      cancelled = true;
-      capStreamRef.current?.getTracks().forEach((t) => t.stop());
-      capStreamRef.current = null;
-      if (capVideoRef.current) capVideoRef.current.srcObject = null;
-      setCapCamActive(false);
-      setTorchOn(null);
-      setZoomRange(null);
-    };
-  }, [isOpen, step, liveCam]);
 
   const bookingsForPicker = useMemo(() => {
     if (step !== 'manual-picker') return [];
@@ -835,92 +781,6 @@ const ScaleScanModal: React.FC<Props> = ({
       setError(err?.message || 'Imbasan gagal. Sila cuba lagi.');
       setStep('crop');
     }
-  };
-
-  const startGuideDrag = (e: React.PointerEvent, mode: 'move' | 'resize') => {
-    const video = capVideoRef.current;
-    if (!video) return;
-    e.preventDefault();
-    const box = video.getBoundingClientRect();
-    const startX = e.clientX, startY = e.clientY, start = guide;
-    let latest = start;
-    const onMove = (ev: PointerEvent) => {
-      const dx = (ev.clientX - startX) / box.width;
-      const dy = (ev.clientY - startY) / box.height;
-      latest = mode === 'move'
-        ? { ...start, x: clamp(start.x + dx, 0, 1 - start.w), y: clamp(start.y + dy, 0, 1 - start.h) }
-        : { ...start, w: clamp(start.w + dx, 0.1, 1 - start.x), h: clamp(start.h + dy, 0.04, 1 - start.y) };
-      setGuide(latest);
-    };
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-      try { localStorage.setItem(GUIDE_KEY, JSON.stringify(latest)); } catch { /* ignore */ }
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-  };
-
-  // Photo taken through the live guide box: the box IS the crop, so scan at once.
-  // The verify step (with "Laras Kotak") is the safety net if framing was off.
-  const handleLiveCapture = async () => {
-    const video = capVideoRef.current;
-    if (!video || !video.videoWidth) return;
-    // Prefer the camera's real still photo (sharper, full resolution). It must have the
-    // same framing as the live view, or the guide box would not line up: otherwise use a video frame.
-    let blob: Blob | null = null;
-    const still = await takeStillPhoto(capStreamRef.current);
-    if (still) {
-      try {
-        const bmp = await createImageBitmap(still);
-        const same = Math.abs(bmp.width / bmp.height - video.videoWidth / video.videoHeight) < 0.03;
-        bmp.close?.();
-        if (same) blob = still;
-      } catch { /* fall back to the video frame */ }
-    }
-    if (!blob) {
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
-    }
-    if (!blob) { setError('Gagal mengambil gambar. Sila cuba lagi.'); return; }
-    const file = new File([blob], `scale-${Date.now()}.jpg`, { type: 'image/jpeg' });
-    setError(null);
-    entryIdRef.current = null;
-    setPhotoFileName(file.name);
-    setPhotoBlob(file);
-    if (photoUrl) URL.revokeObjectURL(photoUrl);
-    setPhotoUrl(URL.createObjectURL(file));
-    // The guide box is loose (label text and neighbouring panels creep in, which the
-    // OCR misreads), so tighten it onto the digit row when the detector finds one.
-    let rect = guide;
-    let source: CropSource = 'guide';
-    try {
-      const bmp = await createImageBitmap(file);
-      const g = guide;
-      const region = await createImageBitmap(
-        bmp, Math.round(g.x * bmp.width), Math.round(g.y * bmp.height),
-        Math.round(g.w * bmp.width), Math.round(g.h * bmp.height),
-      );
-      const found = detectDisplayInBitmap(region);
-      region.close?.();
-      bmp.close?.();
-      if (found && found.w > 0.15 && found.h > 0.3) {
-        rect = { x: g.x + found.x * g.w, y: g.y + found.y * g.h, w: found.w * g.w, h: found.h * g.h };
-        source = 'auto';
-      }
-    } catch (err) {
-      console.warn('Guide tighten failed:', err);
-    }
-    setCropRect(rect);
-    setCropSource(source);
-    await handleScan(file, rect);
   };
 
   const handleManualPhotoChosen = (file: File) => {
@@ -1276,71 +1136,12 @@ const ScaleScanModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* STEP: capture weight photo — live camera + guide box; gallery pick sits beside the shutter */}
+          {/* STEP: capture weight photo — phone's own camera (sharpest); gallery pick beside the shutter */}
           {step === 'capture' && (
             <div style={{ textAlign: 'center' }}>
-              <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'hidden', borderRadius: 10, background: '#0f172a', lineHeight: 0, verticalAlign: 'top', minWidth: capCamActive ? undefined : 240 }}>
-                {/* Sized by the video itself (not stretched) so the guide box lines up with the saved frame. */}
-                <video
-                  ref={capVideoRef} playsInline muted
-                  onClick={(e) => {
-                    const r = e.currentTarget.getBoundingClientRect();
-                    const x = (e.clientX - r.left) / r.width;
-                    const y = (e.clientY - r.top) / r.height;
-                    setFocusPing({ x, y });
-                    window.setTimeout(() => setFocusPing(null), 900);
-                    void refocusStream(capStreamRef.current, { x, y });
-                  }}
-                  style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '56vh', display: capCamActive ? 'block' : 'none' }}
-                />
-                {capCamActive && focusPing && (
-                  <div style={{
-                    position: 'absolute', left: `${focusPing.x * 100}%`, top: `${focusPing.y * 100}%`,
-                    width: 56, height: 56, margin: '-28px 0 0 -28px', borderRadius: '50%',
-                    border: '2px solid #fff', pointerEvents: 'none',
-                  }} />
-                )}
-                {capCamActive && (
-                  <div
-                    // Drag the box onto the scale's digits; the corner handle resizes it. Remembered for next time.
-                    onPointerDown={(e) => startGuideDrag(e, 'move')}
-                    style={{
-                      position: 'absolute',
-                      left: `${guide.x * 100}%`, top: `${guide.y * 100}%`,
-                      width: `${guide.w * 100}%`, height: `${guide.h * 100}%`,
-                      border: '2px solid #fcd34d', borderRadius: 4, boxSizing: 'border-box',
-                      boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)', touchAction: 'none', cursor: 'move',
-                    }}
-                  >
-                    <div
-                      onPointerDown={(e) => { e.stopPropagation(); startGuideDrag(e, 'resize'); }}
-                      style={{ position: 'absolute', right: -6, bottom: -6, width: 28, height: 28, borderRadius: '50%', background: '#fcd34d', border: '2px solid #0f172a', touchAction: 'none', cursor: 'nwse-resize' }}
-                    />
-                  </div>
-                )}
-                {!capCamActive && (
-                  <div style={{ padding: '44px 16px', color: '#cbd5e1', fontSize: 13, lineHeight: 1.5 }}>
-                    {liveCam
-                      ? (capCamError || 'Membuka kamera…')
-                      : 'Tekan butang kamera di bawah untuk ambil gambar guna kamera telefon (lebih tajam). Kotak angka dilaras selepas itu.'}
-                  </div>
-                )}
+              <div style={{ borderRadius: 10, background: '#0f172a', color: '#cbd5e1', fontSize: 13, lineHeight: 1.5, padding: '44px 16px' }}>
+                Tekan butang kamera di bawah untuk ambil gambar guna kamera telefon. Angka akan dikesan dan diimbas secara automatik.
               </div>
-              {capCamActive && zoomRange && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 4px 0' }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Zum</span>
-                  <input
-                    type="range" min={zoomRange.min} max={zoomRange.max} step={zoomRange.step} value={zoomRange.value}
-                    onChange={(e) => {
-                      const value = Number(e.target.value);
-                      setZoomRange((z) => (z ? { ...z, value } : z));
-                      void setStreamZoom(capStreamRef.current, value);
-                    }}
-                    style={{ flex: 1 }} aria-label="Zum kamera"
-                  />
-                  <span style={{ fontSize: 12, minWidth: 34, textAlign: 'right' }}>{zoomRange.value.toFixed(1)}x</span>
-                </div>
-              )}
               <input
                 ref={weightCameraInputRef}
                 type="file"
@@ -1382,56 +1183,26 @@ const ScaleScanModal: React.FC<Props> = ({
                     </svg>
                   </button>
                 </div>
-                {/* Round shutter, like a phone camera. Falls back to the phone's own camera when live view is unavailable. */}
                 <button
                   type="button"
-                  onClick={capCamActive ? handleLiveCapture : () => weightCameraInputRef.current?.click()}
-                  disabled={liveCam && !capCamActive && !capCamError}
-                  aria-label={capCamActive ? 'Ambil dan imbas' : 'Ambil gambar timbangan'}
-                  title={capCamActive ? 'Ambil & Imbas' : 'Ambil gambar timbangan'}
+                  onClick={() => weightCameraInputRef.current?.click()}
+                  aria-label="Ambil gambar timbangan"
+                  title="Ambil gambar timbangan"
                   style={{
                     width: 60, height: 60, borderRadius: '50%', cursor: 'pointer',
                     background: '#fff', border: '4px solid #fcd34d', boxShadow: '0 0 0 2px #0f172a inset',
                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, color: '#112a41',
-                    opacity: liveCam && !capCamActive && !capCamError ? 0.4 : 1,
                   }}
                 >
-                  {capCamActive ? null : (
-                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
-                      <circle cx="12" cy="13" r="3.5" />
-                    </svg>
-                  )}
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+                    <circle cx="12" cy="13" r="3.5" />
+                  </svg>
                 </button>
-                <div style={{ justifySelf: 'end' }}>
-                  {capCamActive && (
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={async () => {
-                        const next = await setStreamTorch(capStreamRef.current, !torchOn);
-                        if (next !== null) setTorchOn(next);
-                      }}
-                      aria-label="Lampu suluh"
-                      title="Lampu suluh (jika ada)"
-                      style={{ width: 44, height: 44, borderRadius: '50%', padding: 0, fontSize: 18, background: torchOn ? '#fcd34d' : undefined }}
-                    >
-                      🔦
-                    </button>
-                  )}
-                </div>
+                <span />
               </div>
-              <p style={{ margin: '0 0 6px' }}>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setLiveCam((v) => !v)}>
-                  {liveCam ? 'Guna kamera telefon (lebih tajam)' : 'Guna kamera langsung + kotak panduan'}
-                </button>
-              </p>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                {liveCam ? (
-                  <><strong>Ketik skrin</strong> pada angka untuk fokus. <strong>Seret kotak kuning</strong> ke atas angka (pemegang bulat = saiz). Letak <strong>hanya angka</strong> dalam kotak (tanpa label &amp; "kg").</>
-                ) : (
-                  <>Dekatkan telefon sehingga angka <strong>jelas &amp; tajam</strong>, ketik pada angka untuk fokus, kemudian ambil gambar. Selepas itu laraskan kotak supaya <strong>hanya angka</strong> diliputi.</>
-                )}
+                Dekatkan telefon sehingga angka <strong>jelas &amp; tajam</strong>, ketik pada angka untuk fokus, kemudian ambil gambar. Pemancing &amp; ikan boleh ada dalam gambar.
               </p>
             </div>
           )}
