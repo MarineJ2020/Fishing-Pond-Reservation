@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
-import { parseQrPayload, decodeQr, openQrCameraStream, openScaleCameraStream, refocusStream, setStreamTorch, takeStillPhoto } from '../../utils/qr';
+import { parseQrPayload, decodeQr, openQrCameraStream, openScaleCameraStream, refocusStream, setStreamTorch, getStreamZoomRange, setStreamZoom, takeStillPhoto } from '../../utils/qr';
 import { weightSanityWarning } from '../../utils/weight';
 import { detectDisplayInBitmap } from '../../utils/displayDetect';
 
@@ -356,6 +356,7 @@ const ScaleScanModal: React.FC<Props> = ({
   const [capCamError, setCapCamError] = useState<string | null>(null);
   const capVideoRef = useRef<HTMLVideoElement | null>(null);
   const capStreamRef = useRef<MediaStream | null>(null);
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number; value: number } | null>(null);
   const [torchOn, setTorchOn] = useState<boolean | null>(null);
   const [focusPing, setFocusPing] = useState<{ x: number; y: number } | null>(null);
   const qrFileInputRef = useRef<HTMLInputElement>(null);
@@ -447,7 +448,7 @@ const ScaleScanModal: React.FC<Props> = ({
         if (!video) return;
         video.srcObject = stream;
         await video.play();
-        if (!cancelled) setCapCamActive(true);
+        if (!cancelled) { setCapCamActive(true); setZoomRange(getStreamZoomRange(stream)); }
       } catch (err) {
         console.warn('Scale camera unavailable:', err);
         if (!cancelled) setCapCamError('Kamera langsung tidak tersedia. Guna butang di bawah untuk ambil / pilih gambar.');
@@ -460,6 +461,7 @@ const ScaleScanModal: React.FC<Props> = ({
       if (capVideoRef.current) capVideoRef.current.srcObject = null;
       setCapCamActive(false);
       setTorchOn(null);
+      setZoomRange(null);
     };
   }, [isOpen, step]);
 
@@ -821,9 +823,30 @@ const ScaleScanModal: React.FC<Props> = ({
     setPhotoBlob(file);
     if (photoUrl) URL.revokeObjectURL(photoUrl);
     setPhotoUrl(URL.createObjectURL(file));
-    setCropRect(GUIDE_CROP);
-    setCropSource('guide');
-    await handleScan(file, GUIDE_CROP);
+    // The guide box is loose (label text and neighbouring panels creep in, which the
+    // OCR misreads), so tighten it onto the digit row when the detector finds one.
+    let rect = GUIDE_CROP;
+    let source: CropSource = 'guide';
+    try {
+      const bmp = await createImageBitmap(file);
+      const g = GUIDE_CROP;
+      const region = await createImageBitmap(
+        bmp, Math.round(g.x * bmp.width), Math.round(g.y * bmp.height),
+        Math.round(g.w * bmp.width), Math.round(g.h * bmp.height),
+      );
+      const found = detectDisplayInBitmap(region);
+      region.close?.();
+      bmp.close?.();
+      if (found && found.w > 0.15 && found.h > 0.3) {
+        rect = { x: g.x + found.x * g.w, y: g.y + found.y * g.h, w: found.w * g.w, h: found.h * g.h };
+        source = 'auto';
+      }
+    } catch (err) {
+      console.warn('Guide tighten failed:', err);
+    }
+    setCropRect(rect);
+    setCropSource(source);
+    await handleScan(file, rect);
   };
 
   const handleManualPhotoChosen = (file: File) => {
@@ -1218,6 +1241,21 @@ const ScaleScanModal: React.FC<Props> = ({
                   </div>
                 )}
               </div>
+              {capCamActive && zoomRange && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 4px 0' }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Zum</span>
+                  <input
+                    type="range" min={zoomRange.min} max={zoomRange.max} step={zoomRange.step} value={zoomRange.value}
+                    onChange={(e) => {
+                      const value = Number(e.target.value);
+                      setZoomRange((z) => (z ? { ...z, value } : z));
+                      void setStreamZoom(capStreamRef.current, value);
+                    }}
+                    style={{ flex: 1 }} aria-label="Zum kamera"
+                  />
+                  <span style={{ fontSize: 12, minWidth: 34, textAlign: 'right' }}>{zoomRange.value.toFixed(1)}x</span>
+                </div>
+              )}
               <input
                 ref={weightCameraInputRef}
                 type="file"

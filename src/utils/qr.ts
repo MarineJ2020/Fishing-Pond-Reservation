@@ -147,6 +147,30 @@ export async function refocusStream(stream: MediaStream | null, point?: { x: num
   }
 }
 
+/** Hardware zoom range of the stream's camera, or null when it can't zoom. */
+export function getStreamZoomRange(stream: MediaStream | null): { min: number; max: number; step: number; value: number } | null {
+  const [track] = stream?.getVideoTracks() ?? [];
+  try {
+    const caps = (track?.getCapabilities?.() ?? {}) as any;
+    if (!caps.zoom || !(caps.zoom.max > caps.zoom.min)) return null;
+    const value = Number((track.getSettings?.() as any)?.zoom ?? caps.zoom.min);
+    return { min: caps.zoom.min, max: caps.zoom.max, step: caps.zoom.step || 0.1, value };
+  } catch {
+    return null;
+  }
+}
+
+export async function setStreamZoom(stream: MediaStream | null, zoom: number): Promise<boolean> {
+  const [track] = stream?.getVideoTracks() ?? [];
+  if (!track) return false;
+  try {
+    await track.applyConstraints({ advanced: [{ zoom }] } as any);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Switch the torch on/off when the camera has one. Returns the new state, or null when unsupported. */
 export async function setStreamTorch(stream: MediaStream | null, on: boolean): Promise<boolean | null> {
   const [track] = stream?.getVideoTracks() ?? [];
