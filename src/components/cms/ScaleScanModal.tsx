@@ -802,7 +802,7 @@ const ScaleScanModal: React.FC<Props> = ({
       setProgress('Imbas paparan…');
       // Read the display a few times with slightly different framing and take the
       // majority: one unlucky crop can flip a digit (0.206 -> 0.208), several rarely agree on a wrong one.
-      const variants = [rect, scaledRect(rect, 0.94), scaledRect(rect, 1.12), scaledRect(rect, 1.28)];
+      const variants = [rect, scaledRect(rect, 0.94), scaledRect(rect, 1.06), scaledRect(rect, 1.15)];
       const reads: ScanResult[] = [];
       for (let i = 0; i < variants.length; i++) {
         try {

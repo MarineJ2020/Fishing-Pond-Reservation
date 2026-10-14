@@ -173,6 +173,58 @@ export function detectDisplayRect(gray: Uint8ClampedArray, w: number, h: number)
   return { x: nx0, y: ny0, w: nx1 - nx0, h: ny1 - ny0 };
 }
 
+/**
+ * Price-scale LCDs are a bright green panel with dark digits. Finding that panel
+ * gives a tight, reliable box (just the digits' own display, no labels or neighbours).
+ * Several panels sit in a row (weight | unit price | total): the leftmost is the weight.
+ */
+function detectGreenPanel(rgba: Uint8ClampedArray, w: number, h: number): DetectedRect | null {
+  const mask = new Uint8Array(w * h);
+  for (let i = 0, p = 0; p < w * h; i += 4, p++) {
+    const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+    if (g >= 130 && g - r >= 35 && g - b >= 35) mask[p] = 1;
+  }
+  // Close the gaps left by the dark digit strokes so the panel is one blob.
+  const fused = dilate(mask, w, h, Math.max(3, Math.round(w / 90)), Math.max(3, Math.round(h / 90)));
+  const seen = new Uint8Array(w * h);
+  const stack = new Int32Array(w * h);
+  const panels: { x0: number; y0: number; x1: number; y1: number; area: number }[] = [];
+  for (let p = 0; p < w * h; p++) {
+    if (!fused[p] || seen[p]) continue;
+    let top = 0;
+    stack[top++] = p; seen[p] = 1;
+    let x0 = p % w, x1 = x0, y0 = (p / w) | 0, y1 = y0, area = 0;
+    while (top > 0) {
+      const q = stack[--top];
+      const qx = q % w, qy = (q / w) | 0;
+      if (mask[q]) area++;
+      if (qx < x0) x0 = qx; if (qx > x1) x1 = qx;
+      if (qy < y0) y0 = qy; if (qy > y1) y1 = qy;
+      if (qx > 0 && fused[q - 1] && !seen[q - 1]) { seen[q - 1] = 1; stack[top++] = q - 1; }
+      if (qx < w - 1 && fused[q + 1] && !seen[q + 1]) { seen[q + 1] = 1; stack[top++] = q + 1; }
+      if (qy > 0 && fused[q - w] && !seen[q - w]) { seen[q - w] = 1; stack[top++] = q - w; }
+      if (qy < h - 1 && fused[q + w] && !seen[q + w]) { seen[q + w] = 1; stack[top++] = q + w; }
+    }
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+    const aspect = bw / bh;
+    if (bh < 0.025 * h || bw < 0.05 * w || aspect < 1.3 || aspect > 9) continue;
+    if (area / (bw * bh) < 0.3) continue;
+    panels.push({ x0, y0, x1, y1, area });
+  }
+  if (!panels.length) return null;
+  const big = panels.reduce((a, b) => (b.area > a.area ? b : a));
+  const bigH = big.y1 - big.y0 + 1, bigY = (big.y0 + big.y1) / 2;
+  const peers = panels
+    .filter((c) => c.area >= 0.4 * big.area && Math.abs((c.y0 + c.y1) / 2 - bigY) < 0.6 * bigH)
+    .sort((a, b) => a.x0 - b.x0);
+  const pick = peers[0] ?? big;
+  // Undo the dilation growth so the box hugs the panel.
+  const sx = Math.max(3, Math.round(w / 90)), sy = Math.max(3, Math.round(h / 90));
+  const x0 = pick.x0 + sx, x1 = pick.x1 - sx, y0 = pick.y0 + sy, y1 = pick.y1 - sy;
+  if (x1 <= x0 || y1 <= y0) return null;
+  return { x: x0 / w, y: y0 / h, w: (x1 - x0 + 1) / w, h: (y1 - y0 + 1) / h };
+}
+
 /** Canvas wrapper: downsizes the photo, then runs the detector. */
 export function detectDisplayInBitmap(bitmap: ImageBitmap): DetectedRect | null {
   const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
@@ -189,5 +241,6 @@ export function detectDisplayInBitmap(bitmap: ImageBitmap): DetectedRect | null 
   for (let i = 0, j = 0; i < rgba.length; i += 4, j++) {
     gray[j] = rgba[i] * 0.299 + rgba[i + 1] * 0.587 + rgba[i + 2] * 0.114;
   }
-  return detectDisplayRect(gray, w, h);
+  // Green LCD panel first (tightest, works even when the digit blobs are hard to separate).
+  return detectGreenPanel(rgba, w, h) ?? detectDisplayRect(gray, w, h);
 }
