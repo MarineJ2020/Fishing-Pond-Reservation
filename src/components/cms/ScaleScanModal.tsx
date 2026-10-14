@@ -372,6 +372,8 @@ const ScaleScanModal: React.FC<Props> = ({
   const [manualSearch, setManualSearch] = useState('');
   const [liveQrActive, setLiveQrActive] = useState(false);
   const [liveQrBusy, setLiveQrBusy] = useState(false);
+  // Default to the phone's own camera app (sharper: real autofocus/HDR); the in-page live view is optional.
+  const [liveCam, setLiveCam] = useState(false);
   const [capCamActive, setCapCamActive] = useState(false);
   const [capCamError, setCapCamError] = useState<string | null>(null);
   const capVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -457,7 +459,7 @@ const ScaleScanModal: React.FC<Props> = ({
 
   // Live camera with the guide box: on while the capture step is showing.
   useEffect(() => {
-    if (!isOpen || step !== 'capture') return;
+    if (!isOpen || step !== 'capture' || !liveCam) return;
     let cancelled = false;
     setCapCamError(null);
     (async () => {
@@ -484,7 +486,7 @@ const ScaleScanModal: React.FC<Props> = ({
       setTorchOn(null);
       setZoomRange(null);
     };
-  }, [isOpen, step]);
+  }, [isOpen, step, liveCam]);
 
   const bookingsForPicker = useMemo(() => {
     if (step !== 'manual-picker') return [];
@@ -1313,7 +1315,9 @@ const ScaleScanModal: React.FC<Props> = ({
                 )}
                 {!capCamActive && (
                   <div style={{ padding: '44px 16px', color: '#cbd5e1', fontSize: 13, lineHeight: 1.5 }}>
-                    {capCamError || 'Membuka kamera…'}
+                    {liveCam
+                      ? (capCamError || 'Membuka kamera…')
+                      : 'Tekan butang kamera di bawah untuk ambil gambar guna kamera telefon (lebih tajam). Kotak angka dilaras selepas itu.'}
                   </div>
                 )}
               </div>
@@ -1377,14 +1381,14 @@ const ScaleScanModal: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={capCamActive ? handleLiveCapture : () => weightCameraInputRef.current?.click()}
-                  disabled={!capCamActive && !capCamError}
+                  disabled={liveCam && !capCamActive && !capCamError}
                   aria-label={capCamActive ? 'Ambil dan imbas' : 'Ambil gambar timbangan'}
                   title={capCamActive ? 'Ambil & Imbas' : 'Ambil gambar timbangan'}
                   style={{
                     width: 60, height: 60, borderRadius: '50%', cursor: 'pointer',
                     background: '#fff', border: '4px solid #fcd34d', boxShadow: '0 0 0 2px #0f172a inset',
                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, color: '#112a41',
-                    opacity: !capCamActive && !capCamError ? 0.4 : 1,
+                    opacity: liveCam && !capCamActive && !capCamError ? 0.4 : 1,
                   }}
                 >
                   {capCamActive ? null : (
@@ -1412,8 +1416,17 @@ const ScaleScanModal: React.FC<Props> = ({
                   )}
                 </div>
               </div>
+              <p style={{ margin: '0 0 6px' }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setLiveCam((v) => !v)}>
+                  {liveCam ? 'Guna kamera telefon (lebih tajam)' : 'Guna kamera langsung + kotak panduan'}
+                </button>
+              </p>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                <strong>Ketik skrin</strong> pada angka untuk fokus; dekatkan telefon sehingga angka jelas sebelum ambil. <strong>Seret kotak kuning</strong> ke atas angka (pemegang bulat = saiz). Letak <strong>hanya angka</strong> dalam kotak kuning (tanpa label &amp; "kg"). Pemancing &amp; ikan boleh ada dalam gambar.
+                {liveCam ? (
+                  <><strong>Ketik skrin</strong> pada angka untuk fokus. <strong>Seret kotak kuning</strong> ke atas angka (pemegang bulat = saiz). Letak <strong>hanya angka</strong> dalam kotak (tanpa label &amp; "kg").</>
+                ) : (
+                  <>Dekatkan telefon sehingga angka <strong>jelas &amp; tajam</strong>, ketik pada angka untuk fokus, kemudian ambil gambar. Selepas itu laraskan kotak supaya <strong>hanya angka</strong> diliputi.</>
+                )}
               </p>
             </div>
           )}
