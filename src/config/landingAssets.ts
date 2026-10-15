@@ -7,6 +7,8 @@
  * ready, replace the `cloudinary` strings; the Drive URLs remain as fallback.
  */
 
+import STATIC_LANDING from '../generated/landing-static.json';
+
 const drive = (id: string) => `https://lh3.googleusercontent.com/d/${id}`;
 // Full-size Drive originals are huge (hero is 1.4 MB). `=w1280-rw` makes Google
 // serve a resized WebP (~175 KB). functions/src/seo.js preloads the hero with
@@ -45,8 +47,11 @@ type AssetKey = keyof typeof LANDING_ASSETS;
  * has the same transform for the hero preload — keep them in sync.
  */
 export const cdnImage = (url: string): string => {
-  const m = /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^/]+\/o\/(fishing-pond-landing%2F[^?]+)/.exec(url);
-  return m ? `/landing-img?o=${m[1]}` : url;
+  const m = /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^/]+\/o\/(fishing-pond-landing%2F([^?]+))/.exec(url);
+  if (!m) return url;
+  // Bundled at build time by scripts/sync-landing-images.mjs -> straight from Hosting's CDN.
+  if ((STATIC_LANDING as string[]).includes(m[2])) return `/landing/${m[2]}`;
+  return `/landing-img?o=${m[1]}`;
 };
 
 /**

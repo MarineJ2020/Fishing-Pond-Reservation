@@ -39,9 +39,12 @@ const SEO_DEFAULTS = {
 const DEFAULT_HERO_IMG = 'https://lh3.googleusercontent.com/d/1-peYEKZdjfMxCxph7NTi0A3Rz2Y9Q9xL=w1280-rw';
 
 // Mirrors cdnImage() in src/config/landingAssets.ts (Storage URL -> CDN-cached proxy).
+const STATIC_LANDING = JSON.parse(readFileSync(path.join(__dirname, 'landing-static.json'), 'utf8'));
 const cdnImage = (url) => {
-    const m = /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^/]+\/o\/(fishing-pond-landing%2F[^?]+)/.exec(url);
-    return m ? `/landing-img?o=${m[1]}` : url;
+    const m = /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^/]+\/o\/(fishing-pond-landing%2F([^?]+))/.exec(url);
+    if (!m) return url;
+    if (STATIC_LANDING.includes(m[2])) return `/landing/${m[2]}`;
+    return `/landing-img?o=${m[1]}`;
 };
 
 const PAGE_BY_PATH = { '/': 'home', '/book': 'book', '/live': 'live' };

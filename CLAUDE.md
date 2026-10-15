@@ -49,6 +49,12 @@ missing or malformed (`vite.config.mjs`), to avoid deploying a blank site.
   `/` rewrite reaches `seoRender` instead of being shadowed by a static index.html.
   The `**` catch-all rewrite in `firebase.json` targets `/app.html`. Don't hand-edit
   `template.html`; rebuild instead.
+- `npm run build` first runs `scripts/sync-landing-images.mjs`, which downloads the CMS
+  landing images (`settings/global.landingImages`, Firebase Storage URLs are ~2s TTFB and
+  uncacheable) into `public/landing/` and lists them in `src/generated/landing-static.json`
+  (+ a copy in `functions/src/`). `cdnImage()` (client) / `seo.js` (hero preload) serve those
+  from Hosting; images uploaded after the last deploy fall back to the `/landing-img`
+  function until the next build. So after changing a landing image in the CMS, redeploy.
 - Don't deploy tightened Firestore rules ahead of the client/API that depends on
   them — see `docs/security-release.md` for the staged-release reasoning.
 

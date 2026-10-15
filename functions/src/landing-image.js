@@ -18,13 +18,24 @@ export const landingImage = regional.runWith({ maxInstances: 10 }).https.onReque
         return;
     }
     try {
-        const file = admin.storage().bucket().file(name);
-        const [meta] = await file.getMetadata();
-        res.set('Content-Type', meta.contentType || 'application/octet-stream');
-        res.set('Cache-Control', 'public, max-age=31536000, s-maxage=31536000, immutable');
-        file.createReadStream()
-            .on('error', () => { if (!res.headersSent) res.status(500).end(); else res.end(); })
-            .pipe(res);
+        // No getMetadata() round trip: the type comes from the extension (the CMS
+        // only uploads images) and a missing object surfaces as a stream error.
+        const ext = name.split('.').pop().toLowerCase();
+        const type = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', svg: 'image/svg+xml', avif: 'image/avif' }[ext];
+        if (!type) { res.status(400).send('Bad request'); return; }
+        const stream = admin.storage().bucket().file(name).createReadStream();
+        stream.once('error', (err) => {
+            if (res.headersSent) { res.end(); return; }
+            const notFound = err?.code === 404;
+            if (!notFound) console.error('landingImage failed', err);
+            res.set('Cache-Control', 'public, max-age=60');
+            res.status(notFound ? 404 : 500).send(notFound ? 'Not found' : 'Error');
+        });
+        stream.once('response', () => {
+            res.set('Content-Type', type);
+            res.set('Cache-Control', 'public, max-age=31536000, s-maxage=31536000, immutable');
+        });
+        stream.pipe(res);
     } catch (err) {
         if (err?.code === 404) {
             res.set('Cache-Control', 'public, max-age=60');
