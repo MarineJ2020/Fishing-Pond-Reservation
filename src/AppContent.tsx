@@ -1141,7 +1141,7 @@ const AppContent: React.FC = () => {
             ))}
           </div>
           <div className="kks-intro-cta">
-            <button className="btn btn-navy" onClick={() => goToBook()}>{settings.aboutCtaLabel}</button>
+            <button className="btn btn-navy" onClick={() => (settings.pondMapImg ? setPondMapOpen(true) : goToBook())}>{settings.aboutCtaLabel}</button>
           </div>
         </div>}
       </section>
