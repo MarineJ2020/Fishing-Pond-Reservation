@@ -160,6 +160,34 @@ function buildHead(seo, raw, pageKey, urlPath) {
     return tags.join('\n    ');
 }
 
+// Server-rendered copy of the home hero (mirrors renderHome() in src/AppContent.tsx),
+// placed inside #root so the hero paints from the HTML alone, before any JS runs.
+// React's createRoot().render() then replaces it with the identical live markup.
+// Skipped when the CMS uses custom hero HTML (the client sanitises that).
+function buildHeroShell(raw) {
+    if (raw.landingSections?.hero?.mode === 'html') return '';
+    const kicker = raw.heroKicker || 'Tempat Di Mana';
+    const titleRaw = raw.heroTitle || 'Juara Dilahirkan';
+    const parts = titleRaw.match(/\S+/g) || [];
+    const last = parts.length > 1 ? parts[parts.length - 1] : '';
+    const first = last ? titleRaw.slice(0, titleRaw.lastIndexOf(last)).trimEnd() : titleRaw;
+    const subtitle = raw.heroSubtitle || 'Kolam Keli Sayang - Port Terbaik di Kedah';
+    const stats = Array.isArray(raw.heroStats) && raw.heroStats.length
+        ? raw.heroStats
+        : [{ label: 'Lubuk Mega' }, { label: 'Peserta / Kocah' }, { label: 'Weekly Strike' }];
+    const cta = raw.heroCtaLabel || 'Book Slot Sekarang!';
+    const bg = raw.landingImages?.heroBg ? cdnImage(raw.landingImages.heroBg) : DEFAULT_HERO_IMG;
+    const style = `background-image: linear-gradient(90deg, rgba(5,18,30,.94) 0%, rgba(8,22,37,.76) 34%, rgba(8,22,37,.18) 72%), url('${bg}');`;
+    return `<div class="home-shell"><section class="kks-hero" id="home" style="${esc(style)}">`
+        + `<div class="kks-container kks-hero-content">`
+        + `<div class="kks-hero-kicker">${esc(kicker)}</div>`
+        + `<h1 class="kks-hero-title kks-preserve-lines">${esc(first)}${last ? `<span>${esc(last)}</span>` : ''}</h1>`
+        + `<p class="kks-hero-sub kks-preserve-lines">${esc(subtitle)}</p>`
+        + `<div class="kks-hero-stats">${stats.map((s) => `<div class="kks-hero-stat"><strong><span class="kks-hero-stat-skeleton" aria-hidden="true"></span></strong><small>${esc(s.label)}</small></div>`).join('')}</div>`
+        + `<button class="btn btn-red btn-hero">${esc(cta)}</button>`
+        + `</div></section></div>`;
+}
+
 function buildPrivateHead(seo) {
     return [
         `<title>${esc(seo.siteName)}</title>`,
@@ -195,7 +223,8 @@ export const seoRender = browserFacingWith({ maxInstances: 50 }).https.onRequest
     const head = PRIVATE_PATHS.has(req.path)
         ? buildPrivateHead(seo)
         : buildHead(seo, raw, pageKey, req.path === '/' ? '/' : req.path);
-    const html = TEMPLATE.replace(/<!--seo:start-->[\s\S]*?<!--seo:end-->/, head);
+    let html = TEMPLATE.replace(/<!--seo:start-->[\s\S]*?<!--seo:end-->/, head);
+    if (req.path === '/') html = html.replace('<div id="root"></div>', () => `<div id="root">${buildHeroShell(raw)}</div>`);
 
     res.set('Cache-Control', CACHE_CONTROL);
     res.status(200).send(html);
