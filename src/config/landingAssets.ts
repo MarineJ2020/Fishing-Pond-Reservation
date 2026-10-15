@@ -16,11 +16,11 @@ const driveSized = (id: string, w = 1280) => `${drive(id)}=w${w}-rw`;
 export const LANDING_ASSETS = {
   logo: {
     cloudinary: '',
-    drive: drive('1f031JD0R0LDN1OvBKtlUkjBy5lwzkmXC'),
+    drive: driveSized('1f031JD0R0LDN1OvBKtlUkjBy5lwzkmXC', 448),
   },
   footerLogo: {
     cloudinary: '',
-    drive: drive('1XP4GY9Drf77O-H5_lCISzMhcuDMmXeSm'),
+    drive: driveSized('1XP4GY9Drf77O-H5_lCISzMhcuDMmXeSm', 340),
   },
   heroBg: {
     cloudinary: '',
@@ -39,10 +39,22 @@ export const LANDING_ASSETS = {
 type AssetKey = keyof typeof LANDING_ASSETS;
 
 /**
+ * CMS uploads live in Firebase Storage, whose download URLs are slow to first
+ * byte (~2s from Malaysia) and uncacheable. Route them through the Hosting CDN
+ * (`landingImage` function, see functions/src/landing-image.js). functions/src/seo.js
+ * has the same transform for the hero preload — keep them in sync.
+ */
+export const cdnImage = (url: string): string => {
+  const m = /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^/]+\/o\/(fishing-pond-landing%2F[^?]+)/.exec(url);
+  return m ? `/landing-img?o=${m[1]}` : url;
+};
+
+/**
  * Resolve a landing image URL: CMS-uploaded Storage URL (settings.landingImages)
  * takes priority, then the Cloudinary slot, then the original Drive fallback.
  */
 export const asset = (key: AssetKey, settings?: { landingImages?: Partial<Record<AssetKey, string>> }): string => {
   const entry = LANDING_ASSETS[key];
-  return settings?.landingImages?.[key] || entry.cloudinary || entry.drive;
+  const custom = settings?.landingImages?.[key];
+  return custom ? cdnImage(custom) : entry.cloudinary || entry.drive;
 };

@@ -10,7 +10,7 @@ import {
 } from 'firebase/auth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
-import app, { auth, db as firestoreDb, FUNCTIONS_REGION, googleProvider } from '../../lib/firebase';
+import app, { auth, db as firestoreDb, FUNCTIONS_REGION, googleProvider, browserPopupRedirectResolver } from '../../lib/firebase';
 import { useBooking } from '../context/BookingContext';
 import { useUI } from '../context/UIContext';
 import { requestPasswordResetEmail, requestWelcomeEmail } from '../lib/email';
@@ -192,7 +192,7 @@ export const useAuth = () => {
   // both signup paths without touching this account-creation write.
   const signInWithGoogle = useCallback(async (): Promise<{ success: boolean; needsPhone?: boolean; error?: string }> => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
       const user = result.user;
       const userDocRef = doc(firestoreDb, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);

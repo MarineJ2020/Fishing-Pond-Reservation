@@ -637,6 +637,7 @@ export const releaseBookingSeatClaims = regional.firestore.document('bookings/{b
     });
 
 export { seoRender } from './seo.js';
+export { landingImage } from './landing-image.js';
 
 // Keep Firebase Auth custom claims in sync with users/{uid}.role for external
 // consumers. Application authorization reads the profile document directly.

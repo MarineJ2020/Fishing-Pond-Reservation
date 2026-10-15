@@ -63,8 +63,9 @@ export const auth = (() => {
         browserLocalPersistence,
         browserSessionPersistence,
       ],
-      // initializeAuth (unlike getAuth) omits this; signInWithPopup needs it.
-      popupRedirectResolver: browserPopupRedirectResolver,
+      // popupRedirectResolver is deliberately omitted: passing it makes Auth load
+      // the 93 KB auth/iframe.js on every page view. signInWithPopup gets the
+      // resolver per call instead (see src/hooks/useAuth.ts).
     });
   } catch {
     return getAuth(app);
@@ -77,6 +78,7 @@ export const storage = getStorage(app);
 // functions/src/regions.js; getFunctions() would otherwise default to us-central1.
 export const FUNCTIONS_REGION = 'asia-southeast1';
 
+export { browserPopupRedirectResolver };
 export const googleProvider = new GoogleAuthProvider();
 export const emailProvider = new EmailAuthProvider();
 
