@@ -4158,3 +4158,13 @@ nav.kks-legacy-v3-nav::before {
     height: clamp(240px, 42vh, 340px);
   }
 }
+
+/* Mobile browsers: 100vh is taller than the visible area (URL/bottom bars), so
+   the CMS's last items sit under the browser bar. Use dynamic viewport height. */
+@supports (height: 100dvh) {
+  .cms-page { height: 100dvh; min-height: 100dvh; }
+  .cms-main { height: 100dvh; }
+}
+@media (max-width: 900px) {
+  .cms-content, .cms-content-area { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
+}
