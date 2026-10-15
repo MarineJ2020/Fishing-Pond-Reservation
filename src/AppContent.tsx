@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import './styles.css';
 import './styles.v4.css';
@@ -9,15 +9,6 @@ import SecondaryMobileNav from './components/SecondaryMobileNav';
 import SeatMap from './components/SeatMap';
 import BookingForm from './components/BookingForm';
 import BookingChoiceModal from './components/BookingChoiceModal';
-import DocPreviewModal from './components/DocPreviewModal';
-import LiveResults from './components/LiveResults';
-import AuthModal from './components/AuthModal';
-import CMSModal from './components/CMSModal';
-import BookingDetailsModal from './components/BookingDetailsModal';
-import CompleteProfileModal from './components/CompleteProfileModal';
-import BookingDetailContent from './components/BookingDetailContent';
-import BookingTour from './components/BookingTour';
-import ProfileContent from './components/ProfileContent';
 import Toast from './components/Toast';
 import Footer from './components/Footer';
 import CustomLandingHtml from './components/CustomLandingHtml';
@@ -38,6 +29,17 @@ import { heldPegKeys } from './utils/pegHolds';
 import { friendlyError } from './utils/friendlyError';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
+
+// Code-split heavy / rarely-needed UI so the first paint downloads less JS.
+const BookingDetailsModal = lazy(() => import('./components/BookingDetailsModal'));
+const DocPreviewModal = lazy(() => import('./components/DocPreviewModal'));
+const LiveResults = lazy(() => import('./components/LiveResults'));
+const AuthModal = lazy(() => import('./components/AuthModal'));
+const CMSModal = lazy(() => import('./components/CMSModal'));
+const BookingDetailContent = lazy(() => import('./components/BookingDetailContent'));
+const CompleteProfileModal = lazy(() => import('./components/CompleteProfileModal'));
+const BookingTour = lazy(() => import('./components/BookingTour'));
+const ProfileContent = lazy(() => import('./components/ProfileContent'));
 
 /**
  * Renders a CMS-edited headline where `*word(s)*` becomes the accent-colored
@@ -1453,7 +1455,7 @@ const AppContent: React.FC = () => {
                 <div className={stepClass(step3 as any)}><span>3</span>Pilih Tempat</div>
                 <div className={stepClass(step4 as any)}><span>4</span>Maklumat &amp; Bayaran</div>
               </div>
-              <BookingTour phase={detailsPhase ? 'details' : 'select'} hasBooked={userBookings.length > 0} />
+              <Suspense fallback={null}><BookingTour phase={detailsPhase ? 'details' : 'select'} hasBooked={userBookings.length > 0} /></Suspense>
 
               <div className={`bk-grid${detailsPhase ? ' is-details' : ''}`}>
                 <div className="bk-stack">
@@ -2145,12 +2147,15 @@ const AppContent: React.FC = () => {
         settings={db.settings}
       />
       {currentSection === 'home' && <SecondaryMobileNav onSectionChange={handleNavigation} />}
-      {renderSection()}
+      <Suspense fallback={<div style={{ minHeight: '60dvh' }} />}>
+        {renderSection()}
+      </Suspense>
       {location.pathname === '/' && (
         <Footer settings={db.settings} onNavigate={handleNavigation} />
       )}
-      <CompleteProfileModal isOpen={completeProfileOpen} onSubmit={handleCompleteProfile} />
-      <AuthModal
+      <Suspense fallback={null}>
+      {completeProfileOpen && <CompleteProfileModal isOpen={completeProfileOpen} onSubmit={handleCompleteProfile} />}
+      {authModalOpen && <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         onLogin={handleLogin}
@@ -2158,14 +2163,15 @@ const AppContent: React.FC = () => {
         onRegister={handleRegister}
         onGoogleLogin={handleGoogleLogin}
         onResendVerification={resendVerification}
-      />
-      <BookingDetailsModal
+      />}
+      {bookingDetailsOpen && <BookingDetailsModal
         isOpen={bookingDetailsOpen}
         booking={selectedBooking}
         competitionEnded={selectedBooking ? isCompetitionEnded(bookingCompetitionFor(selectedBooking)) : false}
         competitionDateLabel={selectedBooking ? bookingCompetitionDateLabel(selectedBooking) : ''}
         onClose={() => { setBookingDetailsOpen(false); setSelectedBooking(null); }}
-      />
+      />}
+      </Suspense>
       <Toast />
 
       {/* Pond map popup */}
@@ -2211,7 +2217,11 @@ const AppContent: React.FC = () => {
       )}
 
       {/* Syarat & Peraturan PDF — in-app popup instead of a new tab */}
-      <DocPreviewModal url={rulesPdfPreview} title="Syarat & Peraturan" onClose={() => setRulesPdfPreview(null)} />
+      {rulesPdfPreview && (
+        <Suspense fallback={null}>
+          <DocPreviewModal url={rulesPdfPreview} title="Syarat & Peraturan" onClose={() => setRulesPdfPreview(null)} />
+        </Suspense>
+      )}
 
       {/* Booking entry choice — Website vs WhatsApp (V5) */}
       <BookingChoiceModal
