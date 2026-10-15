@@ -35,6 +35,9 @@ const SEO_DEFAULTS = {
     },
 };
 
+// Same URL as LANDING_ASSETS.heroBg in src/config/landingAssets.ts (default Drive hero).
+const DEFAULT_HERO_IMG = 'https://lh3.googleusercontent.com/d/1-peYEKZdjfMxCxph7NTi0A3Rz2Y9Q9xL=w1280-rw';
+
 const PAGE_BY_PATH = { '/': 'home', '/book': 'book', '/live': 'live' };
 const PRIVATE_PATHS = new Set(['/confirmed']);
 
@@ -135,6 +138,9 @@ function buildHead(seo, raw, pageKey, urlPath) {
         );
     }
     if (pageKey === 'home') {
+        // The hero background is the LCP element but is only discovered after JS
+        // runs; preloading it starts the download with the HTML.
+        tags.push(`<link rel="preload" as="image" href="${esc(raw.landingImages?.heroBg || DEFAULT_HERO_IMG)}" fetchpriority="high" />`);
         tags.push(`<script type="application/ld+json">${buildLocalBusinessJsonLd(seo, raw)}</script>`);
     }
     return tags.join('\n    ');

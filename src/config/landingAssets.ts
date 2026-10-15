@@ -8,8 +8,10 @@
  */
 
 const drive = (id: string) => `https://lh3.googleusercontent.com/d/${id}`;
-const driveThumb = (id: string, w = 2000) =>
-  `https://drive.google.com/thumbnail?id=${id}&sz=w${w}`;
+// Full-size Drive originals are huge (hero is 1.4 MB). `=w1280-rw` makes Google
+// serve a resized WebP (~175 KB). functions/src/seo.js preloads the hero with
+// the exact same URL - keep them in sync.
+const driveSized = (id: string, w = 1280) => `${drive(id)}=w${w}-rw`;
 
 export const LANDING_ASSETS = {
   logo: {
@@ -22,15 +24,15 @@ export const LANDING_ASSETS = {
   },
   heroBg: {
     cloudinary: '',
-    drive: drive('1-peYEKZdjfMxCxph7NTi0A3Rz2Y9Q9xL'),
+    drive: driveSized('1-peYEKZdjfMxCxph7NTi0A3Rz2Y9Q9xL'),
   },
   pondBg: {
     cloudinary: '',
-    drive: driveThumb('1TEQRIHtwsHuJdJsaWIn1o7FbjJVkovvy'),
+    drive: driveSized('1TEQRIHtwsHuJdJsaWIn1o7FbjJVkovvy'),
   },
   bookingBg: {
     cloudinary: '',
-    drive: driveThumb('1xt79FLXTUHrwme--WglCJfxWjnYbdPtT'),
+    drive: driveSized('1xt79FLXTUHrwme--WglCJfxWjnYbdPtT'),
   },
 } as const;
 
