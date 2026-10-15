@@ -8,9 +8,9 @@ import {
   onAuthStateChanged,
   User as FirebaseUser,
 } from 'firebase/auth';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { callFunction } from '../lib/callable';
 import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
-import app, { auth, db as firestoreDb, FUNCTIONS_REGION, googleProvider, browserPopupRedirectResolver } from '../../lib/firebase';
+import { auth, db as firestoreDb, googleProvider, browserPopupRedirectResolver } from '../../lib/firebase';
 import { useBooking } from '../context/BookingContext';
 import { useUI } from '../context/UIContext';
 import { requestPasswordResetEmail, requestWelcomeEmail } from '../lib/email';
@@ -21,8 +21,7 @@ import { User } from '../types';
 // not Firebase's built-in sender. A callable Cloud Function generates the
 // verification link (Admin SDK) and queues a branded mail doc.
 const callRequestEmailVerification = async (): Promise<void> => {
-  const fns = getFunctions(app, FUNCTIONS_REGION);
-  await httpsCallable(fns, 'requestEmailVerification')();
+  await callFunction('requestEmailVerification');
 };
 
 const mapFirebaseUser = async (firebaseUser: FirebaseUser | null): Promise<User | null> => {

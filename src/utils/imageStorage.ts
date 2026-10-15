@@ -1,5 +1,4 @@
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { storage } from '../../lib/firebase';
+import { loadStorage } from '../lib/storage';
 import { isPdfFile } from './pdfStorage';
 
 // Receipts and other uploaded images are compressed client-side before upload.
@@ -162,6 +161,7 @@ export async function uploadImageToFirebaseStorage(
   if (isPdfFile(file)) {
     throw new Error('Fail PDF mesti dimuat naik ke Firebase Storage melalui pdfStorage.');
   }
+  const { storage, ref, uploadBytes, getDownloadURL } = await loadStorage();
   const objectRef = ref(storage, buildImagePath(folder, file, fileName));
   await uploadBytes(objectRef, file, { contentType: file.type || 'image/jpeg' });
   return getDownloadURL(objectRef);

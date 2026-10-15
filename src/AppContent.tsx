@@ -11,7 +11,6 @@ import BookingForm from './components/BookingForm';
 import BookingChoiceModal from './components/BookingChoiceModal';
 import Toast from './components/Toast';
 import Footer from './components/Footer';
-import CustomLandingHtml from './components/CustomLandingHtml';
 import { BookingSubmitStage, useBooking } from './context/BookingContext';
 import { useUI } from './context/UIContext';
 import { useNavigation } from './hooks/useNavigation';
@@ -39,6 +38,7 @@ const BookingDetailsModal = lazy(() => import('./components/BookingDetailsModal'
 const DocPreviewModal = lazy(() => import('./components/DocPreviewModal'));
 const LiveResults = lazy(() => import('./components/LiveResults'));
 const AuthModal = lazy(() => import('./components/AuthModal'));
+const CustomLandingHtml = lazy(() => import('./components/CustomLandingHtml'));
 const CMSModal = lazy(() => import('./components/CMSModal'));
 const BookingDetailContent = lazy(() => import('./components/BookingDetailContent'));
 const CompleteProfileModal = lazy(() => import('./components/CompleteProfileModal'));

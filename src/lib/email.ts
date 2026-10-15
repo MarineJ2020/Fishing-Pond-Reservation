@@ -1,7 +1,4 @@
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import app, { FUNCTIONS_REGION } from '../../lib/firebase';
-
-const functions = getFunctions(app, FUNCTIONS_REGION);
+import { callFunction } from './callable';
 
 export interface EmailLogEntry {
   id: string;
@@ -21,9 +18,7 @@ export interface EmailLogsPage {
 }
 
 export const getEmailLogsPage = async (cursor: string | null, pageSize = 50): Promise<EmailLogsPage> => {
-  const callable = httpsCallable<{ cursor?: string; pageSize: number }, EmailLogsPage>(functions, 'listEmailLogs');
-  const result = await callable({ ...(cursor ? { cursor } : {}), pageSize });
-  return result.data;
+  return callFunction<{ cursor?: string; pageSize: number }, EmailLogsPage>('listEmailLogs', { ...(cursor ? { cursor } : {}), pageSize });
 };
 
 /**
@@ -31,11 +26,11 @@ export const getEmailLogsPage = async (cursor: string | null, pageSize = 50): Pr
  * subject, and HTML are resolved from trusted Auth/Firestore data in Functions.
  */
 export const requestWelcomeEmail = async (): Promise<void> => {
-  await httpsCallable(functions, 'requestWelcomeEmail')();
+  await callFunction('requestWelcomeEmail');
 };
 
 export const requestBalanceReminderEmail = async (bookingId: string): Promise<void> => {
-  await httpsCallable(functions, 'requestBalanceReminder')({ bookingId });
+  await callFunction('requestBalanceReminder', { bookingId });
 };
 
 /**
@@ -44,5 +39,5 @@ export const requestBalanceReminderEmail = async (bookingId: string): Promise<vo
  * login form cannot be used to enumerate accounts.
  */
 export const requestPasswordResetEmail = async (email: string): Promise<void> => {
-  await httpsCallable(functions, 'requestPasswordReset')({ email });
+  await callFunction('requestPasswordReset', { email });
 };

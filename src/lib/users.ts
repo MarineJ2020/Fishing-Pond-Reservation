@@ -1,5 +1,4 @@
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import app, { FUNCTIONS_REGION } from '../../lib/firebase';
+import { callFunction } from './callable';
 import { UserRole } from '../utils/roles';
 export type { UserRole } from '../utils/roles';
 
@@ -10,12 +9,8 @@ export interface UpdateUserRoleResult {
   role: UserRole;
 }
 
-const functions = getFunctions(app, FUNCTIONS_REGION);
-
 export const updateUserRole = async (uid: string, role: UserRole): Promise<UpdateUserRoleResult> => {
-  const callable = httpsCallable<{ uid: string; role: UserRole }, UpdateUserRoleResult>(functions, 'updateUserRole');
-  const result = await callable({ uid, role });
-  return result.data;
+  return callFunction<{ uid: string; role: UserRole }, UpdateUserRoleResult>('updateUserRole', { uid, role });
 };
 
 export interface LegacyRoleChange {
@@ -29,12 +24,11 @@ export interface LegacyRoleChange {
 
 /** Admin-only: accounts whose stored role is missing or non-standard (no writes). */
 export const previewLegacyRoles = async (): Promise<LegacyRoleChange[]> => {
-  const callable = httpsCallable<{ dryRun: true }, { total: number; changes: LegacyRoleChange[] }>(functions, 'backfillUserRoleClaims');
-  return (await callable({ dryRun: true })).data.changes || [];
+  const data = await callFunction<{ dryRun: true }, { total: number; changes: LegacyRoleChange[] }>('backfillUserRoleClaims', { dryRun: true });
+  return data.changes || [];
 };
 
 /** Admin-only: rewrite every role to its standard value and resync auth claims. */
 export const fixLegacyRoles = async (): Promise<{ fixedRoles: number; failed: number }> => {
-  const callable = httpsCallable<Record<string, never>, { fixedRoles: number; failed: number }>(functions, 'backfillUserRoleClaims');
-  return (await callable({})).data;
+  return callFunction<Record<string, never>, { fixedRoles: number; failed: number }>('backfillUserRoleClaims', {});
 };

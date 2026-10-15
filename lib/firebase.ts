@@ -15,10 +15,6 @@ import {
   getFirestore,
   connectFirestoreEmulator,
 } from 'firebase/firestore';
-import {
-  getStorage,
-  connectStorageEmulator,
-} from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -72,7 +68,6 @@ export const auth = (() => {
   }
 })();
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 
 // Cloud Functions run next to Firestore in Singapore. Must match REGION in
 // functions/src/regions.js; getFunctions() would otherwise default to us-central1.
@@ -117,12 +112,6 @@ if (useEmulator && typeof window !== 'undefined') {
     } catch (error) {
       console.warn('Unable to connect Firestore emulator:', error);
     }
-  }
-
-  try {
-    connectStorageEmulator(storage, 'localhost', 9199);
-  } catch (error) {
-    console.warn('Unable to connect Storage emulator:', error);
   }
 }
 

@@ -1,5 +1,4 @@
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { storage } from '../../lib/firebase';
+import { loadStorage } from '../lib/storage';
 
 const PDF_MIME = 'application/pdf';
 
@@ -39,6 +38,7 @@ export async function uploadPdfToFirebaseStorage(
     throw new Error('Hanya fail PDF dibenarkan untuk fungsi ini.');
   }
 
+  const { storage, ref, uploadBytes, getDownloadURL } = await loadStorage();
   const objectRef = ref(storage, buildPdfPath(folder, fileName));
   await uploadBytes(objectRef, file, { contentType: PDF_MIME });
   return getDownloadURL(objectRef);
