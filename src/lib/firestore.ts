@@ -1315,6 +1315,18 @@ export const updateSettings = async (updates: Partial<Settings>) => {
   }, { merge: true });
 };
 
+/**
+ * Settings the server inlined into the page HTML (functions/src/seo.js sets
+ * window.__KKS_SETTINGS__). Lets the home hero paint without waiting for
+ * Firestore; subscribeSettings() then keeps it live. Null when not inlined.
+ */
+export const bootstrapSettings = (): Settings | null => {
+  if (typeof window === 'undefined') return null;
+  const raw = (window as any).__KKS_SETTINGS__;
+  if (!raw || typeof raw !== 'object') return null;
+  try { return normalizeSettings(raw); } catch { return null; }
+};
+
 /** Shared live settings for CMS and public pages, normalized identically to initial loads. */
 export const subscribeSettings = (onChange: (settings: Settings) => void) =>
   onSnapshot(doc(db, 'settings', 'global'),

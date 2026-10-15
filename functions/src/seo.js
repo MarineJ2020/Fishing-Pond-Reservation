@@ -81,6 +81,9 @@ const mergeSeo = (raw) => {
     };
 };
 
+// JSON for an inline <script>: escape '<' so "</script>" in a value can't end the tag.
+const inlineJson = (value) => JSON.stringify(value).replace(/</g, '\\u003c');
+
 function buildLocalBusinessJsonLd(seo, raw) {
     const ld = {
         '@context': 'https://schema.org',
@@ -147,6 +150,8 @@ function buildHead(seo, raw, pageKey, urlPath) {
         // The hero background is the LCP element but is only discovered after JS
         // runs; preloading it starts the download with the HTML.
         tags.push(`<link rel="preload" as="image" href="${esc(raw.landingImages?.heroBg ? cdnImage(raw.landingImages.heroBg) : DEFAULT_HERO_IMG)}" fetchpriority="high" />`);
+        // Inline the (public) settings doc so the client can paint the hero before Firestore answers.
+        tags.push(`<script>window.__KKS_SETTINGS__=${inlineJson(raw)}</script>`);
         tags.push(`<script type="application/ld+json">${buildLocalBusinessJsonLd(seo, raw)}</script>`);
     }
     return tags.join('\n    ');

@@ -29,6 +29,10 @@ import { heldPegKeys } from './utils/pegHolds';
 import { friendlyError } from './utils/friendlyError';
 import { Booking } from './types';
 import { asset } from './config/landingAssets';
+import { bootstrapSettings } from './lib/firestore';
+
+// True when the server inlined settings, so the home hero can paint before Firestore loads.
+const HAS_INLINE_SETTINGS = bootstrapSettings() !== null;
 
 // Code-split heavy / rarely-needed UI so the first paint downloads less JS.
 const BookingDetailsModal = lazy(() => import('./components/BookingDetailsModal'));
@@ -1117,6 +1121,8 @@ const AppContent: React.FC = () => {
         )}
       </section>
 
+      {/* Everything below the hero depends on competitions/ponds, so wait for them. */}
+      {!dbLoading && (<>
       {/* INTRO */}
       <section className="kks-section kks-intro" id="about" style={{ backgroundImage: `linear-gradient(180deg, rgba(255,255,255,.78), rgba(255,255,255,.84)), url('${asset('pondBg', settings)}')` }}>
         {settings.landingSections.about.mode === 'html' ? (
@@ -1376,13 +1382,14 @@ const AppContent: React.FC = () => {
           </div>
         </div>}
       </section>
+      </>)}
 
     </div>
     );
   };
 
   const renderSection = () => {
-    if (dbLoading && (currentSection === 'home' || currentSection === 'book')) {
+    if (dbLoading && (currentSection === 'book' || (currentSection === 'home' && !HAS_INLINE_SETTINGS))) {
       return (
         <main className="kks-page-loading" aria-busy="true" aria-live="polite">
           <span className="kks-page-loading-spinner" aria-hidden="true" />
@@ -2150,7 +2157,7 @@ const AppContent: React.FC = () => {
       <Suspense fallback={<div style={{ minHeight: '60dvh' }} />}>
         {renderSection()}
       </Suspense>
-      {location.pathname === '/' && (
+      {location.pathname === '/' && !dbLoading && (
         <Footer settings={db.settings} onNavigate={handleNavigation} />
       )}
       <Suspense fallback={null}>

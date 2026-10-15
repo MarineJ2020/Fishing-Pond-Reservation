@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, ReactNode, useCallback, use
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { DB, User, Pond, Booking, BookingPondSelection, Settings } from '../types';
 import { emptyDB, setDB } from '../data';
-import { getAllBookingDocs, getBookingById, getBookingDocsForCompetitions, getBookings, getRefundBookingDocs, loadAppDB, loadAvailabilityOnly, subscribeSettings } from '../lib/firestore';
+import { getAllBookingDocs, getBookingById, getBookingDocsForCompetitions, getBookings, getRefundBookingDocs, loadAppDB, loadAvailabilityOnly, subscribeSettings, bootstrapSettings } from '../lib/firestore';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { createBooking as createBookingApi, holdPegs as holdPegsApi, releaseHold as releaseHoldApi } from '../lib/api';
 import { heldPegKeys, holderKeyFor } from '../utils/pegHolds';
@@ -102,7 +102,10 @@ const uploadReceipt = async (receiptData: string, receiptFile: File): Promise<st
 };
 
 export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [db, setDbState] = useState<DB>(emptyDB);
+  const [db, setDbState] = useState<DB>(() => {
+    const settings = bootstrapSettings();
+    return settings ? { ...emptyDB, settings } : emptyDB;
+  });
   const [user, setUser] = useState<User | null>(null);
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
   const [selectedPond, setSelectedPond] = useState<number | null>(null);
