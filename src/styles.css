@@ -4168,3 +4168,20 @@ nav.kks-legacy-v3-nav::before {
 @media (max-width: 900px) {
   .cms-content, .cms-content-area { padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Public pages / modals on mobile: vh ignores the browser's collapsing bars, so
+   content and modal footers end up behind the bottom bar. Prefer dvh. */
+@supports (height: 100dvh) {
+  .hero { min-height: 100dvh; }
+  .booking-layout { min-height: calc(100dvh - 68px); }
+  .confirm-page { min-height: calc(100dvh - 68px); }
+  .kks-page-loading { min-height: calc(100dvh - 72px); }
+  .summary-card { max-height: calc(100dvh - 106px); }
+  .modal { max-height: 92dvh; }
+  .modal-box { max-height: 85dvh; }
+}
+@media (max-width: 768px) {
+  footer { padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); }
+  .booking-layout, .confirm-page { padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); }
+  .modal, .modal-box { padding-bottom: env(safe-area-inset-bottom, 0px); }
+}

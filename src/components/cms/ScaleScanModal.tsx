@@ -886,7 +886,7 @@ const ScaleScanModal: React.FC<Props> = ({
     >
       <div
         className="modal"
-        style={{ maxWidth: 760, width: '95%', maxHeight: '92vh', overflow: 'auto' }}
+        style={{ maxWidth: 760, width: '95%', maxHeight: '92dvh', overflow: 'auto' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">

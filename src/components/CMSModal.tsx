@@ -6151,7 +6151,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         const isPdf = /\.pdf($|\?)/i.test(receiptViewerUrl) || receiptViewerUrl.startsWith('data:application/pdf');
         return (
         <div className="modal-overlay open" style={{ zIndex: 1100 }} onClick={() => setReceiptViewerUrl(null)}>
-          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90dvh' }} onClick={(e) => e.stopPropagation()}>
             <button
               className="modal-close"
               onClick={() => setReceiptViewerUrl(null)}
@@ -6162,14 +6162,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <iframe
                 title="Slip Bayaran PDF"
                 src={receiptViewerUrl}
-                style={{ width: '90vw', height: '85vh', border: 'none', borderRadius: 8, background: '#fff', display: 'block' }}
+                style={{ width: '90vw', height: '85dvh', border: 'none', borderRadius: 8, background: '#fff', display: 'block' }}
               />
             ) : (
               <img
                 src={receiptViewerUrl}
                 alt="Slip Bayaran"
                 onLoad={(e) => { const w = e.currentTarget.naturalWidth; const h = e.currentTarget.naturalHeight; setReceiptViewerMeta(m => ({ ...m, width: w, height: h })); }}
-                style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, display: 'block', background: '#000' }}
+                style={{ maxWidth: '90vw', maxHeight: '85dvh', borderRadius: 8, display: 'block', background: '#000' }}
               />
             )}
             <div style={{ marginTop: 8, textAlign: 'center', color: '#fff', fontSize: '0.78rem', display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>

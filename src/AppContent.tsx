@@ -1246,7 +1246,7 @@ const AppContent: React.FC = () => {
 
       {pondPickerOpen && (
         <div className="modal-overlay open" onClick={() => setPondPickerOpen(false)}>
-          <div className="modal" style={{ maxWidth: '920px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: '920px', width: '95%', maxHeight: '90dvh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Pilih Kolam Untuk {selectedCompetition?.name || 'Pertandingan'}</div>
               <button className="modal-close" onClick={() => setPondPickerOpen(false)}>×</button>
@@ -2203,7 +2203,7 @@ const AppContent: React.FC = () => {
               <img
                 src={db.settings.pondMapImg}
                 alt="Susunan kolam"
-                style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: '8px' }}
+                style={{ maxWidth: '100%', maxHeight: '75dvh', objectFit: 'contain', borderRadius: '8px' }}
               />
             </div>
           </div>

@@ -142,7 +142,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
         display: 'flex',
         flexDirection: 'column',
         gap: '20px',
-        maxHeight: inPage ? undefined : 'calc(92vh - 96px)',
+        maxHeight: inPage ? undefined : 'calc(92dvh - 96px)',
         overflowY: inPage ? undefined : 'auto',
         overscrollBehavior: 'contain',
       }}

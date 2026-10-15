@@ -55,7 +55,7 @@ const QrCardPage: React.FC = () => {
   }, [valid, lines, filename]);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f4f6f8', display: 'flex', justifyContent: 'center', padding: '24px 16px', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100dvh', background: '#f4f6f8', display: 'flex', justifyContent: 'center', padding: '24px 16px', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ width: '100%', maxWidth: 420, textAlign: 'center' }}>
         <h1 style={{ fontSize: 20, color: '#112a41', margin: '0 0 14px' }}>QR Peg Anda</h1>
         {!valid || error ? (
