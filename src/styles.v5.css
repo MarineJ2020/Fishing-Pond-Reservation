@@ -312,7 +312,9 @@
   position: fixed; inset: 0; z-index: 10000;
   display: flex; align-items: center; justify-content: center;
   padding: 18px;
-  background: rgba(7, 24, 39, .72); backdrop-filter: blur(8px);
+  /* No backdrop-filter: a full-screen blur layer plus pinch-zooming a large photo
+     exhausts GPU memory on phones and the browser tab crashes. */
+  background: rgba(7, 24, 39, .82);
   animation: fadeIn .18s ease;
 }
 .doc-preview-dialog {
@@ -333,9 +335,15 @@
   background: #fff; color: var(--navy); cursor: pointer; font-size: 14px;
 }
 .doc-preview-close:hover { background: var(--cream); }
-.doc-preview-body { flex: 1; min-height: 0; background: #f1f5f9; display: flex; }
+.doc-preview-body { flex: 1; min-height: 0; background: #f1f5f9; display: flex; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y pinch-zoom; }
 .doc-preview-frame { width: 100%; height: 100%; border: 0; background: #fff; }
 .doc-preview-img { width: 100%; height: 100%; object-fit: contain; padding: 14px; }
+@media (max-width: 768px) {
+  /* Drop the entry animations and shadow so the dialog isn't a heavy composited
+     layer while the user pinch-zooms. */
+  .doc-preview-modal, .doc-preview-dialog { animation: none; }
+  .doc-preview-dialog { box-shadow: none; }
+}
 
 /* -------------------------------------------------------------------------
    7. CMS Hadiah — V5 prize tiers (ranges) list

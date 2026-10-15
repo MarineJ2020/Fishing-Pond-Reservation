@@ -37,7 +37,7 @@ const DocPreviewModal: React.FC<DocPreviewModalProps> = ({ url, title, onClose }
           {pdf ? (
             <iframe title={title || 'Dokumen PDF'} src={url} className="doc-preview-frame" />
           ) : (
-            <img src={url} alt={title || 'Imej'} className="doc-preview-img" />
+            <img src={url} alt={title || 'Imej'} className="doc-preview-img" decoding="async" />
           )}
         </div>
       </div>
