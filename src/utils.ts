@@ -55,13 +55,55 @@ export const getPrizeLabel = (rank: number, prizes: Prize[]): string => {
   return '';
 };
 
+/**
+ * Competition ranking over entries already sorted best-first. Every record is its
+ * own entry (a peg may appear many times). Records with the same ranked weight AND
+ * the same capture minute tie: they share a rank, the next rank skips ahead
+ * (1, 2, 2, 4), and `tieCount` says how many share it so the prize can be split.
+ */
+export const assignTieRanks = <T extends { rankWeight: number; capturedAt?: unknown }>(sorted: T[]): (T & { rank: number; tieCount: number })[] => {
+  const minuteOf = (e: T) => Math.floor(scoreTime(e.capturedAt) / 60000);
+  const out: (T & { rank: number; tieCount: number })[] = [];
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i + 1;
+    while (j < sorted.length && sorted[j].rankWeight === sorted[i].rankWeight && minuteOf(sorted[j]) === minuteOf(sorted[i])) j++;
+    for (let k = i; k < j; k++) out.push({ ...sorted[k], rank: i + 1, tieCount: j - i });
+    i = j;
+  }
+  return out;
+};
+
+const parseRM = (s: string): number | null => {
+  const m = s.match(/^\s*RM\s*([\d,]+(?:\.\d+)?)\s*$/i);
+  return m ? Number(m[1].replace(/,/g, '')) : null;
+};
+
+/** Prize for a (possibly tied) rank. Tied entries split the combined prizes of the places they occupy. */
+export const getSharedPrize = (rank: number, tieCount: number, prizes: Prize[]): string => {
+  if (tieCount <= 1) return getPrize(rank, prizes);
+  let total = 0;
+  let any = false;
+  for (let pos = rank; pos < rank + tieCount; pos++) {
+    const p = getPrize(pos, prizes);
+    if (!p) continue;
+    const amount = parseRM(p);
+    if (amount == null) return getPrize(rank, prizes) ? `${getPrize(rank, prizes)} (dikongsi)` : '';
+    total += amount;
+    any = true;
+  }
+  if (!any) return '';
+  const share = total / tieCount;
+  return `RM ${share.toLocaleString('en-MY', { maximumFractionDigits: 2 })} (dikongsi ${tieCount})`;
+};
+
 export const rbc = (r: number): string => r === 1 ? 'r1' : r === 2 ? 'r2' : r === 3 ? 'r3' : 'rn';
 
 export const rbg = (r: number): string => r === 1 ? 'rgba(255,215,0,.15)' : r === 2 ? 'rgba(192,192,192,.15)' : r === 3 ? 'rgba(205,127,50,.15)' : 'var(--surface2)';
 
 export const rbc2 = (r: number): string => r === 1 ? 'gold' : r === 2 ? 'silver' : r === 3 ? '#cd7f32' : 'var(--muted)';
 
-const scoreTime = (value?: unknown): number => {
+export const scoreTime = (value?: unknown): number => {
   if (!value) return 0;
   if (typeof (value as any)?.toMillis === 'function') {
     const ms = (value as any).toMillis();

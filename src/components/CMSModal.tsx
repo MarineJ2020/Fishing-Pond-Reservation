@@ -60,7 +60,7 @@ import { RECENT_COMPETITION_DAYS } from '../lib/firestore';
 import { formatSeat, formatSeatList, pondDisplayName, pondRange, chainStarts } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { downloadQrCard } from '../utils/qrDownload';
-import { prizeRange, formatDate } from '../utils';
+import { prizeRange, formatDate, assignTieRanks, getSharedPrize } from '../utils';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull, ScannedSeatEntry } from './cms/ScaleScanModal';
 import { prewarmOcr } from '../utils/scaleOcr';
 import DocPreviewModal from './DocPreviewModal';
@@ -2686,22 +2686,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const getPrizeRecordRows = (): PrizeRecordRow[] => {
     if (!prizeRecordCompetition) return [];
     const claimByRank = new Map(prizeClaims.map((claim) => [claim.rank, claim]));
-    return [...prizeRecordScores]
-      .sort((a, b) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a)))
-      .map((entry, index) => {
-        const rank = index + 1;
+    return assignTieRanks(
+      [...prizeRecordScores]
+        .sort((a, b) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a)))
+        .map((entry) => ({ ...entry, rankWeight: scoreRankWeight(entry, settings.ocrDecimalPlaces) })),
+    )
+      .map((entry) => {
+        const { rank, tieCount } = entry;
         const booking = entry.bookingId ? bookingById.get(entry.bookingId) : undefined;
         return {
           ...entry,
           rank,
-          prize: prizeRecordCompetition ? prizeRecordCompetition.prizes.find((p) => {
+          prize: getSharedPrize(rank, tieCount, prizeRecordCompetition.prizes),
+          prizeLabel: prizeRecordCompetition.prizes.find((p) => {
             const [from, to] = prizeRange(p);
             return rank >= from && rank <= to;
-          })?.prize || '' : '',
-          prizeLabel: prizeRecordCompetition ? prizeRecordCompetition.prizes.find((p) => {
-            const [from, to] = prizeRange(p);
-            return rank >= from && rank <= to;
-          })?.label || '' : '',
+          })?.label || '',
           claim: claimByRank.get(rank),
           booking,
         };
@@ -4186,9 +4186,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const scorePondOptions = Array.from(new Set(scoreEntries.map((entry) => entry.pondName).filter(Boolean))).sort();
             const pegQ = scorePegFilter.trim().toLowerCase();
             const nameQ = scoreNameFilter.trim().toLowerCase();
-            const rankedEntries = [...scoreEntries]
-              .sort((a, b) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a)))
-              .map((entry, index) => ({ ...entry, rank: index + 1 }));
+            const rankedEntries = assignTieRanks(
+              [...scoreEntries]
+                .sort((a, b) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a)))
+                .map((entry) => ({ ...entry, rankWeight: scoreRankWeight(entry, settings.ocrDecimalPlaces) })),
+            );
             const sortedEntries = rankedEntries.filter((entry) => {
               const seatLabel = String(entry.seatNum).toLowerCase();
               return (!pegQ || seatLabel.includes(pegQ))
@@ -4212,10 +4214,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 entry.pondName,
                 formatSeat(ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum),
                 formatWeight(entry.weight, settings.ocrDecimalPlaces),
-                selectedResultsComp?.prizes?.find((prize) => {
-                  const [from, to] = prizeRange(prize);
-                  return entry.rank >= from && entry.rank <= to;
-                })?.prize || '',
+                getSharedPrize(entry.rank, entry.tieCount, selectedResultsComp?.prizes || []),
                 entry.photoUrl || '',
               ]);
               const seatOf = (pondId: number, seatNum: number) => formatSeat(ponds.find((pond) => pond.id === pondId)?.code, seatNum);

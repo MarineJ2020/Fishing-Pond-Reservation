@@ -3,7 +3,7 @@ import { fastestRecords, mostRecordRanking } from '../utils/specialPrizes';
 import { Competition, Score, ScoreEntry, Pond, Booking, User, DB } from '../types';
 import { formatWeight } from '../utils/weight';
 import type { Settings } from '../types';
-import { getLB, getPrize, p2, formatDate } from '../utils';
+import { assignTieRanks, getSharedPrize, p2, formatDate, scoreTime } from '../utils';
 import { getCompetitionPhase, isCompetitionEnded } from '../utils/competition';
 import { formatSeat } from '../utils/seatLabel';
 import { collection, query, where, onSnapshot, doc, getDocs } from 'firebase/firestore';
@@ -26,6 +26,28 @@ const PAST_PAGE_SIZE = 10;
 const rankWeightForDisplay = (weight: number, decimalPlaces: Settings['ocrDecimalPlaces']): number => {
   if (!Number.isFinite(weight) || decimalPlaces === undefined || ![0, 1, 2, 3].includes(decimalPlaces)) return weight;
   return Number(weight.toFixed(decimalPlaces));
+};
+
+// Every weigh-in record is its own leaderboard row (a peg can appear many times).
+// Rows with the same weight and capture minute tie and share a rank.
+const buildLeaderboard = (entries: ScoreEntry[], decimalPlaces: Settings['ocrDecimalPlaces']) => {
+  const rows = entries
+    .filter(e => e.weight != null && Number.isFinite(Number(e.weight)))
+    .map(e => {
+      const weight = Number(e.weight);
+      return {
+        id: e.id || `${e.pondId}:${e.seatNum}:${weight}`,
+        peg: e.seatNum,
+        name: e.anglerName || `Angler #${e.seatNum}`,
+        weight,
+        rankWeight: rankWeightForDisplay(weight, decimalPlaces),
+        pondId: e.pondId,
+        pondName: e.pondName,
+        capturedAt: (e as any).updatedAt || (e as any).createdAt || e.capturedAt,
+      };
+    })
+    .sort((a, b) => (b.rankWeight - a.rankWeight) || (scoreTime(b.capturedAt) - scoreTime(a.capturedAt)));
+  return assignTieRanks(rows);
 };
 
 // Format a Firestore Timestamp / ISO string into a short Malay time, e.g. "9:45 malam".
@@ -158,17 +180,8 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   }, [displayComp]);
 
   // Build scores record from live entries
-  const scoresRecord: Record<number, Score> = {};
-  const timeByPeg: Record<number, string> = {};
-  liveScores.forEach(e => {
-    const capturedAt = (e as any).updatedAt || (e as any).createdAt || e.capturedAt;
-    scoresRecord[e.seatNum] = { weight: e.weight, rankWeight: rankWeightForDisplay(e.weight, decimalPlaces), anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName, capturedAt };
-    timeByPeg[e.seatNum] = fmtTime(capturedAt);
-  });
-
-  const fullLb = getLB(scoresRecord);
   const pegSearchTerm = pegSearch.trim().toLowerCase();
-  const rankedLb = fullLb.map((entry, index) => ({ ...entry, rank: index + 1 }));
+  const rankedLb = buildLeaderboard(liveScores, decimalPlaces);
   const lb = (pegSearchTerm
     ? rankedLb.filter((entry) => {
         const pond = ponds.find(p => p.id === entry.pondId);
@@ -256,18 +269,13 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
   const safePastPage = Math.min(pastPage, pastPageCount - 1);
   const pastPageComps = endedComps.slice(safePastPage * PAST_PAGE_SIZE, (safePastPage + 1) * PAST_PAGE_SIZE);
   const selectedPastComp = competitions.find(c => c.id === selectedPastId) || null;
-  const pastScoresRecord: Record<number, Score> = {};
-  pastScores.forEach(e => {
-    const capturedAt = (e as any).updatedAt || (e as any).createdAt || e.capturedAt;
-    pastScoresRecord[e.seatNum] = { weight: e.weight, rankWeight: rankWeightForDisplay(e.weight, decimalPlaces), anglerName: e.anglerName, pondId: e.pondId, pondName: e.pondName, capturedAt };
-  });
-  const pastLb = getLB(pastScoresRecord);
+  const pastLb = buildLeaderboard(pastScores, decimalPlaces);
   const pastWinners = pastLb.slice(0, selectedPastComp?.topN || 10);
   const pastParticipants = availability.filter(b => b.competitionId === selectedPastId && b.status === 'confirmed')
     .reduce((total, b) => total + (b.pondSelections?.reduce((count, s) => count + s.seats.length, 0) || b.seats.length), 0);
   const pastPonds = selectedPastComp?.activePondIds?.length || 0;
   const pastChampWeight = pastLb[0]?.weight;
-  const pastChampPrize = selectedPastComp ? getPrize(1, selectedPastComp.prizes) : '';
+  const pastChampPrize = selectedPastComp && pastLb[0] ? getSharedPrize(1, pastLb[0].tieCount, selectedPastComp.prizes) : '';
   const pastChampion = pastWinners[0];
   // Same time source as CMS > Keputusan (getScoresForCompetition), so winners match.
   const pastTimedScores = pastScores.map(e => ({ ...e, capturedAt: (e as any).updatedAt || (e as any).createdAt || e.capturedAt }));
@@ -386,9 +394,9 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                   const pond = ponds.find(p => p.id === e.pondId);
                   const pondName = (pond?.name || e.pondName || '').split('—')[0].trim();
                   const seatLabel = formatSeat(pond?.code, e.peg);
-                  const time = timeByPeg[e.peg];
+                  const time = fmtTime(e.capturedAt);
                   return (
-                    <article key={e.peg} className={`kl-rank-row ${rank === 1 ? 'champ' : ''} ${isMe ? 'me' : ''}`}>
+                    <article key={e.id} className={`kl-rank-row ${rank === 1 ? 'champ' : ''} ${isMe ? 'me' : ''}`}>
                       <div className="kl-rank-no">{p2(rank)}</div>
                       <div className="kl-angler">
                         <strong className="kl-peg-primary"><small>No. Pancang</small>{seatLabel}</strong>
@@ -428,7 +436,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                       const pond = ponds.find(p => p.id === entry.pondId);
                       return (
                         <div
-                          key={`${entry.pondId}:${entry.peg}`}
+                          key={entry.id}
                           style={{
                             display: 'grid',
                             gridTemplateColumns: '1fr auto auto',
@@ -633,14 +641,14 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               </div>
               {pastLoading ? (
                 <div className="kl-no-data">Memuatkan keputusan…</div>
-              ) : pastWinners.length ? pastWinners.map((e, i) => {
-                const rank = i + 1;
-                const prize = selectedPastComp ? getPrize(rank, selectedPastComp.prizes) : '';
+              ) : pastWinners.length ? pastWinners.map((e) => {
+                const rank = e.rank;
+                const prize = selectedPastComp ? getSharedPrize(rank, e.tieCount, selectedPastComp.prizes) : '';
                 const pond = ponds.find(p => p.id === e.pondId);
                 const pondName = (pond?.name || e.pondName || '').split('—')[0].trim();
                 const seatLabel = formatSeat(pond?.code, e.peg);
                 return (
-                  <div key={e.peg} className={`kl-winner-row${rank === 1 ? ' is-champion' : ''}`}>
+                  <div key={e.id} className={`kl-winner-row${rank === 1 ? ' is-champion' : ''}`}>
                     <div><span className="kl-winner-rank">{p2(rank)}</span></div>
                     <div className="kl-winner-entry">
                       <strong><small>No. Pancang</small>{seatLabel}</strong>
