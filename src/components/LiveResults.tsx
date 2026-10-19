@@ -655,7 +655,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                       <span>Peserta: <b>{e.name}</b></span>
                     </div>
                     <div className="kl-winner-pond"><i className="fa-solid fa-water"></i> {pondName || '—'}</div>
-                    <div>{formatWeight(e.weight, decimalPlaces)}kg</div>
+                    <div>{formatWeight(e.weight, decimalPlaces)}kg{fmtTime(e.capturedAt) && <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: '.72rem' }}><i className="fa-solid fa-clock"></i> {fmtTime(e.capturedAt)}</small>}</div>
                     <div>{prize || '—'}</div>
                   </div>
                 );
