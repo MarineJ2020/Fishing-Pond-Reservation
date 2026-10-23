@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry, LandingSectionKey, PrizeClaim } from '../types';
 import { gs } from '../data';
 import PondEditor from './PondEditor';
+import DateTimeField from './DateTimeField';
 import { fastestRecords, mostRecordRanking } from '../utils/specialPrizes';
 import { CANCEL_TYPE_OPTIONS, bookingPaidAmount, cancelMoneyLabel, isRefundPending, type CancelType } from '../utils/cancellation';
 import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
@@ -795,16 +796,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const getCompetitionStatusMeta = (competition: Partial<Competition>) => {
     return getCompetitionCmsStatusMeta(competition, nowTick);
-  };
-
-  const openDatePicker = (event: React.MouseEvent<HTMLElement>) => {
-    const wrap = event.currentTarget.closest('.date-input-wrap') as HTMLElement | null;
-    const input = wrap?.querySelector('input[type="date"], input[type="datetime-local"]') as HTMLInputElement | null;
-    if (!input) return;
-    input.focus();
-    if (typeof (input as any).showPicker === 'function') {
-      (input as any).showPicker();
-    }
   };
 
   if (!isOpen) return null;
@@ -3256,13 +3247,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="card-body">
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
                     <div className="form-group"><label className="form-label">Nama</label><input className="form-input" value={compCreate.name} onChange={e => setCompCreate({ ...compCreate, name: e.target.value })} placeholder="Contoh: Pertandingan Apex" /></div>
-                    <div className="form-group"><label className="form-label">Tarikh &amp; Masa Mula</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={compCreate.startDateTime} onChange={e => setCompCreate({ ...compCreate, startDateTime: e.target.value })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
+                    <div className="form-group"><label className="form-label">Tarikh &amp; Masa Mula</label><DateTimeField value={compCreate.startDateTime} onChange={(v: string) => setCompCreate({ ...compCreate, startDateTime: v })} /></div>
                     <div className="form-group">
                       <label className="form-label">Tarikh &amp; Masa Tamat</label>
-                      <div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={compCreate.endDateTime} onChange={e => setCompCreate({ ...compCreate, endDateTime: e.target.value })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div>
+                      <DateTimeField value={compCreate.endDateTime} onChange={(v: string) => setCompCreate({ ...compCreate, endDateTime: v })} />
                     </div>
-                    <div className="form-group"><label className="form-label">Tarikh &amp; Masa Buka Tempahan</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={compCreate.bookingOpenAt} onChange={e => setCompCreate({ ...compCreate, bookingOpenAt: e.target.value })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
-                    <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tutup Tempahan</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={compCreate.bookingCloseAt} onChange={e => setCompCreate({ ...compCreate, bookingCloseAt: e.target.value })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
+                    <div className="form-group"><label className="form-label">Tarikh &amp; Masa Buka Tempahan</label><DateTimeField value={compCreate.bookingOpenAt} onChange={(v: string) => setCompCreate({ ...compCreate, bookingOpenAt: v })} /></div>
+                    <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tutup Tempahan</label><DateTimeField value={compCreate.bookingCloseAt} onChange={(v: string) => setCompCreate({ ...compCreate, bookingCloseAt: v })} /></div>
                     <div className="form-group"><label className="form-label">Harga Pancang (RM)</label><input className="form-input" type="number" min="1" value={compCreate.pricePerPeg} onChange={e => setCompCreate({ ...compCreate, pricePerPeg: Number(e.target.value) })} /></div>
                     <div className="form-group"><label className="form-label">Jumlah Kedudukan Dipaparkan</label><input className="form-input" type="number" min="1" value={compCreate.topN} onChange={e => setCompCreate({ ...compCreate, topN: Number(e.target.value) })} /></div>
                     <div className="form-group"><label className="form-label">Teks Hadiah di Laman Utama</label><input className="form-input" maxLength={120} value={compCreate.prizeHighlight} onChange={e => setCompCreate({ ...compCreate, prizeHighlight: e.target.value })} placeholder="Contoh: Cabutan bertuah & hadiah lumayan" /></div>
@@ -5786,10 +5777,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
                 <div className="form-grid">
                   <div className="form-group"><label className="form-label">Nama Pertandingan</label><input className="form-input" value={compEdit.name || ''} onChange={(e) => setCompEdit({ ...compEdit, name: e.target.value })} /></div>
-                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Mula</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.startDate)} onChange={(e) => e.target.value && setCompEdit({ ...compEdit, startDate: new Date(e.target.value).toISOString() })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
-                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tamat</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.endDate)} onChange={(e) => e.target.value && setCompEdit({ ...compEdit, endDate: new Date(e.target.value).toISOString() })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
-                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Buka Tempahan</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.bookingOpenAt || '')} onChange={(e) => setCompEdit({ ...compEdit, bookingOpenAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
-                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tutup Tempahan</label><div className="date-input-wrap" onClick={openDatePicker}><input className="form-input" type="datetime-local" value={toLocalDatetime(compEdit.bookingCloseAt || '')} onChange={(e) => setCompEdit({ ...compEdit, bookingCloseAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })} /><span className="date-picker-btn" aria-hidden="true">📅</span></div></div>
+                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Mula</label><DateTimeField value={toLocalDatetime(compEdit.startDate)} onChange={(v: string) => v && setCompEdit({ ...compEdit, startDate: new Date(v).toISOString() })} /></div>
+                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tamat</label><DateTimeField value={toLocalDatetime(compEdit.endDate)} onChange={(v: string) => v && setCompEdit({ ...compEdit, endDate: new Date(v).toISOString() })} /></div>
+                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Buka Tempahan</label><DateTimeField value={toLocalDatetime(compEdit.bookingOpenAt || '')} onChange={(v: string) => setCompEdit({ ...compEdit, bookingOpenAt: v ? new Date(v).toISOString() : undefined })} /></div>
+                  <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tutup Tempahan</label><DateTimeField value={toLocalDatetime(compEdit.bookingCloseAt || '')} onChange={(v: string) => setCompEdit({ ...compEdit, bookingCloseAt: v ? new Date(v).toISOString() : undefined })} /></div>
                   <div className="form-group">
                     <label className="form-label">Harga Pancang (RM)</label>
                     <input className="form-input" type="number" min="1" step="1" value={compEdit.pricePerPeg ?? 100} onChange={(e) => setCompEdit({ ...compEdit, pricePerPeg: Math.max(0, parseInt(e.target.value) || 0) })} />

@@ -753,6 +753,30 @@ footer {
   pointer-events: none;
 }
 .date-picker-btn:hover { background: rgba(231,25,45,0.16); }
+.dtp-pop { position: fixed; z-index: 100000; background: var(--white, #fff); border: 1.5px solid var(--border); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.22); padding: 12px; font-size: 0.85rem; color: var(--text); cursor: default; }
+.dtp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.dtp-title { font-weight: 700; }
+.dtp-nav { border: none; background: var(--cream); width: 34px; height: 34px; border-radius: 8px; font-size: 1.2rem; cursor: pointer; color: var(--text); }
+.dtp-nav:hover { background: rgba(231,25,45,0.12); }
+.dtp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.dtp-dow { font-size: 0.7rem; font-weight: 700; opacity: 0.6; padding: 4px 0; }
+.dtp-day, .dtp-t { border: none; background: transparent; border-radius: 8px; height: 34px; cursor: pointer; color: var(--text); font: inherit; }
+.dtp-day:hover, .dtp-t:hover { background: rgba(231,25,45,0.12); }
+.dtp-day.today { box-shadow: inset 0 0 0 1.5px var(--gold, #e7192d); }
+.dtp-day.sel, .dtp-t.sel { background: var(--gold, #e7192d); color: #fff; font-weight: 700; }
+.dtp-label { font-size: 0.7rem; font-weight: 700; opacity: 0.6; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.dtp-times { display: grid; gap: 4px; }
+.dtp-times.cols6 { grid-template-columns: repeat(6, 1fr); }
+.dtp-times .dtp-t { background: var(--cream); }
+.dtp-times .dtp-t.sel, .dtp-ampm .dtp-t.sel { background: var(--gold, #e7192d); }
+.dtp-row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; gap: 8px; }
+.dtp-exact { display: flex; align-items: center; gap: 6px; }
+.dtp-exact input { width: 58px; padding: 6px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--cream); font: inherit; color: var(--text); }
+.dtp-ampm { display: flex; gap: 4px; }
+.dtp-ampm .dtp-t { background: var(--cream); width: 52px; }
+.dtp-foot { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.dtp-link { border: none; background: none; color: var(--text); opacity: 0.7; text-decoration: underline; cursor: pointer; font: inherit; padding: 0; }
+.dtp-done { margin-left: auto; border: none; background: var(--gold, #e7192d); color: #fff; font-weight: 700; padding: 8px 18px; border-radius: 8px; cursor: pointer; font: inherit; font-weight: 700; }
 .form-textarea { resize: vertical; min-height: 80px; }
 .form-span { grid-column: 1 / -1; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
