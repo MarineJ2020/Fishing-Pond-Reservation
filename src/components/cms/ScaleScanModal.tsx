@@ -680,6 +680,35 @@ const ScaleScanModal: React.FC<Props> = ({
     onBookingResolved(booking);
   };
 
+  // A USB/Bluetooth barcode scanner "types" the QR text (the booking URL) into
+  // the focused search box. Resolve it like a camera scan instead of searching.
+  const resolveTypedQr = (raw: string): boolean => {
+    if (!raw.includes('/bookings/')) return false;
+    const parsed = parseQrPayload(raw);
+    if (!parsed) return false;
+    const booking = lookupBookingFull(parsed.bookingId, parsed.pondId);
+    if (!booking) {
+      setManualSearch('');
+      setError('Tempahan tidak dijumpai untuk QR ini. Pastikan QR untuk pertandingan semasa.');
+      return true;
+    }
+    setManualSearch('');
+    if (booking.bookingStatus === 'rejected') {
+      setError(cancelledQrMessage(booking));
+      return true;
+    }
+    onBookingResolved(booking, parsed.seatNum, parsed.pondId);
+    return true;
+  };
+
+  // Scanners usually end with Enter; if not, resolve once typing pauses.
+  useEffect(() => {
+    if (step !== 'manual-picker' || !manualSearch.includes('/bookings/')) return;
+    const t = window.setTimeout(() => resolveTypedQr(manualSearch.trim()), 400);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualSearch, step]);
+
   const handleWeightFileChosen = async (file: File) => {
     setError(null);
     entryIdRef.current = null;
@@ -1005,6 +1034,7 @@ const ScaleScanModal: React.FC<Props> = ({
                   placeholder="Cari nama / no. pancang / ID tempahan…"
                   value={manualSearch}
                   onChange={(e) => setManualSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && resolveTypedQr(manualSearch.trim())) e.preventDefault(); }}
                   autoFocus
                   style={{ flex: 1 }}
                 />

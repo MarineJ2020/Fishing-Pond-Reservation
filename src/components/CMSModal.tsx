@@ -1687,6 +1687,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setCheckinLiveScanBusy(false);
   };
 
+  const [checkinScannerText, setCheckinScannerText] = useState('');
+  const checkinScannerTimer = useRef<number | null>(null);
+  const handleCheckinScannerText = (raw: string) => {
+    const text = raw.trim();
+    if (!text) return;
+    setCheckinScannerText('');
+    const parsed = parseQrPayload(text);
+    const found = parsed ? bookingByScanId.get(parsed.bookingId) || null : null;
+    setCheckinResult(found);
+    setCheckinScannedSeat(found ? parsed?.seatNum ?? null : null);
+    setCheckinScannedPondId(found ? parsed?.pondId ?? null : null);
+    setCheckinScannedRaw(found ? null : text);
+  };
+
   const handleCheckinQrFile = async (file: File) => {
     try {
       const bitmap = await createImageBitmap(file);
@@ -3997,6 +4011,25 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleCheckinQrFile(f); e.target.value = ''; }} />
                   </label>
                 </div>
+                {/* USB/Bluetooth barcode scanner: it types the QR text here, then Enter */}
+                <input
+                  className="form-input"
+                  style={{ maxWidth: 420, margin: '12px auto 0', display: 'block' }}
+                  placeholder="🔫 Klik di sini, kemudian imbas dengan scanner"
+                  value={checkinScannerText}
+                  onChange={(e) => {
+                    setCheckinScannerText(e.target.value);
+                    if (checkinScannerTimer.current) window.clearTimeout(checkinScannerTimer.current);
+                    // Scanners without an Enter suffix: resolve once typing pauses.
+                    checkinScannerTimer.current = window.setTimeout(() => handleCheckinScannerText(e.target.value), 400);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    if (checkinScannerTimer.current) window.clearTimeout(checkinScannerTimer.current);
+                    handleCheckinScannerText(checkinScannerText);
+                  }}
+                />
                 {checkinScannedRaw && !checkinResult && (
                   <div style={{ marginTop: '14px', padding: '12px 14px', borderRadius: 10, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)', textAlign: 'left' }}>
                     <div style={{ fontWeight: 700, color: 'var(--red, #c0152a)', marginBottom: 4 }}>⚠️ Tempahan tidak dijumpai</div>
