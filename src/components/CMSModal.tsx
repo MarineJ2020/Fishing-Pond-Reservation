@@ -2743,6 +2743,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
   };
 
+  const [prizeScannerText, setPrizeScannerText] = useState('');
+  const prizeScannerTimer = useRef<number | null>(null);
+  const handlePrizeScannerText = (raw: string) => {
+    const text = raw.trim();
+    if (!text) return;
+    setPrizeScannerText('');
+    resolvePrizeQr(text);
+  };
+
   const decodePrizeQrFile = async (file: File) => {
     const url = URL.createObjectURL(file);
     try {
@@ -4804,6 +4813,26 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(event) => { const file = event.target.files?.[0]; if (file) decodePrizeQrFile(file); event.target.value = ''; }} />
                         </label>
                       </div>
+                      {/* USB/Bluetooth barcode scanner: it types the QR text here, then Enter */}
+                      <input
+                        className="form-input"
+                        style={{ marginTop: 10 }}
+                        placeholder="🔫 Klik di sini, kemudian imbas dengan scanner"
+                        value={prizeScannerText}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setPrizeScannerText(value);
+                          if (prizeScannerTimer.current) window.clearTimeout(prizeScannerTimer.current);
+                          // Scanners without an Enter suffix: resolve once typing pauses.
+                          prizeScannerTimer.current = window.setTimeout(() => handlePrizeScannerText(value), 400);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Enter') return;
+                          event.preventDefault();
+                          if (prizeScannerTimer.current) window.clearTimeout(prizeScannerTimer.current);
+                          handlePrizeScannerText(prizeScannerText);
+                        }}
+                      />
                       {prizeScanBooking && (
                         <div className={`cms-prize-scan-result ${scannedRows.length ? 'valid' : 'warning'}`}>
                           <div style={{ fontWeight: 800 }}>{prizeScanBooking.userName}</div>
