@@ -38,8 +38,6 @@ const postJson = async (path: string, body: any) => {
   return response.json();
 };
 
-export const createClientAccount = async (payload: { name: string; email: string; phone?: string }) => postJson('/createClientAccount', payload);
-export const acquireSeatLock = async (payload: { seatId: string; competitionId: string }) => postJson('/acquireSeatLock', payload);
 export const holdPegs = async (payload: { competitionId: string; pondId: number; pondSelections: { pondId: number; seats: number[] }[]; createdByStaff: boolean }) =>
   bookingRequest('/holdPegs', payload) as Promise<{ expiresAt: string; holdMs: number }>;
 export const releaseHold = async (competitionId: string) => bookingRequest('/releaseHold', { competitionId });
@@ -67,8 +65,6 @@ export const rejectBookingReceipt = async (payload: { bookingId: string; receipt
   if (!baseUrl) return rejectBookingReceiptDirect(payload.bookingId, payload.receiptIndex, payload.reason);
   return postJson('/rejectBookingReceipt', payload);
 };
-export const approveBooking = async (payload: { bookingId: string }) => postJson('/approveBooking', payload);
-export const rejectBooking = async (payload: { bookingId: string }) => postJson('/rejectBooking', payload);
 export const checkInBooking = async (payload: { bookingId: string; bookingRef?: string; amount: number; method: string; seatNum?: number; pondId?: number; settleBalance?: boolean }) => {
   if (!baseUrl) return checkInBookingDirect(payload);
   return postJson('/checkInBooking', payload);
@@ -77,4 +73,3 @@ export const cancelBookingCheckIn = async (payload: { bookingId: string; seatNum
   if (!baseUrl) return cancelBookingCheckInDirect(payload);
   return postJson('/cancelBookingCheckIn', payload);
 };
-export const updateResult = async (payload: { bookingId: string; totalWeight: number; fishCount: number }) => postJson('/updateResult', payload);

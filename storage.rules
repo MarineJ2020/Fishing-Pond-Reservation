@@ -23,7 +23,7 @@ service firebase.storage {
 
     // Temporary compatibility for historical, single-folder receipt URLs.
     match /fishing-pond-receipts/{fileName} {
-      allow read: if request.auth != null;
+      allow read: if isStaff();
       allow write: if false;
     }
 

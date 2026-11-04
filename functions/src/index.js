@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import * as functions from 'firebase-functions';
-import { adminAuth, adminDb, verifyToken, requireStaff, requireAdmin, requireBookingManager } from './auth-utils.js';
+import { adminAuth, adminDb, verifyToken, requireStaff, requireBookingManager } from './auth-utils.js';
 import {
     initialBookingEmailKind,
     isConfirmedStatus,
@@ -36,7 +36,6 @@ app.use((req, _res, next) => {
 });
 registerBookingRoutes(app);
 
-const randomTempPassword = () => Math.random().toString(36).slice(2, 10) + '!1A';
 const syncAuthRoleClaim = async (uid, rawRole) => {
     const nextRole = normalizeRole(rawRole);
     const userRecord = await adminAuth.getUser(uid);
@@ -95,96 +94,6 @@ const updateSeatsForBooking = async (bookingData, nextSeatStatus) => {
     await batch.commit();
 };
 
-
-const assertSeatsNotBooked = async ({ seatIds, competitionId }) => {
-    const checks = await Promise.all(seatIds.map(async (seatId) => {
-        const existing = await adminDb.collection('bookings')
-            .where('competitionId', '==', adminDb.doc(`competitions/${competitionId}`))
-            .where('seatIds', 'array-contains', adminDb.doc(`seats/${seatId}`))
-            .where('status', 'in', ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED', 'LIVE'])
-            .limit(1)
-            .get();
-
-        return { seatId, isBooked: !existing.empty };
-    }));
-
-    const conflicts = checks.filter((item) => item.isBooked).map((item) => item.seatId);
-    return { ok: conflicts.length === 0, conflicts };
-};
-
-app.post('/createClientAccount', verifyToken, requireAdmin, async (req, res) => {
-    const { name, email, phone } = req.body;
-    if (!name || !email) {
-        return res.status(400).json({ error: 'Name and email are required.' });
-    }
-
-    try {
-        let userRecord;
-        try {
-            userRecord = await adminAuth.getUserByEmail(email);
-        } catch {
-            const password = randomTempPassword();
-            userRecord = await adminAuth.createUser({ email, password, displayName: name });
-            await adminAuth.setCustomUserClaims(userRecord.uid, { role: 'CLIENT' });
-        }
-
-        await adminDb.collection('users').doc(userRecord.uid).set({
-            email,
-            name,
-            phone: phone || '',
-            role: 'CLIENT',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            updatedBy: req.user.uid,
-        }, { merge: true });
-
-        return res.json({ success: true, uid: userRecord.uid });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Failed to create client account.' });
-    }
-});
-
-app.post('/acquireSeatLock', verifyToken, async (req, res) => {
-    const { seatId, competitionId } = req.body;
-    const user = req.user;
-
-    if (!seatId || !competitionId) {
-        return res.status(400).json({ error: 'seatId and competitionId are required.' });
-    }
-
-    try {
-        const now = new Date();
-        const existing = await adminDb.collection('seatLocks')
-            .where('seatId', '==', adminDb.doc(`seats/${seatId}`))
-            .where('competitionId', '==', adminDb.doc(`competitions/${competitionId}`))
-            .where('expiresAt', '>', now)
-            .get();
-
-        if (!existing.empty) {
-            return res.status(409).json({ error: 'Seat is currently locked by another user.' });
-        }
-
-        const bookedCheck = await assertSeatsNotBooked({ seatIds: [seatId], competitionId });
-        if (!bookedCheck.ok) {
-            return res.status(409).json({ error: 'Seat has already been booked.' });
-        }
-
-        const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-        const lockRef = await adminDb.collection('seatLocks').add({
-            seatId: adminDb.doc(`seats/${seatId}`),
-            userId: adminDb.doc(`users/${user.uid}`),
-            competitionId: adminDb.doc(`competitions/${competitionId}`),
-            createdAt: now,
-            expiresAt,
-        });
-
-        return res.json({ lockId: lockRef.id, expiresAt: expiresAt.toISOString() });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Failed to acquire seat lock.' });
-    }
-});
 
 // Admins accept a single receipt. Recomputes paidAmount, records a payment, and
 // (on the first accepted receipt) confirms the booking + holds the seats.
@@ -314,67 +223,6 @@ app.post('/rejectBookingReceipt', verifyToken, requireBookingManager, async (req
     }
 });
 
-app.post('/approveBooking', verifyToken, requireBookingManager, async (req, res) => {
-    const { bookingId } = req.body;
-    if (!bookingId) {
-        return res.status(400).json({ error: 'bookingId is required.' });
-    }
-
-    try {
-        const bookingDocRef = adminDb.collection('bookings').doc(bookingId);
-        const bookingSnap = await bookingDocRef.get();
-        if (!bookingSnap.exists) {
-            return res.status(404).json({ error: 'Booking not found.' });
-        }
-
-        const booking = bookingSnap.data();
-        if (!occupiesSeats(booking)) return res.status(409).json({ error: REVIVE_BLOCKED });
-        await bookingDocRef.update({
-            status: 'APPROVED',
-            paymentStatus: 'APPROVED',
-            updatedAt: new Date(),
-            updatedBy: req.user.uid,
-        });
-
-        await updateSeatsForBooking(booking, 'booked');
-
-        return res.json({ success: true });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Failed to approve booking.' });
-    }
-});
-
-app.post('/rejectBooking', verifyToken, requireBookingManager, async (req, res) => {
-    const { bookingId } = req.body;
-    if (!bookingId) {
-        return res.status(400).json({ error: 'bookingId is required.' });
-    }
-
-    try {
-        const bookingDocRef = adminDb.collection('bookings').doc(bookingId);
-        const bookingSnap = await bookingDocRef.get();
-        if (!bookingSnap.exists) {
-            return res.status(404).json({ error: 'Booking not found.' });
-        }
-
-        const booking = bookingSnap.data();
-        await bookingDocRef.update({
-            status: 'REJECTED',
-            paymentStatus: 'REJECTED',
-            updatedAt: new Date(),
-            updatedBy: req.user.uid,
-        });
-
-        await updateSeatsForBooking(booking, 'available');
-
-        return res.json({ success: true });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Failed to reject booking.' });
-    }
-});
-
 app.post('/checkInBooking', verifyToken, requireStaff, async (req, res) => {
     const { bookingId, bookingRef, amount, method, seatNum, pondId, settleBalance } = req.body;
     if ((!bookingId && !bookingRef) || amount == null || !method) {
@@ -501,69 +349,6 @@ app.post('/cancelBookingCheckIn', verifyToken, requireStaff, async (req, res) =>
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to cancel check-in.' });
-    }
-});
-
-app.post('/updateResult', verifyToken, requireStaff, async (req, res) => {
-    const { bookingId, totalWeight, fishCount } = req.body;
-    if (!bookingId || totalWeight == null || fishCount == null) {
-        return res.status(400).json({ error: 'bookingId, totalWeight, and fishCount are required.' });
-    }
-
-    try {
-        const bookingRef = adminDb.collection('bookings').doc(bookingId);
-        const bookingSnap = await bookingRef.get();
-        if (!bookingSnap.exists) {
-            return res.status(404).json({ error: 'Booking not found.' });
-        }
-
-        const bookingData = bookingSnap.data();
-        const competitionRef = bookingData?.competitionId;
-
-        const resultQuery = await adminDb.collection('eventResults')
-            .where('bookingId', '==', bookingRef)
-            .limit(1)
-            .get();
-
-        if (resultQuery.empty) {
-            await adminDb.collection('eventResults').add({
-                bookingId: bookingRef,
-                competitionId: competitionRef,
-                totalWeight,
-                fishCount,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-                updatedBy: req.user.uid,
-            });
-        } else {
-            await resultQuery.docs[0].ref.update({
-                totalWeight,
-                fishCount,
-                updatedAt: new Date(),
-                updatedBy: req.user.uid,
-            });
-        }
-
-        const allResults = await adminDb.collection('eventResults')
-            .where('competitionId', '==', competitionRef)
-            .get();
-
-        const toMillis = (value) => value?.toMillis?.() ?? (value ? new Date(value).getTime() : 0);
-        const sorted = allResults.docs
-            .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
-            .filter((entry) => !entry.deletedAt)
-            .sort((a, b) => ((b.totalWeight || 0) - (a.totalWeight || 0))
-                || (toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt)));
-
-        await Promise.all(sorted.map(async (entry, index) => {
-            const ref = adminDb.collection('eventResults').doc(entry.id);
-            await ref.update({ rank: index + 1 });
-        }));
-
-        return res.json({ success: true });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Failed to update event result.' });
     }
 });
 
