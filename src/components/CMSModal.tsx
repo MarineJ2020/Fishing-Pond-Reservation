@@ -6493,8 +6493,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     .card{box-sizing:border-box;width:100vw;height:100vh;padding:4vmin;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;break-after:page;page-break-after:always;overflow:hidden}
                     .card:last-child{break-after:auto;page-break-after:auto}
                     .card svg{width:min(88vw,62vh);height:min(88vw,62vh)}
-                    .card b{display:block;font-size:5vmin;margin-top:2vmin}
-                    .card span{display:block;font-size:3.2vmin;margin-top:1vmin}
+                    .card b{display:block;font-size:6.6vmin;line-height:1;height:6vmin;margin-top:2vmin}
+                    .card span{display:block;font-size:4.4vmin;line-height:1;height:3.84vmin;margin-top:1vmin}
                   </style>${tiles}<script>window.onload=function(){window.print()}<\/script>`);
                   w.document.close();
                 };
