@@ -109,8 +109,11 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
 
   // Real-time score listener — fires on every score write without polling
   const scoreMapRef = useRef<Map<string, ScoreEntry>>(new Map());
+  // Competitions set to "keputusan tidak dipaparkan" never download scores here.
+  const selectedCompHidden = !!competitions.find(c => c.id === selectedCompId)?.resultsHidden;
   useEffect(() => {
     if (!selectedCompId) return;
+    if (selectedCompHidden) { setLiveScores([]); setLoadingScores(false); return; }
     setLoadingScores(true);
     scoreMapRef.current = new Map();
 
@@ -149,7 +152,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     );
 
     return () => { unsubStr(); unsubRef(); };
-  }, [selectedCompId]);
+  }, [selectedCompId, selectedCompHidden]);
 
   const displayComp = liveCompetitions.find(c => c.id === selectedCompId) || liveCompetitions[0] || comp;
 
@@ -238,8 +241,13 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     if (!selectedPastId && endedComps.length) setSelectedPastId(endedComps[0].id || '');
   }, [endedKey, selectedPastId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const selectedPastHidden = !!competitions.find(c => c.id === selectedPastId)?.resultsHidden;
   useEffect(() => {
-    if (!selectedPastId) { setPastScores([]); return; }
+    if (!selectedPastId || selectedPastHidden) {
+      setPastScores([]);
+      setPastLoading(false);
+      return;
+    }
     let cancelled = false;
     setPastLoading(true);
     const resultsRef = collection(firestoreDb, 'eventResults');
@@ -262,7 +270,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
       if (!cancelled) { setPastScores(Array.from(map.values())); setPastLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [selectedPastId]);
+  }, [selectedPastId, selectedPastHidden]);
 
   // Acara Lepas grows every event; show it newest-first, PAST_PAGE_SIZE at a time.
   const pastPageCount = Math.max(1, Math.ceil(endedComps.length / PAST_PAGE_SIZE));
@@ -359,6 +367,12 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               </span>
             </div>
 
+            {displayComp.resultsHidden ? (
+              <div className="kl-no-data" style={{ padding: '32px 20px', textAlign: 'center' }}>
+                <i className="fa-solid fa-bullhorn"></i>{' '}
+                Keputusan pertandingan ini akan diumumkan secara fizikal oleh pihak penganjur. Kedudukan tidak dipaparkan di laman web.
+              </div>
+            ) : (<>
             <div className="kl-rank-tools">
               <span className="kl-topn-badge">Top {topN}</span>
               <div className="kl-topn-ctl">
@@ -469,6 +483,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                 )}
               </div>
             )}
+            </>)}
           </section>
 
           {/* Prize list */}
@@ -582,9 +597,17 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                     {pastPonds ? ` · ${pastPonds} Kolam` : ''}
                   </p>
                 </div>
-                <span className="kl-selected-badge"><i className="fa-solid fa-circle-check"></i> KEPUTUSAN DITERBITKAN</span>
+                <span className="kl-selected-badge">{selectedPastComp?.resultsHidden
+                  ? <><i className="fa-solid fa-bullhorn"></i> DIUMUMKAN SECARA FIZIKAL</>
+                  : <><i className="fa-solid fa-circle-check"></i> KEPUTUSAN DITERBITKAN</>}</span>
               </div>
 
+              {selectedPastComp?.resultsHidden ? (
+                <div className="kl-no-data" style={{ padding: '32px 20px', textAlign: 'center' }}>
+                  <i className="fa-solid fa-bullhorn"></i>{' '}
+                  Keputusan pertandingan ini telah diumumkan secara fizikal oleh pihak penganjur. Kedudukan tidak dipaparkan di laman web.
+                </div>
+              ) : (<>
               <div className="kl-winner-summary">
                 <div className="kl-winner-summary-item">
                   <small>Juara · No. Pancang</small>
@@ -662,6 +685,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
               }) : (
                 <div className="kl-no-data">Tiada rekod berat untuk event ini.</div>
               )}
+              </>)}
             </section>
           </div>
       </section>}

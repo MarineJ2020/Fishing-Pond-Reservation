@@ -7,10 +7,11 @@ interface BookingDetailsModalProps {
   booking: Booking | null;
   competitionEnded?: boolean;
   competitionDateLabel?: string;
+  resultsHidden?: boolean;
   onClose: () => void;
 }
 
-const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booking, competitionEnded, competitionDateLabel, onClose }) => {
+const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booking, competitionEnded, competitionDateLabel, resultsHidden, onClose }) => {
   if (!isOpen || !booking) return null;
 
   return (
@@ -24,6 +25,7 @@ const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booki
           booking={booking}
           competitionEnded={competitionEnded}
           competitionDateLabel={competitionDateLabel}
+          resultsHidden={resultsHidden}
           onClose={onClose}
         />
       </div>

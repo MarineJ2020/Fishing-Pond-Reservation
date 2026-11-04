@@ -16,6 +16,8 @@ interface Props {
   booking: Booking;
   competitionEnded?: boolean;
   competitionDateLabel?: string;
+  /** Competition hides rankings on the public site: weights show, ranks don't. */
+  resultsHidden?: boolean;
   decimalPlaces?: Settings['ocrDecimalPlaces'];
   /** When true, hides the close button (rendered as a page, not a modal). */
   inPage?: boolean;
@@ -50,7 +52,7 @@ const rankWeight = (entry: ScoreEntry, decimalPlaces: Settings['ocrDecimalPlaces
   return Number(entry.weight.toFixed(decimalPlaces));
 };
 
-const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, competitionDateLabel, decimalPlaces, inPage, onClose, onReceiptSubmitted }) => {
+const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, competitionDateLabel, resultsHidden, decimalPlaces, inPage, onClose, onReceiptSubmitted }) => {
   const [docPreview, setDocPreview] = useState<string | null>(null);
   const [docPreviewTitle, setDocPreviewTitle] = useState('Slip Bayaran');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
@@ -297,7 +299,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '620px' }}>
               <thead>
                 <tr>
-                  {['No Pancang', 'Berat', 'Masa Timbang', 'Kedudukan Terkini', 'Bukti'].map((heading) => (
+                  {['No Pancang', 'Berat', 'Masa Timbang', ...(resultsHidden ? [] : ['Kedudukan Terkini']), 'Bukti'].map((heading) => (
                     <th key={heading} style={{ textAlign: heading === 'Berat' ? 'right' : 'left', fontSize: '.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.8px', padding: '10px 8px', borderBottom: '1px solid var(--line)' }}>{heading}</th>
                   ))}
                 </tr>
@@ -310,7 +312,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>{formatSeat(seatEntry?.pondCode, entry.seatNum)}</td>
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right', fontWeight: 800 }}>{formatWeight(entry.weight, decimalPlaces)} kg</td>
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', color: 'var(--text-muted)' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}</td>
-                      <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>#{entry.rank}</td>
+                      {!resultsHidden && <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>#{entry.rank}</td>}
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)' }}>
                         {entry.photoUrl ? (
                           <button
@@ -326,6 +328,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                 })}
               </tbody>
             </table>
+            {resultsHidden && <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', padding: '10px 8px 0' }}>Kedudukan akan diumumkan secara fizikal oleh pihak penganjur.</div>}
           </div>
         ) : (
           <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', padding: '12px 0' }}>Belum ada rekod timbangan untuk tempahan ini.</div>

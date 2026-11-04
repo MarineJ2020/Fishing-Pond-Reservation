@@ -274,6 +274,8 @@ export interface Competition {
   bookingCloseAt?: string;
   /** Public visibility. INACTIVE competitions are hidden from the public site. Defaults to ACTIVE. */
   status?: 'ACTIVE' | 'INACTIVE';
+  /** When true the public site shows no ranking/winners for this competition (results announced physically). Staff still see it in the CMS. */
+  resultsHidden?: boolean;
 }
 
 export type SeoPageKey = 'home' | 'book' | 'live';

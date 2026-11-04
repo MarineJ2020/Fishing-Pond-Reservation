@@ -2920,6 +2920,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     pricePerPeg: c.pricePerPeg ?? null,
     maxPegsPerBooking: c.maxPegsPerBooking ?? null, maxPendingBookingsPerUser: c.maxPendingBookingsPerUser ?? null,
     prizes: c.prizes || [], activePondIds: [...(c.activePondIds || [])].sort(), pondSeats: c.pondSeats || {},
+    resultsHidden: c.resultsHidden === true,
   }) : '';
   const settingsDirty = JSON.stringify(settingsEdit) !== JSON.stringify(settings);
   const prizeSource = competitionsForCms.find(c => c.id === prizesCompId);
@@ -5920,6 +5921,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <label className="form-label">Jumlah Kedudukan Dipaparkan</label>
                     <input className="form-input" type="number" min="1" value={compEdit.topN || 20} onChange={(e) => setCompEdit({ ...compEdit, topN: parseInt(e.target.value) || 0 })} />
                     <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Bilangan peserta teratas yang dipaparkan di papan markah.</div>
+                  </div>
+                  <div className="form-group form-span">
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontWeight: 700 }}>
+                      <input type="checkbox" style={{ marginTop: 3 }} checked={compEdit.resultsHidden === true} onChange={(e) => setCompEdit({ ...compEdit, resultsHidden: e.target.checked })} />
+                      <span>Sembunyikan keputusan di laman web (diumumkan secara fizikal)</span>
+                    </label>
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Jika ditanda, laman web tidak memaparkan kedudukan, senarai pemenang atau ranking peserta untuk pertandingan ini. Staf masih boleh melihat kedudukan di CMS.</div>
                   </div>
                   <div className="form-group form-span">
                     <label className="form-label">Teks Hadiah di Laman Utama</label>

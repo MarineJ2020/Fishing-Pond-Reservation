@@ -2073,6 +2073,7 @@ const AppContent: React.FC = () => {
                 booking={booking}
                 competitionEnded={isCompetitionEnded(bookingCompetitionFor(booking))}
                 competitionDateLabel={bookingCompetitionDateLabel(booking)}
+                resultsHidden={!!bookingCompetitionFor(booking)?.resultsHidden}
                 decimalPlaces={db.settings.ocrDecimalPlaces}
                 inPage
                 onReceiptSubmitted={reloadDB}
@@ -2176,6 +2177,7 @@ const AppContent: React.FC = () => {
         booking={selectedBooking}
         competitionEnded={selectedBooking ? isCompetitionEnded(bookingCompetitionFor(selectedBooking)) : false}
         competitionDateLabel={selectedBooking ? bookingCompetitionDateLabel(selectedBooking) : ''}
+        resultsHidden={selectedBooking ? !!bookingCompetitionFor(selectedBooking)?.resultsHidden : false}
         onClose={() => { setBookingDetailsOpen(false); setSelectedBooking(null); }}
       />}
       </Suspense>

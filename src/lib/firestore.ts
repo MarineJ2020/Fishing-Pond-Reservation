@@ -197,6 +197,7 @@ const normalizeCompetition = (data: any): Competition => ({
   maxPendingBookingsPerUser: typeof data.maxPendingBookingsPerUser === 'number' ? data.maxPendingBookingsPerUser : undefined,
   bookingOpenAt: normalizeTimestamp(data.bookingOpenAt) || undefined,
   bookingCloseAt: normalizeTimestamp(data.bookingCloseAt) || undefined,
+  resultsHidden: data.resultsHidden === true,
   // Treat any explicit closed/inactive marker as INACTIVE; everything else (incl. legacy
   // docs with no status) is ACTIVE so existing competitions stay publicly visible.
   status: ['INACTIVE', 'DRAFT', 'CLOSED'].includes((data.status || '').toString().toUpperCase()) ? 'INACTIVE' : 'ACTIVE',
@@ -1231,6 +1232,7 @@ export const updateCompetition = async (competitionId: string, updates: Partial<
   if (typeof updates.bookingOpenAt !== 'undefined') payload.bookingOpenAt = updates.bookingOpenAt || null;
   if (typeof updates.bookingCloseAt !== 'undefined') payload.bookingCloseAt = updates.bookingCloseAt || null;
   if (typeof updates.status !== 'undefined') payload.status = updates.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
+  if (typeof updates.resultsHidden !== 'undefined') payload.resultsHidden = updates.resultsHidden === true;
   await setDoc(compRef, payload, { merge: true });
 };
 
