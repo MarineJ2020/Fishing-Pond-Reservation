@@ -52,6 +52,11 @@ export const getBookingActivity = async (bookingId: string): Promise<{ entries: 
     createdByName: typeof result?.createdByName === 'string' ? result.createdByName : '',
   };
 };
+export interface PrizeActivityEntry { id: string; rank: number; action: 'prize.claim' | 'prize.unclaim'; actorName: string; reason: string; at: string }
+export const getPrizeActivity = async (competitionId: string): Promise<PrizeActivityEntry[]> => {
+  const result = await bookingRequest('/prizeActivity', { competitionId });
+  return Array.isArray(result?.entries) ? result.entries : [];
+};
 export const submitBookingReceipt = async (payload: { bookingId: string; receiptUrl: string; amount: number; bankReference?: string }) => {
   return bookingRequest('/submitBookingReceipt', payload);
 };

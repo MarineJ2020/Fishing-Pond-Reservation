@@ -393,6 +393,38 @@ app.post('/bookingActivity', verifyToken, requireStaff, async (req, res) => {
     }
 });
 
+// Claim / cancel history of a competition's prizes. auditLog is admin-only in
+// rules, so staff read these entries here. entityId is `${competitionId}_${rank}`.
+app.post('/prizeActivity', verifyToken, requireStaff, async (req, res) => {
+    const competitionId = typeof req.body.competitionId === 'string' ? req.body.competitionId : '';
+    if (!competitionId || competitionId.includes('/')) return res.status(400).json({ error: 'competitionId is required.' });
+    try {
+        const prefix = `${competitionId}_`;
+        const snap = await adminDb.collection('auditLog')
+            .where('entityId', '>=', prefix)
+            .where('entityId', '<', `${prefix}`)
+            .limit(1000)
+            .get();
+        const entries = snap.docs
+            .map((doc) => ({ id: doc.id, ...doc.data() }))
+            .filter((data) => data.action === 'prize.claim' || data.action === 'prize.unclaim')
+            .map((data) => ({
+                id: data.id,
+                rank: Number(String(data.entityId).slice(prefix.length)),
+                action: data.action,
+                actorName: data.actorName || data.actorEmail || '',
+                reason: data.reason || '',
+                at: data.createdAt?.toDate?.().toISOString() || '',
+            }))
+            .filter((entry) => Number.isFinite(entry.rank))
+            .sort((a, b) => a.at.localeCompare(b.at));
+        return res.json({ entries });
+    } catch (error) {
+        console.error('prizeActivity failed:', error);
+        return res.status(500).json({ error: 'Sejarah tuntutan tidak dapat dimuatkan.' });
+    }
+});
+
 // Browser requests reach Express; each write route verifies Firebase Auth itself.
 // High cap: booking-open rushes hit createBooking at once (1 request per gen1 instance).
 export const api = browserFacingWith({ invoker: 'public', maxInstances: 100, secrets: ['TURNSTILE_SECRET'] }).https.onRequest(app);

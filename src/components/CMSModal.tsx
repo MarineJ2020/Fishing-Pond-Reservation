@@ -9,7 +9,7 @@ import PondEditor from './PondEditor';
 import DateTimeField from './DateTimeField';
 import { fastestRecords, mostRecordRanking } from '../utils/specialPrizes';
 import { CANCEL_TYPE_OPTIONS, bookingPaidAmount, cancelMoneyLabel, isRefundPending, type CancelType } from '../utils/cancellation';
-import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt } from '../lib/api';
+import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt, getPrizeActivity, type PrizeActivityEntry } from '../lib/api';
 import {
   createPond as createPondFirestore,
   deletePond as deletePondFirestore,
@@ -396,6 +396,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [prizeRecordScores, setPrizeRecordScores] = useState<ScoreEntry[]>([]);
   const [prizeClaims, setPrizeClaims] = useState<PrizeClaim[]>([]);
   const [prizeClaimSaving, setPrizeClaimSaving] = useState<string | null>(null);
+  const [prizeHistory, setPrizeHistory] = useState<PrizeActivityEntry[]>([]);
+  const [prizeHistoryRow, setPrizeHistoryRow] = useState<{ rank: number; name: string } | null>(null);
 
   // Apply the latest-event default once competitions are known; later picks by staff stick.
   const filterDefaultsApplied = useRef(false);
@@ -2744,12 +2746,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const refreshPrizeRecords = async (competitionId = prizeRecordCompId) => {
     if (!competitionId) return;
-    const [scores, claims] = await Promise.all([
+    const [scores, claims, history] = await Promise.all([
       getScoresForCompetition(competitionId),
       getPrizeClaimsForCompetition(competitionId),
+      getPrizeActivity(competitionId).catch((err) => { console.error('Failed to load prize history:', err); return [] as PrizeActivityEntry[]; }),
     ]);
     setPrizeRecordScores(scores);
     setPrizeClaims(claims);
+    setPrizeHistory(history);
   };
 
   const resolvePrizeQr = (raw: string) => {
@@ -4989,6 +4993,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                     </button>
                                   )}
                                 </div>
+                                {(() => {
+                                  const cancels = prizeHistory.filter((h) => h.rank === row.rank && h.action === 'prize.unclaim').length;
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPrizeHistoryRow({ rank: row.rank, name: row.anglerName })}
+                                      style={{ background: 'none', border: 'none', padding: 0, marginTop: 4, fontSize: 11, cursor: 'pointer', color: cancels > 0 ? 'var(--red)' : 'var(--text-muted)', textDecoration: 'underline' }}
+                                    >
+                                      Dibatalkan {cancels}× · Lihat sejarah
+                                    </button>
+                                  );
+                                })()}
                               </td>
                             </tr>
                           );
@@ -6340,6 +6356,42 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {confirmDialog.confirmLabel}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Prize claim / cancel history */}
+      {prizeHistoryRow && createPortal(
+        <div className="modal-overlay open" style={{ zIndex: 1210 }} onClick={() => setPrizeHistoryRow(null)}>
+          <div className="modal" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Sejarah Tuntutan · #{prizeHistoryRow.rank} {prizeHistoryRow.name}</div>
+              <button className="modal-close" onClick={() => setPrizeHistoryRow(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              {(() => {
+                const rows = prizeHistory.filter((h) => h.rank === prizeHistoryRow.rank);
+                if (rows.length === 0) return <p style={{ color: 'var(--text-muted)' }}>Tiada rekod tuntutan lagi.</p>;
+                return (
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Tarikh &amp; Masa</th><th>Tindakan</th><th>Oleh</th><th>Sebab</th></tr></thead>
+                      <tbody>
+                        {rows.map((h) => (
+                          <tr key={h.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{formatDate(h.at, { time: true }) || '-'}</td>
+                            <td>{h.action === 'prize.claim' ? 'Dituntut' : 'Tuntutan Dibatalkan'}</td>
+                            <td>{h.actorName || '-'}</td>
+                            <td>{h.reason || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>,
