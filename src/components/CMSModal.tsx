@@ -1689,6 +1689,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const [checkinScannerText, setCheckinScannerText] = useState('');
   const checkinScannerTimer = useRef<number | null>(null);
+  const [checkinNotice, setCheckinNotice] = useState<{ bookingId: string; tone: 'ok' | 'info' | 'error'; text: string } | null>(null);
   const handleCheckinScannerText = (raw: string) => {
     const text = raw.trim();
     if (!text) return;
@@ -1699,6 +1700,27 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setCheckinScannedSeat(found ? parsed?.seatNum ?? null : null);
     setCheckinScannedPondId(found ? parsed?.pondId ?? null : null);
     setCheckinScannedRaw(found ? null : text);
+    setCheckinNotice(null);
+    if (!found || !parsed || parsed.seatNum == null || found.status !== 'confirmed') return;
+    // Per-peg QR: check that one peg in straight away, no extra click.
+    const entry = bookingSeatEntries(found).find((e) => e.seatNum === parsed.seatNum
+      && (parsed.pondId == null || e.pondId === parsed.pondId));
+    if (!entry) {
+      setCheckinResult(null);
+      setCheckinScannedRaw(text);
+      return;
+    }
+    if (isBookingSeatCheckedIn(found, entry)) {
+      setCheckinNotice({ bookingId: found.id, tone: 'info', text: 'Peg ini sudah check-in sebelum ini.' });
+      return;
+    }
+    if (!checkinPaymentMeta(found).complete) {
+      setCheckinNotice({ bookingId: found.id, tone: 'error', text: 'Check-in tidak dibenarkan: bayaran penuh belum selesai.' });
+      return;
+    }
+    void performCheckinForBooking(found, entry, false).then((ok) => {
+      if (ok) setCheckinNotice({ bookingId: found.id, tone: 'ok', text: 'Check-in berjaya.' });
+    });
   };
 
   const handleCheckinQrFile = async (file: File) => {
@@ -1770,6 +1792,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }
     setCheckinActiveSeat(entry?.key ?? null);
     setCheckinLoading(true);
+    let ok = false;
     try {
       const result = await checkInBooking({
         bookingId: booking.id,
@@ -1803,6 +1826,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
         });
       }
+      ok = true;
       await logAuditEvent({
         action: 'booking.checkin', actionLabel: 'Check-In Peserta', entityType: 'booking',
         entityId: booking.id,
@@ -1816,6 +1840,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       setCheckinLoading(false);
       setCheckinActiveSeat(null);
     }
+    return ok;
   };
 
   const handlePerformCheckin = async (entry?: BookingSeatEntry, settleBalance = false) => {
@@ -4041,8 +4066,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 />
                 {checkinScannedRaw && !checkinResult && (
                   <div style={{ marginTop: '14px', padding: '12px 14px', borderRadius: 10, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)', textAlign: 'left' }}>
-                    <div style={{ fontWeight: 700, color: 'var(--red, #c0152a)', marginBottom: 4 }}>⚠️ Tempahan tidak dijumpai</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>QR diimbas tetapi tidak sepadan dengan mana-mana tempahan.</div>
+                    <div style={{ fontWeight: 700, color: 'var(--red, #c0152a)', marginBottom: 4 }}>✗ QR Tidak Sah</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>QR diimbas tetapi tidak sepadan dengan mana-mana tempahan atau peg. Jangan benarkan check-in.</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 6, wordBreak: 'break-all', fontFamily: 'var(--fm, monospace)' }}>Kandungan QR: {checkinScannedRaw}</div>
                   </div>
                 )}
@@ -4065,18 +4090,35 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
               )}
               {checkinResult && checkinResult.status !== 'rejected' && (() => {
-                const allSeatEntries = bookingSeatEntries(checkinResult);
+                // A per-peg QR shows only that peg, not the rest of the booking.
+                const scannedEntries = checkinScannedSeat == null ? [] : bookingSeatEntries(checkinResult).filter((entry) =>
+                  entry.seatNum === checkinScannedSeat && (checkinScannedPondId == null || entry.pondId === checkinScannedPondId));
+                const allSeatEntries = scannedEntries.length ? scannedEntries : bookingSeatEntries(checkinResult);
                 const allDone = allSeatEntries.length > 0
                   && allSeatEntries.every((entry) => isBookingSeatCheckedIn(checkinResult, entry));
                 const payment = checkinPaymentMeta(checkinResult);
                 return (
                   <div className="checkin-result">
-                    <div className="checkin-result-header"><h3>✓ Tempahan Dijumpai</h3><span className={`badge badge-${checkinResult.status === 'confirmed' ? 'approved' : checkinResult.status}`}>{checkinResult.status}</span></div>
+                    <div className="checkin-result-header"><h3>{scannedEntries.length && allDone ? '✓ Check-In Disahkan' : '✓ Tempahan Dijumpai'}</h3><span className={`badge badge-${checkinResult.status === 'confirmed' ? 'approved' : checkinResult.status}`}>{checkinResult.status}</span></div>
                     <div className="checkin-result-body">
+                      {checkinNotice && checkinNotice.bookingId === checkinResult.id && scannedEntries.length > 0 && (
+                        <div
+                          className={checkinNotice.tone === 'error' ? 'warning-banner' : undefined}
+                          style={checkinNotice.tone === 'error' ? undefined : { marginBottom: 8, padding: '8px 12px', borderRadius: 8, fontWeight: 700, background: checkinNotice.tone === 'ok' ? 'var(--green-pale, #eafaf0)' : 'rgba(59,130,246,0.1)', color: checkinNotice.tone === 'ok' ? 'var(--green-dark, #15803d)' : '#1d4ed8' }}
+                        >
+                          {checkinNotice.tone === 'ok' ? '✓ ' : ''}{checkinNotice.text}
+                        </div>
+                      )}
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.bookingRef || checkinResult.id}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
-                      <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{bookingPondList(checkinResult)}</span></div>
-                      <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingSeatList(checkinResult)}</span></div>
+                      {scannedEntries.length > 0 ? (
+                        <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{scannedEntries.map((entry) => `${entry.pondName} · ${formatSeat(entry.pondCode, entry.seatNum)}`).join(', ')}</span></div>
+                      ) : (
+                        <>
+                          <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{bookingPondList(checkinResult)}</span></div>
+                          <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingSeatList(checkinResult)}</span></div>
+                        </>
+                      )}
                       {checkinResult.status !== 'confirmed' && <div className="warning-banner">⚠️ Tempahan ini belum disahkan.</div>}
                       {checkinResult.status === 'confirmed' && (
                         <div style={{ marginTop: 12 }}>
@@ -4123,7 +4165,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           </div>
                           {allDone && (
                             <div className="btn btn-green w-full mt-3" style={{ textAlign: 'center', cursor: 'default', opacity: 0.8 }}>
-                              ✓ Semua Peg Sudah Check-In
+                              {scannedEntries.length ? '✓ Sudah Check-In' : '✓ Semua Peg Sudah Check-In'}
                             </div>
                           )}
                         </div>
@@ -4194,7 +4236,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                           message: `Sahkan check-in untuk ${booking.userName}, pancang ${seatLabel}?`,
                                           confirmLabel: 'Check-In',
                                           tone: 'primary',
-                                          onConfirm: () => performCheckinForBooking(booking, entry, false),
+                                          onConfirm: async () => { await performCheckinForBooking(booking, entry, false); },
                                         })}
                                       >
                                         {checkinLoading && checkinActiveSeat === entry.key
