@@ -6368,7 +6368,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       {/* Prize claim / cancel history */}
       {prizeHistoryRow && createPortal(
         <div className="modal-overlay open" style={{ zIndex: 1210 }} onClick={() => setPrizeHistoryRow(null)}>
-          <div className="modal" style={{ maxWidth: '640px' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: '960px', width: '94vw' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Sejarah Tuntutan · #{prizeHistoryRow.rank} {prizeHistoryRow.name}</div>
               <button className="modal-close" onClick={() => setPrizeHistoryRow(null)}>×</button>
