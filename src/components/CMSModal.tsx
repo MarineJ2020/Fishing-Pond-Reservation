@@ -2886,7 +2886,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         bookingId: row.bookingId,
         status,
       });
-      await refreshPrizeRecords(prizeRecordCompId);
+      // Log first so the refreshed history already includes this action.
       await logAuditEvent({
         action: status === 'claimed' ? 'prize.claim' : 'prize.unclaim',
         actionLabel: status === 'claimed' ? 'Tuntut Hadiah' : 'Batal Tuntutan Hadiah',
@@ -2896,6 +2896,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         ...(cancelReason ? { reason: cancelReason } : {}),
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
+      await refreshPrizeRecords(prizeRecordCompId);
     } catch (err) {
       console.error('Failed to update prize claim:', err);
       window.alert('Status tuntutan hadiah gagal dikemaskini.');
