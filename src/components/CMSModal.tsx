@@ -2864,6 +2864,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const handlePrizeClaimStatus = async (row: PrizeRecordRow, status: 'claimed' | 'pending') => {
     if (!prizeRecordCompId) return;
+    let cancelReason = '';
+    if (status === 'pending') {
+      cancelReason = (window.prompt(`Sebab batal tuntutan hadiah untuk ${row.anglerName} (#${row.rank}) (wajib):`) || '').trim();
+      if (!cancelReason) {
+        window.alert('Sebab diperlukan untuk membatalkan tuntutan hadiah.');
+        return;
+      }
+    }
     const key = prizeClaimKey(prizeRecordCompId, row.rank);
     setPrizeClaimSaving(key);
     try {
@@ -2881,6 +2889,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         entityType: 'prize',
         entityId: key,
         entityLabel: `${prizeRecordCompetition?.name || prizeRecordCompId} · #${row.rank} · ${row.anglerName}`,
+        ...(cancelReason ? { reason: cancelReason } : {}),
         actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
       });
     } catch (err) {
