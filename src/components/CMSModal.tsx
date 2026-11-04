@@ -62,6 +62,7 @@ import { formatSeat, formatSeatList, pondDisplayName, pondRange, chainStarts } f
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { downloadQrCard } from '../utils/qrDownload';
 import { prizeRange, formatDate, assignTieRanks, getSharedPrize } from '../utils';
+import ActivityLogPage from './cms/ActivityLogPage';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull, ScannedSeatEntry } from './cms/ScaleScanModal';
 import { prewarmOcr } from '../utils/scaleOcr';
 import DocPreviewModal from './DocPreviewModal';
@@ -70,9 +71,9 @@ import AdminInstructions from './cms/AdminInstructions';
 import { fixLegacyRoles, LegacyRoleChange, previewLegacyRoles, updateUserRole, UserRole } from '../lib/users';
 import { ROLE_LABELS, canEditRole, isAdminRole, isBookingManagerRole, isStaffRole } from '../utils/roles';
 
-type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'prize-records' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'email-log' | 'audit-log';
+type CMSPage = 'dashboard' | 'instructions' | 'competitions' | 'ponds' | 'prizes' | 'approvals' | 'manual-booking' | 'all-bookings' | 'checkin' | 'results' | 'all-weigh-ins' | 'prize-records' | 'contact-settings' | 'landing-content' | 'seo' | 'users' | 'email-log' | 'audit-log' | 'activity-log';
 
-const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'prize-records', 'contact-settings', 'landing-content', 'seo', 'users', 'email-log', 'audit-log'];
+const CMS_PAGES: CMSPage[] = ['dashboard', 'instructions', 'competitions', 'ponds', 'prizes', 'approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'prize-records', 'contact-settings', 'landing-content', 'seo', 'users', 'email-log', 'audit-log', 'activity-log'];
 const STAFF_CMS_PAGES: CMSPage[] = ['checkin', 'results', 'all-weigh-ins', 'prize-records'];
 const COUNTER_STAFF_CMS_PAGES: CMSPage[] = ['approvals', 'all-bookings', 'manual-booking', 'checkin', 'results', 'all-weigh-ins', 'prize-records'];
 const ALL_BOOKING_STATUS_OPTIONS = [
@@ -2990,6 +2991,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       { id: 'contact-settings' as CMSPage, icon: '☎️', text: 'Contact Us' },
       { id: 'users' as CMSPage, icon: '👥', text: 'Pengguna' },
       { id: 'email-log' as CMSPage, icon: '✉️', text: 'Log E-mel' },
+      { id: 'activity-log' as CMSPage, icon: '📋', text: 'Log Aktiviti' },
       { id: 'audit-log' as CMSPage, icon: '🗒️', text: 'Log Audit' },
     ] },
   ];
@@ -5832,6 +5834,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
             );
           })()}
+          {page === 'activity-log' && <ActivityLogPage bookings={effectiveBookings} />}
           {page === 'audit-log' && (() => {
             const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
             const q = auditLogSearch.trim().toLowerCase();

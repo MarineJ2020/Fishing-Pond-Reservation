@@ -1621,6 +1621,70 @@ export const getAuditLog = async (limitCount = 200): Promise<AuditEntry[]> => {
   });
 };
 
+/** Activity-log groups (Log Aktiviti). Matches the `action` keys written by logAuditEvent. */
+export const ACTIVITY_CATEGORIES = [
+  { id: 'checkin', label: 'Check-In', actions: ['booking.checkin', 'booking.checkin_cancel'] },
+  { id: 'weighin', label: 'Timbangan', actions: ['score.create', 'score.edit', 'score.delete'] },
+  { id: 'prize', label: 'Rekod Hadiah', actions: ['prize.claim', 'prize.unclaim'] },
+  {
+    id: 'approval',
+    label: 'Kelulusan Tempahan',
+    actions: [
+      'booking.receipt_accept', 'booking.receipt_reject', 'booking.deposit_manual_approve',
+      'booking.manual_payment_validation', 'booking.force_cancel', 'booking.refund_record',
+    ],
+  },
+] as const;
+
+export interface ActivityLogPageOptions {
+  /** One of ACTIVITY_CATEGORIES ids; omit for every action. */
+  category?: string;
+  actorUid?: string;
+  bookingId?: string;
+  /** Inclusive range on createdAt. */
+  from?: Date;
+  to?: Date;
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+}
+
+export interface ActivityLogPageResult {
+  items: AuditEntry[];
+  lastDoc: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}
+
+/**
+ * Server-filtered, cursor-paginated slice of the audit log for Log Aktiviti.
+ * Each page reads only `pageSize` docs however large the log grows, unlike the
+ * flat 200-entry Log Audit. Needs the auditLog composite indexes in
+ * firestore.indexes.json (action/actorUid/bookingId + createdAt).
+ */
+export const getActivityLogPage = async (opts: ActivityLogPageOptions = {}): Promise<ActivityLogPageResult> => {
+  const pageSize = opts.pageSize ?? 50;
+  const clauses: any[] = [];
+  const category = ACTIVITY_CATEGORIES.find((c) => c.id === opts.category);
+  if (category) clauses.push(where('action', 'in', [...category.actions]));
+  if (opts.actorUid) clauses.push(where('actorUid', '==', opts.actorUid));
+  if (opts.bookingId) clauses.push(where('bookingId', '==', opts.bookingId));
+  if (opts.from) clauses.push(where('createdAt', '>=', Timestamp.fromDate(opts.from)));
+  if (opts.to) clauses.push(where('createdAt', '<=', Timestamp.fromDate(opts.to)));
+
+  let q = query(collection(db, 'auditLog'), ...clauses, orderBy('createdAt', 'desc'), limit(pageSize + 1));
+  if (opts.cursor) q = query(q, startAfter(opts.cursor));
+  const snap = await getDocs(q);
+  const hasMore = snap.docs.length > pageSize;
+  const pageDocs = hasMore ? snap.docs.slice(0, pageSize) : snap.docs;
+  return {
+    items: pageDocs.map((d) => {
+      const data = d.data() as any;
+      return { id: d.id, ...data, createdAt: normalizeTimestamp(data.createdAt) || '' } as AuditEntry;
+    }),
+    lastDoc: pageDocs[pageDocs.length - 1] || null,
+    hasMore,
+  };
+};
+
 const sumAcceptedReceipts = (receipts: any[]) =>
   (Array.isArray(receipts) ? receipts : [])
     .filter((r) => r?.status === 'accepted')
