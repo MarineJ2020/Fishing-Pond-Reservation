@@ -4677,7 +4677,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   && (prizeScanSeat == null || row.seatNum === prizeScanSeat)
                   && (prizeScanPondId == null || row.pondId === prizeScanPondId))
               : [];
-            const filteredRows = allRows.filter((row) => {
+            // A scanned QR narrows the table to that booking (and that peg when the QR
+            // names one), overriding the other filters, like a text search would.
+            const filteredRows = prizeScanBooking ? scannedRows : allRows.filter((row) => {
               const claimStatus = row.claim?.status === 'claimed' ? 'claimed' : 'pending';
               const bookingRef = row.booking?.bookingRef || '';
               const searchable = [
@@ -4835,7 +4837,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       />
                       {prizeScanBooking && (
                         <div className={`cms-prize-scan-result ${scannedRows.length ? 'valid' : 'warning'}`}>
-                          <div style={{ fontWeight: 800 }}>{prizeScanBooking.userName}</div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                            <div style={{ fontWeight: 800 }}>{prizeScanBooking.userName}</div>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost"
+                              onClick={() => { setPrizeScanBooking(null); setPrizeScanSeat(null); setPrizeScanPondId(null); setPrizeScanRaw(null); }}
+                            >
+                              ✕ Papar semua
+                            </button>
+                          </div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                             {prizeScanBooking.bookingRef || prizeScanBooking.id} · {bookingPondList(prizeScanBooking)} · {bookingSeatList(prizeScanBooking)}
                           </div>
