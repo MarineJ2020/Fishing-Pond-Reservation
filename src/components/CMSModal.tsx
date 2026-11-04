@@ -752,9 +752,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     Promise.all([
       getScoresForCompetition(prizeRecordCompId),
       getPrizeClaimsForCompetition(prizeRecordCompId),
-    ]).then(([scores, claims]) => {
+      getPrizeActivity(prizeRecordCompId).catch((err) => { console.error('Failed to load prize history:', err); return [] as PrizeActivityEntry[]; }),
+    ]).then(([scores, claims, history]) => {
       setPrizeRecordScores(scores);
       setPrizeClaims(claims);
+      setPrizeHistory(history);
     }).catch((err) => console.error('Failed to load Rekod Hadiah:', err));
   }, [page, prizeRecordCompId]);
 
