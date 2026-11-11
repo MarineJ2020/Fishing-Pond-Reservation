@@ -4,7 +4,7 @@
 export const renderQrCardBlob = async (svg: SVGSVGElement, lines: string[]): Promise<Blob> => {
   const qrSize = 600;
   const pad = 40;
-  const lineHeight = 34;
+  const lineHeight = 62;
   const width = qrSize + pad * 2;
   const height = pad + qrSize + 24 + lines.length * lineHeight + pad;
 
@@ -29,7 +29,7 @@ export const renderQrCardBlob = async (svg: SVGSVGElement, lines: string[]): Pro
     ctx.textAlign = 'center';
     ctx.fillStyle = '#112a41';
     lines.forEach((line, index) => {
-      ctx.font = index === 0 ? 'bold 30px system-ui, sans-serif' : '24px system-ui, sans-serif';
+      ctx.font = index === 0 ? 'bold 56px system-ui, sans-serif' : '44px system-ui, sans-serif';
       ctx.fillText(line, width / 2, pad + qrSize + 24 + lineHeight * (index + 0.8), width - pad * 2);
     });
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
