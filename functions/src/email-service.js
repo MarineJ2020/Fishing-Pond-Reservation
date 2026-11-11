@@ -6,6 +6,7 @@ import {
     renderBookingRefundedEmail,
     renderBookingReceivedEmail,
     renderPasswordResetEmail,
+    renderStaffNewBookingEmail,
     renderReceiptRejectedEmail,
     renderVerificationEmail,
     renderWelcomeEmail,
@@ -72,10 +73,10 @@ const mailMetadata = ({ kind, bookingId, userId, anchorMs }) => ({
     queuedAt: new Date(),
 });
 
-// ccStaff defaults to true (staff keep a copy of booking correspondence) but must
+// ccStaff now defaults to false (staff get a separate new-booking alert instead). If enabled, it must
 // be false for anything carrying an account-access link — a password-reset link in
 // the shared staff inbox would be an account-takeover vector.
-export const createMailJob = async ({ id, to, message, kind, bookingId, userId, anchorMs, ccStaff = true }) => {
+export const createMailJob = async ({ id, to, message, kind, bookingId, userId, anchorMs, ccStaff = false }) => {
     if (!isEmail(to)) return { created: false, reason: 'missing-recipient' };
     const ref = id
         ? adminDb.collection(MAIL_COLLECTION).doc(id)
@@ -141,6 +142,16 @@ export const queueBookingLifecycleMail = async ({ bookingId, booking, kind }) =>
     const message = kind === 'booking_approved'
         ? renderBookingApprovedEmail({ bookingId, booking, competition, appUrl: APP_URL })
         : renderBookingReceivedEmail({ booking, competition });
+    // Staff get one alert per new (unconfirmed) booking instead of a CC on every email.
+    if (kind === 'booking_received') {
+        await createMailJob({
+            id: `staff_new_booking_${bookingId}`,
+            to: STAFF_CC,
+            kind: 'staff_new_booking',
+            bookingId,
+            message: renderStaffNewBookingEmail({ booking, competition }),
+        }).catch((error) => console.error(`Staff new-booking alert failed for ${bookingId}:`, error));
+    }
     return createMailJob({
         id: `${kind}_${bookingId}`,
         to: recipient,

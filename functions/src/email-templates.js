@@ -161,6 +161,22 @@ export const renderBookingReceivedEmail = ({ booking, competition }) => {
     };
 };
 
+// Internal alert to the staff inbox when a new booking arrives (replaces CC-ing
+// every customer email to hello@).
+export const renderStaffNewBookingEmail = ({ booking, competition }) => {
+    const bookingRef = subjectText(booking.bookingRef, 'Tempahan baru');
+    const customer = [booking.userName || booking.name, booking.userEmail].filter(Boolean).join(' · ') || '-';
+    return {
+        subject: `Tempahan Baru - ${bookingRef}`,
+        text: `Tempahan baru ${bookingRef} menunggu semakan.\nPelanggan: ${customer}\n${selectionText(booking, competition)}\nJumlah bayaran: RM ${Number(booking.amount || 0).toFixed(2)}`,
+        html: layout('Tempahan Baru Diterima', `
+            <p>Ada tempahan baru yang menunggu semakan di CMS.</p>
+            <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}<br/><strong>Pelanggan:</strong> ${escapeHtml(customer)}</p>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
+            <p><strong>Jumlah Bayaran:</strong> <span style="color:${BRAND_RED};">RM ${Number(booking.amount || 0).toFixed(2)}</span></p>`),
+    };
+};
+
 // Each QR carries the competition, start time, pond/peg and ref under it, so a
 // printed email works on its own at check-in (same as the app's QR cards).
 const qrTable = ({ bookingId, booking, competition, appUrl }) => {
