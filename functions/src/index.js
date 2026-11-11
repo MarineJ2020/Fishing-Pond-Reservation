@@ -805,6 +805,40 @@ export const listEmailLogs = browserFacing.https.onCall(async (data, context) =>
     }
 });
 
+// Staff one-click resend of a failed email from CMS > Log E-mel. Puts the same mail
+// job back into RETRY so the extension delivers it again (e.g. after an SMTP fix).
+// Password-reset mails are excluded: their link expires after an hour.
+export const resendEmail = browserFacing.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');
+    }
+    if (!await callableHasRole(context, [...ADMIN_ROLES])) {
+        throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
+    }
+    const mailId = typeof data?.mailId === 'string' ? data.mailId.trim() : '';
+    if (!mailId || mailId.includes('/')) {
+        throw new functions.https.HttpsError('invalid-argument', 'mailId is required.');
+    }
+    const ref = adminDb.collection('mail').doc(mailId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+        throw new functions.https.HttpsError('not-found', 'Email not found.');
+    }
+    const mail = snap.data() || {};
+    if (mail.metadata?.kind === 'password_reset') {
+        throw new functions.https.HttpsError('failed-precondition', 'Password-reset emails cannot be resent; ask the user to request a new one.');
+    }
+    if (mail.delivery?.state !== 'ERROR') {
+        throw new functions.https.HttpsError('failed-precondition', 'Only failed emails can be resent.');
+    }
+    await ref.update({
+        'delivery.state': 'RETRY',
+        'metadata.lastRetryRequestedAt': new Date(),
+        'metadata.manualRetryBy': context.auth.uid,
+    });
+    return { queued: true };
+});
+
 export const requestBalanceReminder = browserFacing.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Sign in required.');

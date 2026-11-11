@@ -45,7 +45,7 @@ import { asset, LANDING_ASSETS } from '../config/landingAssets';
 import { LANDING_SECTION_KEYS, LANDING_SECTION_LABELS } from '../config/landingSections';
 import { sanitizeLandingHtml } from '../utils/landingHtml';
 import { SeoSnippetPreview, SocialCardPreview } from './SeoPreview';
-import { EmailLogEntry, getEmailLogsPage } from '../lib/email';
+import { EmailLogEntry, getEmailLogsPage, resendFailedEmail } from '../lib/email';
 import {
   bookingSeatCheckInTime,
   bookingSeatEntries,
@@ -304,6 +304,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [emailLogCursors, setEmailLogCursors] = useState<(string | null)[]>([null]);
   const [emailLogPage, setEmailLogPage] = useState(0);
   const [emailLogHasMore, setEmailLogHasMore] = useState(false);
+  const [emailResendingId, setEmailResendingId] = useState<string | null>(null);
 
   const fetchEmailLogPage = async (cursor: string | null, pageIndex: number) => {
     setEmailLogLoading(true);
@@ -5795,6 +5796,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               balance_reminder: 'Peringatan Baki',
               receipt_rejected: 'Slip Bayaran Ditolak',
               booking_cancelled: 'Tempahan Dibatalkan',
+              booking_refunded: 'Bayaran Balik Direkodkan',
+              staff_new_booking: 'Makluman Staf: Tempahan Baru',
+              staff_booking_approved: 'Makluman Staf: Diluluskan',
+              staff_booking_rejected: 'Makluman Staf: Ditolak',
+              staff_booking_cancelled: 'Makluman Staf: Dibatalkan',
               unknown: 'Tidak Diketahui',
             };
             const statusMeta = (entry: EmailLogEntry) => {
@@ -5838,9 +5844,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <button className="btn btn-sm btn-ghost" disabled={emailLogLoading} onClick={() => fetchEmailLogPage(emailLogCursors[emailLogPage] ?? null, emailLogPage)}>Muat Semula</button>
                   </div>
                   <div className="card-body"><div className="table-wrap"><table>
-                    <thead><tr><th>Tarikh Dicetuskan</th><th>Penerima</th><th>Jenis E-mel</th><th>Status</th><th>Percubaan</th></tr></thead>
+                    <thead><tr><th>Tarikh Dicetuskan</th><th>Penerima</th><th>Jenis E-mel</th><th>Status</th><th>Percubaan</th><th></th></tr></thead>
                     <tbody>
-                      {emailLogLoading && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
+                      {emailLogLoading && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
                       {!emailLogLoading && filtered.map((entry) => {
                         const status = statusMeta(entry);
                         return (
@@ -5856,11 +5862,32 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               {entry.completedAt && <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: '0.7rem' }}>Selesai: {formatDate(entry.completedAt, { time: true, seconds: true })}</div>}
                             </td>
                             <td>{entry.attempts || '—'}</td>
+                            <td>
+                              {status.label === 'Gagal' && entry.kind !== 'password_reset' && (
+                                <button
+                                  className="btn btn-sm btn-ghost"
+                                  disabled={emailResendingId === entry.id}
+                                  onClick={async () => {
+                                    setEmailResendingId(entry.id);
+                                    try {
+                                      await resendFailedEmail(entry.id);
+                                      setEmailLogEntries((previous) => previous.map((item) => item.id === entry.id ? { ...item, status: 'RETRY' } : item));
+                                    } catch {
+                                      setEmailLogError('E-mel tidak dapat dihantar semula. Sila cuba lagi.');
+                                    } finally {
+                                      setEmailResendingId(null);
+                                    }
+                                  }}
+                                >
+                                  {emailResendingId === entry.id ? 'Menghantar…' : 'Hantar Semula'}
+                                </button>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
                       {!emailLogLoading && !emailLogError && filtered.length === 0 && (
-                        <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                        <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                           {emailLogEntries.length === 0 ? 'Tiada rekod e-mel lagi' : 'Tiada rekod sepadan dengan carian'}
                         </td></tr>
                       )}

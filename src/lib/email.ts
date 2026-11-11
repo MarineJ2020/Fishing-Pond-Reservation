@@ -21,6 +21,10 @@ export const getEmailLogsPage = async (cursor: string | null, pageSize = 50): Pr
   return callFunction<{ cursor?: string; pageSize: number }, EmailLogsPage>('listEmailLogs', { ...(cursor ? { cursor } : {}), pageSize });
 };
 
+export const resendFailedEmail = async (mailId: string): Promise<void> => {
+  await callFunction('resendEmail', { mailId });
+};
+
 /**
  * Client code can request only server-defined transactional messages. Recipient,
  * subject, and HTML are resolved from trusted Auth/Firestore data in Functions.
