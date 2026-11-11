@@ -61,6 +61,7 @@ import { RECENT_COMPETITION_DAYS } from '../lib/firestore';
 import { formatSeat, formatSeatList, pondDisplayName, pondRange, chainStarts } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { downloadQrCard } from '../utils/qrDownload';
+import { printQrTiles } from '../utils/qrPrint';
 import { prizeRange, formatDate, assignTieRanks, getSharedPrize, isWeightRankable } from '../utils';
 import ActivityLogPage from './cms/ActivityLogPage';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull, ScannedSeatEntry } from './cms/ScaleScanModal';
@@ -6547,7 +6548,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 // a complete copy for a player who forgot theirs.
                 const qrComp = competitions.find((c) => c.id === qrPreviewBooking.competitionId);
                 const qrCompName = qrPreviewBooking.competitionName || qrComp?.name || 'Pertandingan';
-                const qrDate = qrComp?.startDate ? formatDate(qrComp.startDate, { time: true, seconds: true }) : '';
+                const qrDate = qrComp?.startDate ? formatDate(qrComp.startDate, { time: true }) : '';
                 const qrRef = qrPreviewBooking.bookingRef || qrPreviewBooking.id.slice(0, 8).toUpperCase();
                 const cardLines = (entry: BookingSeatEntry) => [
                   `No Pancang ${formatSeat(entry.pondCode, entry.seatNum)}`,
@@ -6559,28 +6560,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 // One QR per page (label printer): each card fills a whole page, so
                 // every peg comes out as its own label, as large as the label allows.
                 const printTiles = (onlySelected: boolean) => {
-                  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-                  const tiles = Array.from(document.querySelectorAll('.cms-qr-tile'))
-                    .filter((tile) => !onlySelected || qrPrintSelected.includes(tile.getAttribute('data-key') || ''))
-                    .map((tile) => {
-                      const svg = tile.querySelector('svg');
-                      const lines = (tile.getAttribute('data-lines') || '').split('\n');
-                      return `<div class="card">${svg ? new XMLSerializer().serializeToString(svg) : ''}<b>${esc(lines[0] || '')}</b>${lines.slice(1).map((l) => `<span>${esc(l)}</span>`).join('')}</div>`;
-                    }).join('');
-                  if (!tiles) { alert('Sila pilih sekurang-kurangnya satu QR.'); return; }
-                  const w = window.open('', '_blank');
-                  if (!w) { alert('Pop-up disekat. Benarkan pop-up untuk mencetak, atau muat turun QR satu per satu.'); return; }
-                  w.document.write(`<!doctype html><title>QR ${esc(qrRef)}</title><style>
-                    @page{margin:0}
-                    html,body{margin:0;padding:0}
-                    body{font-family:system-ui,sans-serif;color:#112a41}
-                    .card{box-sizing:border-box;width:100vw;height:100vh;padding:8.8vmin 4vmin 4vmin;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;break-after:page;page-break-after:always;overflow:hidden}
-                    .card:last-child{break-after:auto;page-break-after:auto}
-                    .card svg{width:min(88vw,62vh);height:min(88vw,62vh)}
-                    .card b{display:block;font-size:6.6vmin;line-height:1;height:6vmin;margin-top:2vmin}
-                    .card span{display:block;font-size:4.4vmin;line-height:1;height:3.84vmin;margin-top:2.2vmin}
-                  </style>${tiles}<script>window.onload=function(){window.print()}<\/script>`);
-                  w.document.close();
+                  printQrTiles(
+                    Array.from(document.querySelectorAll('.cms-qr-tile'))
+                      .filter((tile) => !onlySelected || qrPrintSelected.includes(tile.getAttribute('data-key') || '')),
+                    qrRef,
+                  );
                 };
                 const allKeys = bookingSeatEntries(qrPreviewBooking).map((e) => e.key);
                 const allSelected = allKeys.length > 0 && allKeys.every((k) => qrPrintSelected.includes(k));

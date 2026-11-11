@@ -5,6 +5,7 @@ import { bookingSeatEntries, isBookingSeatCheckedIn, outstandingBalance, receipt
 import { formatDate } from '../utils';
 import { buildSeatQrValue } from '../utils/qr';
 import { downloadQrCard } from '../utils/qrDownload';
+import { printQrTiles } from '../utils/qrPrint';
 import { formatSeat } from '../utils/seatLabel';
 import { formatWeight } from '../utils/weight';
 import { getScoresForCompetition } from '../lib/firestore';
@@ -61,18 +62,28 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
   const qrDateLabel = (competitionDateLabel || '').split(' - ')[0];
   const qrRef = booking.bookingRef || booking.id.slice(0, 8).toUpperCase();
   const [qrDownloadError, setQrDownloadError] = useState<string | null>(null);
+  const [qrPrintSelected, setQrPrintSelected] = useState<string[]>([]);
+  // Same card lines as the CMS QR viewer, so downloads and prints match staff copies.
+  const qrCardLines = (pondName: string, peg: string) => [
+    `No Pancang ${peg}`,
+    booking.competitionName || 'Pertandingan',
+    ...(qrDateLabel ? [qrDateLabel] : []),
+    `Kolam ${pondName}`,
+    `Ref: ${qrRef}`,
+  ];
+  const printQr = (onlySelected: boolean) => {
+    printQrTiles(
+      Array.from(document.querySelectorAll('.qr-card'))
+        .filter((tile) => !onlySelected || qrPrintSelected.includes(tile.getAttribute('data-key') || '')),
+      qrRef,
+    );
+  };
   const handleQrDownload = async (event: React.MouseEvent<HTMLButtonElement>, pondName: string, peg: string) => {
     const svg = event.currentTarget.closest('.qr-card')?.querySelector('svg');
     if (!svg) return;
     setQrDownloadError(null);
     try {
-      await downloadQrCard(svg as SVGSVGElement, [
-        `No Pancang ${peg}`,
-        booking.competitionName || 'Pertandingan',
-        ...(qrDateLabel ? [qrDateLabel] : []),
-        `Kolam ${pondName}`,
-        `Ref: ${qrRef}`,
-      ], `QR-${qrRef}-${peg}.png`);
+      await downloadQrCard(svg as SVGSVGElement, qrCardLines(pondName, peg), `QR-${qrRef}-${peg}.png`);
     } catch {
       setQrDownloadError('QR tidak dapat dimuat turun. Sila ambil tangkapan skrin. / Could not download the QR; please take a screenshot.');
     }
@@ -214,52 +225,77 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
             <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
               Tunjukkan QR peg anda kepada petugas semasa check-in / proses timbang ikan. Setiap QR sah untuk satu peg sahaja.
             </div>
+            {(() => {
+              const allKeys = seatEntries.map((e) => e.key);
+              const allSelected = allKeys.length > 0 && allKeys.every((k) => qrPrintSelected.includes(k));
+              return (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setQrPrintSelected(allSelected ? [] : allKeys)}>
+                    {allSelected ? 'Nyahpilih Semua' : 'Pilih Semua'}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" disabled={qrPrintSelected.length === 0} onClick={() => printQr(true)}>
+                    🖨 Cetak Dipilih ({qrPrintSelected.length})
+                  </button>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => printQr(false)}>🖨 Cetak Semua QR</button>
+                </div>
+              );
+            })()}
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
                 gap: '14px',
               }}
             >
               {seatEntries.map((entry) => {
                 const checkedIn = isBookingSeatCheckedIn(booking, entry);
+                const peg = formatSeat(entry.pondCode, entry.seatNum);
                 return (
                   <div
                     key={entry.key}
                     className="qr-card"
+                    data-key={entry.key}
+                    data-lines={qrCardLines(entry.pondName, peg).join('\n')}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: '8px',
+                      gap: '6px',
                       background: '#fff',
-                      padding: '14px',
+                      padding: '12px',
                       borderRadius: '10px',
-                      border: '1px solid var(--line)',
+                      border: qrPrintSelected.includes(entry.key) ? '2px solid var(--primary, #c1121f)' : '1px solid var(--line)',
                     }}
                   >
+                    <label style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={qrPrintSelected.includes(entry.key)}
+                        onChange={(e) => setQrPrintSelected((prev) => e.target.checked ? [...prev, entry.key] : prev.filter((k) => k !== entry.key))}
+                      />
+                      Pilih
+                    </label>
                     <QRCodeSVG
                       value={buildSeatQrValue(booking.id, entry.seatNum, entry.pondId)}
-                      size={160}
+                      size={150}
                       level="M"
                       marginSize={2}
                       bgColor="#ffffff"
                       fgColor="#112a41"
                     />
-                    <span className="seat-pill">{formatSeat(entry.pondCode, entry.seatNum)}</span>
-                    {/* Printed with the QR so a paper copy carries every detail staff need. */}
+                    <span className="seat-pill">{peg}</span>
                     <div className="qr-print-details">
                       <strong>{booking.competitionName || 'Pertandingan'}</strong>
                       {qrDateLabel && <span>{qrDateLabel}</span>}
-                      <span>Kolam {entry.pondName} · No Pancang {formatSeat(entry.pondCode, entry.seatNum)}</span>
+                      <span>Kolam {entry.pondName}</span>
                       <span>Ref: {qrRef}</span>
                     </div>
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm qr-download-btn"
-                      onClick={(event) => { void handleQrDownload(event, entry.pondName, formatSeat(entry.pondCode, entry.seatNum)); }}
+                      onClick={(event) => { void handleQrDownload(event, entry.pondName, peg); }}
                     >
-                      <i className="fa-solid fa-download" aria-hidden="true"></i> Muat turun QR
+                      ⬇ Muat turun
                     </button>
                     {checkedIn && (
                       <span style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--green-bright, #16a34a)' }}>
