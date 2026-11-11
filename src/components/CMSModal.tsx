@@ -1410,7 +1410,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   const csvDateTime = (iso?: string) => {
     if (!iso) return '';
-    const dateTime = formatDate(iso, { time: true });
+    const dateTime = formatDate(iso, { time: true, seconds: true });
     return dateTime || iso;
   };
 
@@ -3227,7 +3227,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <tbody>
                           {dashStats.recent.map(b => (
                             <tr key={b.id}>
-                              <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{formatDate(b.createdAt, { time: true })}</td>
+                              <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{formatDate(b.createdAt, { time: true, seconds: true })}</td>
                               <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
                               <td>{b.competitionName || comp.name || '-'}</td>
                               <td className="td-name">{b.userName}</td>
@@ -3260,7 +3260,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 <span className={`badge ${status.badgeClass}`}>{status.label}</span>
                               </div>
                               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                                📅 {formatDate(competition.startDate, { time: true })}
+                                📅 {formatDate(competition.startDate, { time: true, seconds: true })}
                               </div>
                             </div>
                           );
@@ -3282,7 +3282,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               const names = ponds.filter(p => ids.includes(pondKeyOf(p))).map(p => pondDisplayName(p));
               return names.length ? names.join(', ') : 'Semua kolam';
             };
-            const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
+            const fmtDateTime = (iso?: string) => formatDate(iso, { time: true, seconds: true }) || '-';
             const statAktif = competitionsForCms.filter(c => getCompetitionCmsStatus(c, nowTick) === 'active').length;
             const statJualan = competitionsForCms.filter(c => isBookingOpen(c, nowTick) && !isCompetitionEnded(c, nowTick)).length;
             const statTamat = competitionsForCms.filter(c => isCompetitionEnded(c, nowTick)).length;
@@ -3788,7 +3788,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     return (
                     <tr key={b.id}>
                       <td className="td-ref">{b.bookingRef || b.id.slice(0, 10)}</td>
-                      <td style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{b.createdAt ? formatDate(b.createdAt, { time: true }) : '-'}</td>
+                      <td style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{b.createdAt ? formatDate(b.createdAt, { time: true, seconds: true }) : '-'}</td>
                       <td>{b.competitionName || comp.name || '-'}</td>
                       <td className="td-name">
                         {b.userName}
@@ -3962,7 +3962,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {b.createdAt ? (
                             <>
                               <div>{formatDate(b.createdAt)}</div>
-                              <div className="cms-booking-time">{formatDate(b.createdAt, { time: true }).slice(-5)}</div>
+                              <div className="cms-booking-time">{formatDate(b.createdAt, { timeOnly: true })}</div>
                             </>
                           ) : '-'}
                         </td>
@@ -4103,7 +4103,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="checkin-result-body">
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Status</span><span className="checkin-detail-val">Dibatalkan / Ditolak (rejected)</span></div>
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Sebab</span><span className="checkin-detail-val">{checkinResult.cancelReason || checkinResult.rejectReason || 'Tiada sebab direkodkan'}</span></div>
-                    {checkinResult.cancelledAt && <div className="checkin-detail-row"><span className="checkin-detail-key">Dibatalkan pada</span><span className="checkin-detail-val">{formatDate(checkinResult.cancelledAt, { time: true })}</span></div>}
+                    {checkinResult.cancelledAt && <div className="checkin-detail-row"><span className="checkin-detail-key">Dibatalkan pada</span><span className="checkin-detail-val">{formatDate(checkinResult.cancelledAt, { time: true, seconds: true })}</span></div>}
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.bookingRef || checkinResult.id}</span></div>
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
                     <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{bookingPondList(checkinResult)} · {bookingSeatList(checkinResult)}</span></div>
@@ -4229,7 +4229,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>{booking.bookingPhone || booking.userPhone || '-'}</div>
                                 </td>
                                 <td>{seatLabel}</td>
-                                <td>{checkedAt ? formatDate(checkedAt, { time: true }) : '-'}</td>
+                                <td>{checkedAt ? formatDate(checkedAt, { time: true, seconds: true }) : '-'}</td>
                                 <td><span className={`badge badge-${checked ? 'approved' : 'pending'}`}>{checked ? 'Checked in' : 'Pending'}</span></td>
                                 <td>
                                   {checked
@@ -4414,7 +4414,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 <span className="cms-top-record-medal">1st</span>
                                 <span className="cms-top-record-person">
                                   <strong>{fastestRecord.anglerName || 'Tanpa nama'}</strong>
-                                  <small>{formatDate(fastestRecord.capturedAt, { time: true }) || '-'} · {fastestRecord.pondName} · No. Pancang {formatSeat(ponds.find((pond) => pond.id === fastestRecord.pondId)?.code, fastestRecord.seatNum)}</small>
+                                  <small>{formatDate(fastestRecord.capturedAt, { time: true, seconds: true }) || '-'} · {fastestRecord.pondName} · No. Pancang {formatSeat(ponds.find((pond) => pond.id === fastestRecord.pondId)?.code, fastestRecord.seatNum)}</small>
                                 </span>
                                 <span className="cms-top-record-count">
                                   <strong>{formatWeight(fastestRecord.weight, settings.ocrDecimalPlaces)}</strong>
@@ -4451,7 +4451,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                     <strong>{winner.anglerName}</strong>
                                     <small>
                                       {winner.pondName} · No. Pancang {formatSeat(ponds.find((pond) => pond.id === winner.pondId)?.code, winner.seatNum)}
-                                      {' '}· capai {winner.records.length} rekod pada {formatDate(winner.records[winner.records.length - 1]?.capturedAt, { time: true }) || '-'}
+                                      {' '}· capai {winner.records.length} rekod pada {formatDate(winner.records[winner.records.length - 1]?.capturedAt, { time: true, seconds: true }) || '-'}
                                     </small>
                                   </span>
                                   <span className="cms-top-record-count">
@@ -4480,7 +4480,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                   >
                                     <span>#{topRecordWinners.length + index + 1}</span>
                                     <strong>{row.anglerName}</strong>
-                                    <small>{formatSeat(pondCodeById.get(row.pondId), row.seatNum)} · {row.records.length} rekod · capai pada {formatDate(row.records[row.records.length - 1]?.capturedAt, { time: true }) || '-'}</small>
+                                    <small>{formatSeat(pondCodeById.get(row.pondId), row.seatNum)} · {row.records.length} rekod · capai pada {formatDate(row.records[row.records.length - 1]?.capturedAt, { time: true, seconds: true }) || '-'}</small>
                                   </button>
                                 ))}
                               </div>
@@ -4514,7 +4514,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               {topRecordDetailRows.map((entry, index) => (
                                 <tr key={entry.id || `${entry.capturedAt}-${entry.weight}`} style={index === topRecordDetailRows.length - 1 ? { fontWeight: 700 } : undefined}>
                                   <td>{index + 1}</td>
-                                  <td style={{ whiteSpace: 'nowrap' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}{index === topRecordDetailRows.length - 1 ? ` · capai ${topRecordDetailRows.length} rekod` : ''}</td>
+                                  <td style={{ whiteSpace: 'nowrap' }}>{formatDate(entry.capturedAt, { time: true, seconds: true }) || '-'}{index === topRecordDetailRows.length - 1 ? ` · capai ${topRecordDetailRows.length} rekod` : ''}</td>
                                   <td>{entry.pondName}</td>
                                   <td>{formatSeat(ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum)}</td>
                                   <td style={{ textAlign: 'right' }}><span className="w-cell">{formatWeight(entry.weight, settings.ocrDecimalPlaces)}</span> kg</td>
@@ -4579,7 +4579,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                                 </span>
                                 )}
                               </td>
-                              <td style={{ whiteSpace: 'nowrap' }}>{formatDate(e.capturedAt, { time: true }) || '-'}</td>
+                              <td style={{ whiteSpace: 'nowrap' }}>{formatDate(e.capturedAt, { time: true, seconds: true }) || '-'}</td>
                               <td className="td-name">{e.anglerName}</td>
                               <td>{e.pondName}</td>
                               <td>{e.seatNum}</td>
@@ -4628,7 +4628,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             );
           })()}
           {page === 'all-weigh-ins' && (() => {
-            const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
+            const fmtDateTime = (iso?: string) => formatDate(iso, { time: true, seconds: true }) || '-';
             const compNameById = new Map(competitionsForCms.map((c) => [c.id || '', c.name]));
             const methodBadge = (m?: string) => {
               const meta = m === 'onnx' ? { label: 'ONNX (AI)', bg: '#374151' }
@@ -4977,7 +4977,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               </td>
                               <td data-label="No Pancang">{row.pondName} · {seatLabel}</td>
                               <td data-label="Berat ikan" className="cms-prize-weight-cell"><span className="w-cell">{formatWeight(row.weight, settings.ocrDecimalPlaces)}</span> kg</td>
-                              <td data-label="Masa" style={{ whiteSpace: 'nowrap' }}>{formatDate(row.capturedAt, { time: true }) || '-'}</td>
+                              <td data-label="Masa" style={{ whiteSpace: 'nowrap' }}>{formatDate(row.capturedAt, { time: true, seconds: true }) || '-'}</td>
                               <td data-label="Bukti">{row.photoUrl ? <button className="btn btn-sm btn-ghost" onClick={() => setScorePhotoUrl(row.photoUrl!)}>👁 Bukti</button> : '—'}</td>
                               <td data-label="Hadiah">
                                 <strong>{row.prize}</strong>
@@ -5846,13 +5846,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           <tr key={entry.id}>
                             <td style={{ whiteSpace: 'nowrap' }}>
                               <div>{formatDate(entry.triggeredAt) || '—'}</div>
-                              {entry.triggeredAt && <div style={{ marginTop: 2, color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDate(entry.triggeredAt, { time: true }).slice(-5)}</div>}
+                              {entry.triggeredAt && <div style={{ marginTop: 2, color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDate(entry.triggeredAt, { timeOnly: true })}</div>}
                             </td>
                             <td className="td-name">{entry.recipient || '—'}</td>
                             <td>{kindLabels[entry.kind] || entry.kind}</td>
                             <td>
                               <span className={`badge ${status.badge}`}>{status.label}</span>
-                              {entry.completedAt && <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: '0.7rem' }}>Selesai: {formatDate(entry.completedAt, { time: true })}</div>}
+                              {entry.completedAt && <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: '0.7rem' }}>Selesai: {formatDate(entry.completedAt, { time: true, seconds: true })}</div>}
                             </td>
                             <td>{entry.attempts || '—'}</td>
                           </tr>
@@ -5875,7 +5875,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           })()}
           {page === 'activity-log' && <ActivityLogPage bookings={effectiveBookings} />}
           {page === 'audit-log' && (() => {
-            const fmtDateTime = (iso?: string) => formatDate(iso, { time: true }) || '-';
+            const fmtDateTime = (iso?: string) => formatDate(iso, { time: true, seconds: true }) || '-';
             const q = auditLogSearch.trim().toLowerCase();
             const filtered = auditLogEntries
               .filter(e => auditLogFilter === 'all' || e.action === 'booking.manual_payment_validation')
@@ -6297,7 +6297,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div key={`${receipt.url}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center', padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--cream)' }}>
                       <div>
                         <strong>Slip Bayaran #{index + 1}</strong>
-                        <div style={{ marginTop: 4, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Tarikh diterima: {receipt.submittedAt ? formatDate(receipt.submittedAt, { time: true }) : '-'}</div>
+                        <div style={{ marginTop: 4, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Tarikh diterima: {receipt.submittedAt ? formatDate(receipt.submittedAt, { time: true, seconds: true }) : '-'}</div>
                         <div style={{ marginTop: 2, fontSize: '0.78rem', color: 'var(--text-muted)' }}>RM {receipt.amount} · {receipt.status === 'accepted' ? 'Disahkan' : receipt.status === 'rejected' ? 'Ditolak' : 'Menunggu Semakan'}</div>
                         <div style={{ marginTop: 2, fontSize: '0.78rem', color: 'var(--text-muted)' }}>No. Rujukan Bank: <strong style={{ fontFamily: 'monospace' }}>{receiptBankReference(receiptHistoryBooking, receipt, index) || '-'}</strong></div>
                       </div>
@@ -6404,7 +6404,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <tbody>
                         {rows.map((h) => (
                           <tr key={h.id}>
-                            <td style={{ whiteSpace: 'nowrap' }}>{formatDate(h.at, { time: true }) || '-'}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>{formatDate(h.at, { time: true, seconds: true }) || '-'}</td>
                             <td>{h.action === 'prize.claim' ? 'Dituntut' : 'Tuntutan Dibatalkan'}</td>
                             <td>{h.actorName || '-'}</td>
                             <td>{h.reason || '-'}</td>
@@ -6547,7 +6547,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 // a complete copy for a player who forgot theirs.
                 const qrComp = competitions.find((c) => c.id === qrPreviewBooking.competitionId);
                 const qrCompName = qrPreviewBooking.competitionName || qrComp?.name || 'Pertandingan';
-                const qrDate = qrComp?.startDate ? formatDate(qrComp.startDate, { time: true }) : '';
+                const qrDate = qrComp?.startDate ? formatDate(qrComp.startDate, { time: true, seconds: true }) : '';
                 const qrRef = qrPreviewBooking.bookingRef || qrPreviewBooking.id.slice(0, 8).toUpperCase();
                 const cardLines = (entry: BookingSeatEntry) => [
                   `No Pancang ${formatSeat(entry.pondCode, entry.seatNum)}`,

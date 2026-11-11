@@ -148,7 +148,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
                 {reviewableReceipt.url && <button className="btn btn-sm btn-ghost" onClick={() => onViewReceipt(reviewableReceipt.url)}>Lihat Slip Bayaran</button>}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                Dihantar: {reviewableReceipt.submittedAt ? formatDate(reviewableReceipt.submittedAt, { time: true }) : '-'}
+                Dihantar: {reviewableReceipt.submittedAt ? formatDate(reviewableReceipt.submittedAt, { time: true, seconds: true }) : '-'}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
                 No. Rujukan Bank: <strong style={{ fontFamily: 'monospace' }}>{receiptBankReference(booking, reviewableReceipt, pendingIndex) || '-'}</strong>
@@ -218,7 +218,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
                   <div key={i} style={{ fontSize: '0.8rem', background: 'var(--cream, #f7f7f5)', borderRadius: 8, padding: '8px 10px' }}>
                     <div>{r.text}</div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '3px' }}>
-                      {r.byName || 'Staf'} · {formatDate(r.at, { time: true })}
+                      {r.byName || 'Staf'} · {formatDate(r.at, { time: true, seconds: true })}
                     </div>
                   </div>
                 ))}
@@ -253,7 +253,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
                     <div><strong>{row.label}</strong>{row.details ? ` · ${row.details}` : ''}</div>
                     {row.reason && <div style={{ color: 'var(--red, #b91c1c)' }}>Sebab: {row.reason}</div>}
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                      {row.actor || 'Sistem'} · {formatDate(row.at, { time: true })}
+                      {row.actor || 'Sistem'} · {formatDate(row.at, { time: true, seconds: true })}
                     </div>
                   </li>
                 ))}

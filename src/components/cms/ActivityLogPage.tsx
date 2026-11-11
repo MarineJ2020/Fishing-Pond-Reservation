@@ -168,7 +168,7 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ bookings }) => {
               <tbody>
                 {entries.map((e) => (
                   <tr key={e.id}>
-                    <td style={{ whiteSpace: 'nowrap' }}>{formatDate(e.createdAt, { time: true }) || '-'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{formatDate(e.createdAt, { time: true, seconds: true }) || '-'}</td>
                     <td className="td-name">{e.actorName || e.actorEmail || e.actorUid || '—'}</td>
                     <td>{categoryLabel(e.action) || '—'}</td>
                     <td>{e.actionLabel}</td>

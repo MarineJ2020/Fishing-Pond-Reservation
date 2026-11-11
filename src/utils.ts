@@ -11,7 +11,8 @@ import { DB, Score, Prize } from './types';
  */
 export const formatDate = (
   iso: string | number | Date | null | undefined,
-  opts: { weekday?: boolean; time?: boolean } = {},
+  // `seconds` (CMS only) switches the time to 12-hour h:mm:ss AM/PM; `timeOnly` drops the date.
+  opts: { weekday?: boolean; time?: boolean; seconds?: boolean; timeOnly?: boolean } = {},
 ): string => {
   if (iso == null || iso === '') return '';
   const d = new Date(iso);
@@ -21,6 +22,11 @@ export const formatDate = (
   if (opts.weekday) {
     const wd = d.toLocaleDateString('ms-MY', { weekday: 'long' });
     out = `${wd}, ${date}`;
+  }
+  if (opts.seconds || opts.timeOnly) {
+    const h = d.getHours();
+    const clock = `${((h + 11) % 12) + 1}:${p2(d.getMinutes())}:${p2(d.getSeconds())} ${h < 12 ? 'AM' : 'PM'}`;
+    return opts.timeOnly ? clock : `${out} ${clock}`;
   }
   if (opts.time) {
     out += ` ${p2(d.getHours())}:${p2(d.getMinutes())}`;
