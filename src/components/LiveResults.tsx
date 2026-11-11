@@ -50,7 +50,7 @@ const buildLeaderboard = (entries: ScoreEntry[], decimalPlaces: Settings['ocrDec
   return assignTieRanks(rows);
 };
 
-// Format a Firestore Timestamp / ISO string into a short Malay time, e.g. "9:45 malam".
+// Format a Firestore Timestamp / ISO string into a short 12-hour time, e.g. "9:45 PM".
 const fmtTime = (value: any): string => {
   if (!value) return '';
   let d: Date;
@@ -61,7 +61,7 @@ const fmtTime = (value: any): string => {
   if (Number.isNaN(d.getTime())) return '';
   const h = d.getHours();
   const m = d.getMinutes();
-  const period = h < 12 ? 'pagi' : h < 15 ? 'tengahari' : h < 19 ? 'petang' : 'malam';
+  const period = h < 12 ? 'AM' : 'PM';
   const h12 = ((h + 11) % 12) + 1;
   return `${h12}:${m.toString().padStart(2, '0')} ${period}`;
 };
@@ -121,7 +121,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     const flush = () => {
       const entries = Array.from(scoreMapRef.current.values()).filter((entry) => !(entry as any).deletedAt);
       setLiveScores(entries);
-      setLastUpdated(new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      setLastUpdated(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }));
       setLoadingScores(false);
     };
 
