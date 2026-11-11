@@ -10,13 +10,17 @@ import { flag, readSheet, writeSheet } from './sheet.mjs';
 const projectId = process.env.FIREBASE_PROJECT_ID || 'kolamkelisayang';
 const confirmed = flag('--confirm');
 const rows = readSheet();
+// Optional: only accounts numbered 1..N (e.g. --up-to=14 while only 14 mailboxes exist).
+const upToArg = process.argv.find((a) => a.startsWith('--up-to='));
+const upTo = upToArg ? Number(upToArg.split('=')[1]) : Infinity;
+const selected = rows.filter((r) => Number(r.No) <= upTo);
 const ALLOWED_ROLES = ['STAFF', 'COUNTER_STAFF'];
-const bad = rows.filter((r) => !ALLOWED_ROLES.includes(String(r.Peranan).toUpperCase()));
+const bad = selected.filter((r) => !ALLOWED_ROLES.includes(String(r.Peranan).toUpperCase()));
 if (bad.length) { console.log(`Peranan must be STAFF or COUNTER_STAFF: ${bad.map((r) => r.Email).join(', ')}`); process.exit(1); }
 
-console.log(`Project ${projectId}: ${rows.length} accounts. ${confirmed ? 'CREATING' : 'Dry run (add --confirm to create)'}.`);
+console.log(`Project ${projectId}: ${selected.length} accounts. ${confirmed ? 'CREATING' : 'Dry run (add --confirm to create)'}.`);
 if (!confirmed) {
-  rows.forEach((row) => console.log(`  would create ${row.Email}  role ${row.Peranan}  [${row['Akaun KKS'] || 'not yet'}]`));
+  selected.forEach((row) => console.log(`  would create ${row.Email}  role ${row.Peranan}  [${row['Akaun KKS'] || 'not yet'}]`));
   process.exit(0);
 }
 
@@ -46,7 +50,7 @@ const headers = { authorization: `Bearer ${token}`, 'content-type': 'application
 let created = 0;
 let skipped = 0;
 let failed = 0;
-for (const row of rows) {
+for (const row of selected) {
   if (row['Akaun KKS'] === 'DIBUAT') { skipped += 1; continue; }
   const role = String(row.Peranan).toUpperCase();
   const signup = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts`, {
