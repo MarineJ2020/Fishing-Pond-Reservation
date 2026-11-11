@@ -2524,6 +2524,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       throw new Error(err instanceof Error && err.message ? err.message : 'Gagal menyimpan rekod timbangan. Sila cuba lagi.');
     }
     delete uploadedScanPhotosRef.current[scan.entryId];
+    const savedAtLabel = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
     setSaving(false);
     setScanOpen(false);
     const nextScanBooking = lookupBookingFullForScan(sb.bookingId, sb.pondId);
@@ -2534,7 +2535,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     // otherwise React batches close+reopen and the old reading stays on screen.
     await new Promise((resolve) => setTimeout(resolve, 0));
     const continueForSameAngler = window.confirm(
-      `Berjaya simpan timbang untuk ${sb.anglerName}. Hantar satu lagi rekod untuk pemancing sama?`,
+      `Berjaya simpan timbang untuk ${sb.anglerName} (No. Pancang: ${formatSeat(sb.pondCode, sb.seatNum)}, ${savedAtLabel}). Hantar satu lagi rekod untuk pemancing sama?`,
     );
     if (continueForSameAngler) {
       setScanInitialSelection(nextScanBooking ? { booking: nextScanBooking } : null);
