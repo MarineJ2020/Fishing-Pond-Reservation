@@ -194,6 +194,8 @@ const normalizeCompetition = (data: any): Competition => ({
   fastestPrize: typeof data.fastestPrize === 'string' ? data.fastestPrize : null,
   mostPrize: typeof data.mostPrize === 'string' ? data.mostPrize : null,
   maxPegsPerBooking: typeof data.maxPegsPerBooking === 'number' ? data.maxPegsPerBooking : undefined,
+  maxWeightKg: typeof data.maxWeightKg === 'number' ? data.maxWeightKg : null,
+  minWeightKg: typeof data.minWeightKg === 'number' ? data.minWeightKg : null,
   maxPendingBookingsPerUser: typeof data.maxPendingBookingsPerUser === 'number' ? data.maxPendingBookingsPerUser : undefined,
   bookingOpenAt: normalizeTimestamp(data.bookingOpenAt) || undefined,
   bookingCloseAt: normalizeTimestamp(data.bookingCloseAt) || undefined,
@@ -1224,6 +1226,8 @@ export const updateCompetition = async (competitionId: string, updates: Partial<
   if (typeof updates.pricePerPeg !== 'undefined') payload.pricePerPeg = updates.pricePerPeg;
   if (typeof updates.maxPegsPerBooking !== 'undefined') payload.maxPegsPerBooking = updates.maxPegsPerBooking;
   if (typeof updates.maxPendingBookingsPerUser !== 'undefined') payload.maxPendingBookingsPerUser = updates.maxPendingBookingsPerUser;
+  if (typeof updates.maxWeightKg !== 'undefined') payload.maxWeightKg = typeof updates.maxWeightKg === 'number' && updates.maxWeightKg > 0 ? updates.maxWeightKg : null;
+  if (typeof updates.minWeightKg !== 'undefined') payload.minWeightKg = typeof updates.minWeightKg === 'number' && updates.minWeightKg > 0 ? updates.minWeightKg : null;
   if (typeof updates.prizes !== 'undefined') payload.prizes = updates.prizes;
   if (typeof updates.fastestPrize !== 'undefined') payload.fastestPrize = updates.fastestPrize?.trim() || null;
   if (typeof updates.mostPrize !== 'undefined') payload.mostPrize = updates.mostPrize?.trim() || null;

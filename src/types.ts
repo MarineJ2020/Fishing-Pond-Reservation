@@ -264,6 +264,10 @@ export interface Competition {
   fastestPrize?: string | null;
   /** Optional "Hadiah Terbanyak" (most records) prize text. null/absent = not offered. */
   mostPrize?: string | null;
+  /** Leaderboard only: records heavier than this stay saved but are excluded from ranking. null/absent = no limit. */
+  maxWeightKg?: number | null;
+  /** Leaderboard only: records lighter than this stay saved but are excluded from ranking. null/absent = no limit. */
+  minWeightKg?: number | null;
   /** Customer bookings: max pegs in one booking (server default 20). */
   maxPegsPerBooking?: number;
   /** Customer bookings: max PENDING_APPROVAL bookings one user may hold (server default 10). */

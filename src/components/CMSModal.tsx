@@ -61,7 +61,7 @@ import { RECENT_COMPETITION_DAYS } from '../lib/firestore';
 import { formatSeat, formatSeatList, pondDisplayName, pondRange, chainStarts } from '../utils/seatLabel';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { downloadQrCard } from '../utils/qrDownload';
-import { prizeRange, formatDate, assignTieRanks, getSharedPrize } from '../utils';
+import { prizeRange, formatDate, assignTieRanks, getSharedPrize, isWeightRankable } from '../utils';
 import ActivityLogPage from './cms/ActivityLogPage';
 import ScaleScanModal, { ScaleScanApproved, ScannedBookingFull, ScannedSeatEntry } from './cms/ScaleScanModal';
 import { prewarmOcr } from '../utils/scaleOcr';
@@ -2725,6 +2725,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const claimByRank = new Map(prizeClaims.map((claim) => [claim.rank, claim]));
     return assignTieRanks(
       [...prizeRecordScores]
+        .filter((entry) => isWeightRankable(entry.weight, prizeRecordCompetition))
         .sort((a, b) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a)))
         .map((entry) => ({ ...entry, rankWeight: scoreRankWeight(entry, settings.ocrDecimalPlaces) })),
     )
@@ -2934,6 +2935,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     name: c.name || '', prizeHighlight: c.prizeHighlight || '', startDate: c.startDate || '', endDate: c.endDate || '',
     bookingOpenAt: c.bookingOpenAt || '', bookingCloseAt: c.bookingCloseAt || '', topN: c.topN || 0,
     pricePerPeg: c.pricePerPeg ?? null,
+    minWeightKg: c.minWeightKg ?? null, maxWeightKg: c.maxWeightKg ?? null,
     maxPegsPerBooking: c.maxPegsPerBooking ?? null, maxPendingBookingsPerUser: c.maxPendingBookingsPerUser ?? null,
     prizes: c.prizes || [], activePondIds: [...(c.activePondIds || [])].sort(), pondSeats: c.pondSeats || {},
     resultsHidden: c.resultsHidden === true,
@@ -4282,19 +4284,22 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const scorePondOptions = Array.from(new Set(scoreEntries.map((entry) => entry.pondName).filter(Boolean))).sort();
             const pegQ = scorePegFilter.trim().toLowerCase();
             const nameQ = scoreNameFilter.trim().toLowerCase();
-            const rankedEntries = assignTieRanks(
-              [...scoreEntries]
-                .sort((a, b) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a)))
-                .map((entry) => ({ ...entry, rankWeight: scoreRankWeight(entry, settings.ocrDecimalPlaces) })),
-            );
+            const byWeight = (a: ScoreEntry, b: ScoreEntry) => (scoreRankWeight(b, settings.ocrDecimalPlaces) - scoreRankWeight(a, settings.ocrDecimalPlaces)) || (scoreRankTime(b) - scoreRankTime(a));
+            const withRankWeight = (entry: ScoreEntry) => ({ ...entry, rankWeight: scoreRankWeight(entry, settings.ocrDecimalPlaces) });
+            // Records outside the min/max leaderboard weight stay in the list (rank 0 = "Tidak layak") but are not ranked.
+            const rankedEntries = [
+              ...assignTieRanks([...scoreEntries].filter((entry) => isWeightRankable(entry.weight, scoreCompetition)).sort(byWeight).map(withRankWeight)),
+              ...[...scoreEntries].filter((entry) => !isWeightRankable(entry.weight, scoreCompetition)).sort(byWeight).map((entry) => ({ ...withRankWeight(entry), rank: 0, tieCount: 1 })),
+            ];
             const sortedEntries = rankedEntries.filter((entry) => {
               const seatLabel = String(entry.seatNum).toLowerCase();
               return (!pegQ || seatLabel.includes(pegQ))
                 && (!nameQ || entry.anglerName.toLowerCase().includes(nameQ))
                 && (!scorePondFilter || entry.pondName === scorePondFilter);
             });
-            const fastestWinners = fastestRecords(scoreEntries);
-            const { rows: topRecordRows, winners: topRecordWinners } = mostRecordRanking(scoreEntries);
+            const specialPrizeEntries = scoreEntries.filter((entry) => isWeightRankable(entry.weight, scoreCompetition));
+            const fastestWinners = fastestRecords(specialPrizeEntries);
+            const { rows: topRecordRows, winners: topRecordWinners } = mostRecordRanking(specialPrizeEntries);
             const topRecordRunnerRows = topRecordRows.filter((row) => !topRecordWinners.some((winner) => winner.key === row.key));
             const selectedTopRecord = topRecordRows.find((row) => row.key === topRecordSelectionKey) || null;
             const topRecordDetailRows = selectedTopRecord
@@ -4304,13 +4309,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const exportResultsRows = () => {
               const headers = ['Kedudukan', 'Masa', 'Nama Peserta', 'Kolam', 'No Pancang', 'Berat ikan (kg)', 'Hadiah', 'Bukti'];
               const rows = sortedEntries.map((entry) => [
-                entry.rank,
+                entry.rank || 'Tidak layak',
                 csvDateTime(entry.capturedAt),
                 entry.anglerName,
                 entry.pondName,
                 formatSeat(ponds.find((pond) => pond.id === entry.pondId)?.code, entry.seatNum),
                 formatWeight(entry.weight, settings.ocrDecimalPlaces),
-                getSharedPrize(entry.rank, entry.tieCount, selectedResultsComp?.prizes || []),
+                entry.rank ? getSharedPrize(entry.rank, entry.tieCount, selectedResultsComp?.prizes || []) : '',
                 entry.photoUrl || '',
               ]);
               const seatOf = (pondId: number, seatNum: number) => formatSeat(ponds.find((pond) => pond.id === pondId)?.code, seatNum);
@@ -4565,9 +4570,13 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           {sortedEntries.map((e) => (
                             <tr key={e.id}>
                               <td>
+                                {e.rank === 0 ? (
+                                  <span className="result-rank" title="Berat di luar had min/maks papan markah" style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Tidak layak</span>
+                                ) : (
                                 <span className={`result-rank ${e.rank <= 3 ? 'rank-' + e.rank : ''}`}>
                                   {e.rank <= 3 ? ['🥇', '🥈', '🥉'][e.rank - 1] : '#' + e.rank}
                                 </span>
+                                )}
                               </td>
                               <td style={{ whiteSpace: 'nowrap' }}>{formatDate(e.capturedAt, { time: true }) || '-'}</td>
                               <td className="td-name">{e.anglerName}</td>
@@ -5949,6 +5958,16 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <label className="form-label">Jumlah Kedudukan Dipaparkan</label>
                     <input className="form-input" type="number" min="1" value={compEdit.topN || 20} onChange={(e) => setCompEdit({ ...compEdit, topN: parseInt(e.target.value) || 0 })} />
                     <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Bilangan peserta teratas yang dipaparkan di papan markah.</div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Berat Minimum Papan Markah (kg)</label>
+                    <input className="form-input" type="number" min="0" step="0.01" placeholder="Tiada had" value={compEdit.minWeightKg ?? ''} onChange={(e) => setCompEdit({ ...compEdit, minWeightKg: e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0) })} />
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Ikan lebih ringan daripada ini tetap direkod tetapi tidak layak masuk papan markah. Kosong = tiada had.</div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Berat Maksimum Papan Markah (kg)</label>
+                    <input className="form-input" type="number" min="0" step="0.01" placeholder="Tiada had" value={compEdit.maxWeightKg ?? ''} onChange={(e) => setCompEdit({ ...compEdit, maxWeightKg: e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0) })} />
+                    <div style={{ marginTop: '4px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>Ikan lebih berat daripada ini tetap direkod tetapi tidak layak masuk papan markah. Kosong = tiada had.</div>
                   </div>
                   <div className="form-group form-span">
                     <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontWeight: 700 }}>

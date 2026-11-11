@@ -74,7 +74,17 @@ export const assignTieRanks = <T extends { rankWeight: number; capturedAt?: unkn
   return out;
 };
 
-const parseRM = (s: string): number | null => {
+/** True when a weigh-in is inside the competition's leaderboard weight limits (records outside stay saved, just unranked). */
+export const isWeightRankable = (weight: unknown, comp?: { minWeightKg?: number | null; maxWeightKg?: number | null } | null): boolean => {
+  const w = Number(weight);
+  if (!Number.isFinite(w)) return false;
+  const { minWeightKg: min, maxWeightKg: max } = comp || {};
+  if (typeof min === 'number' && min > 0 && w < min) return false;
+  if (typeof max === 'number' && max > 0 && w > max) return false;
+  return true;
+};
+
+const parseRM =(s: string): number | null => {
   const m = s.match(/^\s*RM\s*([\d,]+(?:\.\d+)?)\s*$/i);
   return m ? Number(m[1].replace(/,/g, '')) : null;
 };
