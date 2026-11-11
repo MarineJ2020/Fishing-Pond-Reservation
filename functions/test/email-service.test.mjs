@@ -67,6 +67,7 @@ test('email log entries expose metadata without leaking message contents', () =>
         status: 'SUCCESS',
         attempts: 1,
         recipientAccepted: true,
+        error: "",
     });
     assert.equal(JSON.stringify(entry).includes('secret-reset-link'), false);
 });

@@ -5860,6 +5860,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             <td>
                               <span className={`badge ${status.badge}`}>{status.label}</span>
                               {entry.completedAt && <div style={{ marginTop: 4, color: 'var(--text-muted)', fontSize: '0.7rem' }}>Selesai: {formatDate(entry.completedAt, { time: true, seconds: true })}</div>}
+                              {entry.error && <div style={{ marginTop: 4, color: '#b91c1c', fontSize: '0.7rem', maxWidth: 360, wordBreak: 'break-word' }}>{entry.error}</div>}
                             </td>
                             <td>{entry.attempts || '—'}</td>
                             <td>

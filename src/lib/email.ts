@@ -9,6 +9,7 @@ export interface EmailLogEntry {
   status: string;
   attempts: number;
   recipientAccepted: boolean;
+  error?: string;
 }
 
 export interface EmailLogsPage {

@@ -51,6 +51,8 @@ export const safeMailLogEntry = (id, data = {}) => {
         status: String(data.delivery?.state || 'PENDING'),
         attempts: Number(data.delivery?.attempts) || 0,
         recipientAccepted: accepted.includes(recipient.toLowerCase()),
+        // SMTP failure text only (never the message body); shown to admins in CMS > Log E-mel.
+        error: data.delivery?.state === 'ERROR' ? String(data.delivery?.error || '').replace(/\s+/g, ' ').slice(0, 300) : '',
     };
 };
 
