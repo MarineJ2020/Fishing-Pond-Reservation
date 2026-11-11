@@ -6,6 +6,7 @@ import {
     renderBookingRefundedEmail,
     renderBookingReceivedEmail,
     renderPasswordResetEmail,
+    renderStaffBookingActionEmail,
     renderStaffNewBookingEmail,
     renderReceiptRejectedEmail,
     renderVerificationEmail,
@@ -159,6 +160,33 @@ export const queueBookingLifecycleMail = async ({ bookingId, booking, kind }) =>
         bookingId,
         message,
     });
+};
+
+// "Name (email)" of the staff member behind an action, from users/{uid}.
+const resolveActorLabel = async (uid) => {
+    if (!uid || typeof uid !== 'string') return '';
+    try {
+        const snap = await adminDb.collection('users').doc(uid).get();
+        const data = snap.exists ? snap.data() : null;
+        const name = data?.name || data?.displayName || '';
+        const email = data?.email || '';
+        return [name, email && `(${email})`].filter(Boolean).join(' ') || uid;
+    } catch {
+        return uid;
+    }
+};
+
+// One alert to the staff inbox per approve / reject / cancel (who, when, why).
+// `eventKey` keeps retries idempotent.
+export const queueStaffBookingActionMail = async ({ bookingId, booking, action, actorUid, at, reason, eventKey }) => {
+    const [competition, actor] = await Promise.all([loadBookingCompetition(booking), resolveActorLabel(actorUid)]);
+    return createMailJob({
+        id: `staff_${action}_${bookingId}_${eventKey}`,
+        to: STAFF_CC,
+        kind: `staff_booking_${action}`,
+        bookingId,
+        message: renderStaffBookingActionEmail({ booking, competition, action, actor, at, reason }),
+    }).catch((error) => console.error(`Staff ${action} alert failed for ${bookingId}:`, error));
 };
 
 const timestampMs = (value) => {

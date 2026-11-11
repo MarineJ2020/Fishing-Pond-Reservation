@@ -177,6 +177,41 @@ export const renderStaffNewBookingEmail = ({ booking, competition }) => {
     };
 };
 
+const myDateTimeSeconds = new Intl.DateTimeFormat('en-US', {
+    timeZone: MY_TIME_ZONE, day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+});
+
+// Internal alert to the staff inbox: who approved / rejected / cancelled a booking, when, and why.
+export const renderStaffBookingActionEmail = ({ booking, competition, action, actor, at, reason }) => {
+    const labels = { approved: 'Diluluskan', rejected: 'Ditolak', cancelled: 'Dibatalkan' };
+    const label = labels[action] || action;
+    const bookingRef = subjectText(booking.bookingRef, 'Tempahan');
+    const when = toDate(at);
+    const whenText = when ? myDateTimeSeconds.format(when).replace(',', '') : '-';
+    const customer = [booking.userName || booking.name, booking.userEmail].filter(Boolean).join(' · ') || '-';
+    const rows = [
+        ['Tindakan', label],
+        ['Oleh', actor || 'Tidak diketahui'],
+        ['Masa', whenText],
+        ...(action !== 'approved' ? [['Sebab', reason || 'Tiada sebab direkodkan']] : []),
+        ['Pelanggan', customer],
+    ];
+    const rowsHtml = rows.map(([k, v]) => `<tr>
+      <td style="padding:7px 12px 7px 0;border-bottom:1px solid #eee;color:#666;font-size:13px;vertical-align:top;white-space:nowrap;">${escapeHtml(k)}</td>
+      <td style="padding:7px 0;border-bottom:1px solid #eee;font-weight:700;vertical-align:top;">${escapeHtml(v)}</td>
+    </tr>`).join('');
+    return {
+        subject: `Tempahan ${label} - ${bookingRef}`,
+        text: `Tempahan ${bookingRef} ${label.toLowerCase()}.\n${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}\n${selectionText(booking, competition)}\nJumlah bayaran: RM ${Number(booking.amount || 0).toFixed(2)}`,
+        html: layout(`Tempahan ${label}`, `
+            <p><strong>No. Rujukan:</strong> ${escapeHtml(bookingRef)}</p>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${rowsHtml}</table>
+            <table style="width:100%;border-collapse:collapse;margin:14px 0;">${selectionDetails(booking, competition)}</table>
+            <p><strong>Jumlah Bayaran:</strong> <span style="color:${BRAND_RED};">RM ${Number(booking.amount || 0).toFixed(2)}</span></p>`),
+    };
+};
+
 // Each QR carries the competition, start time, pond/peg and ref under it, so a
 // printed email works on its own at check-in (same as the app's QR cards).
 const qrTable = ({ bookingId, booking, competition, appUrl }) => {

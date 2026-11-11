@@ -11,6 +11,7 @@ import {
     queueBookingRefundedMail,
     queueBookingLifecycleMail,
     queueReceiptRejectedMail,
+    queueStaffBookingActionMail,
     shouldQueueBookingCancelledEmail,
     shouldQueueBookingRefundedEmail,
     queuePasswordResetMail,
@@ -858,10 +859,16 @@ export const queueBookingApprovedEmail = regional.firestore
         if (!shouldQueueBookingApprovedEmail(change.before.data().status, change.after.data().status)) {
             return null;
         }
+        const approved = change.after.data();
         await queueBookingLifecycleMail({
             bookingId: context.params.bookingId,
-            booking: change.after.data(),
+            booking: approved,
             kind: 'booking_approved',
+        });
+        const approvedAt = approved.updatedAt?.toDate?.() || new Date();
+        await queueStaffBookingActionMail({
+            bookingId: context.params.bookingId, booking: approved, action: 'approved',
+            actorUid: approved.updatedBy, at: approvedAt, eventKey: approvedAt.getTime(),
         });
         return null;
     });
@@ -875,6 +882,12 @@ export const queueReceiptRejectedEmail = regional.firestore
         const after = change.after.data() || {};
         for (const { receipt, index } of newlyRejectedReceipts(before, after)) {
             const result = await queueReceiptRejectedMail({ bookingId: context.params.bookingId, before, after, receipt, index });
+            const rejectedAt = receipt.rejectedAt?.toDate?.() || (receipt.rejectedAt ? new Date(receipt.rejectedAt) : new Date());
+            await queueStaffBookingActionMail({
+                bookingId: context.params.bookingId, booking: after, action: 'rejected',
+                actorUid: receipt.rejectedBy || after.updatedBy, at: rejectedAt, reason: receipt.rejectReason,
+                eventKey: `${index}_${rejectedAt.getTime()}`,
+            });
             if (!result.created && result.reason === 'missing-recipient') {
                 console.warn(`No email recipient for rejected receipt on booking ${context.params.bookingId}.`);
             }
@@ -890,6 +903,12 @@ export const queueBookingCancelledEmail = regional.firestore
         const after = change.after.data() || {};
         if (!shouldQueueBookingCancelledEmail(before, after)) return null;
         const result = await queueBookingCancelledMail({ bookingId: context.params.bookingId, booking: after });
+        const cancelledAt = after.cancelledAt?.toDate?.() || (after.cancelledAt ? new Date(after.cancelledAt) : new Date());
+        await queueStaffBookingActionMail({
+            bookingId: context.params.bookingId, booking: after, action: 'cancelled',
+            actorUid: after.cancelledBy || after.updatedBy, at: cancelledAt, reason: after.cancelReason,
+            eventKey: cancelledAt.getTime(),
+        });
         if (!result.created && result.reason === 'missing-recipient') {
             console.warn(`No email recipient for cancelled booking ${context.params.bookingId}.`);
         }
