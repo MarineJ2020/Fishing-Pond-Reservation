@@ -1559,7 +1559,12 @@ const AppContent: React.FC = () => {
                               <div className="bk-head-actions">
                                 {db.settings.pondMapImg && (
                                   <button className="btn btn-light btn-sm" type="button" onClick={() => setPondMapOpen(true)}>
-                                    <i className="fa-solid fa-image"></i> Peta Kolam
+                                    <i className="fa-solid fa-image"></i> Pelan KKS
+                                  </button>
+                                )}
+                                {db.settings.pegNumberPdfUrl && (
+                                  <button className="btn btn-light btn-sm" type="button" onClick={() => setPegPdfPreview(normalizePdfUrl(db.settings.pegNumberPdfUrl || ''))}>
+                                    <i className="fa-solid fa-map-location-dot"></i> Pelan Kolam
                                   </button>
                                 )}
                               </div>
