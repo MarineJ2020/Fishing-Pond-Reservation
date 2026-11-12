@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test:security": "npx --yes firebase-tools@latest emulators:exec --only firestore,storage,auth \"node --test tests/security/*.test.mjs\"",
     "lint": "eslint .",
-    "cleanup:deposit-bookings": "node scripts/delete-deposit-bookings-and-weights.mjs"
+    "cleanup:deposit-bookings": "node scripts/delete-deposit-bookings-and-weights.mjs",
+    "build:staging": "vite build --mode staging && node scripts/copy-seo-template.mjs",
+    "deploy:staging": "node scripts/make-staging-config.mjs && npx -y firebase-tools deploy --config firebase.staging.json --project kolamkelisayang-staging --only hosting,functions"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",

@@ -47,3 +47,6 @@ backups/
 
 # Staff account sheet holds plaintext passwords - never commit
 /staff-accounts/
+
+# Generated for staging deploys (scripts/make-staging-config.mjs)
+firebase.staging.json

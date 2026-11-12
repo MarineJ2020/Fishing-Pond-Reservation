@@ -1,7 +1,8 @@
 {
   "projects": {
     "default": "fishingpond-e34e9",
-    "prod": "kolamkelisayang"
+    "prod": "kolamkelisayang",
+    "staging": "kolamkelisayang-staging"
   },
   "targets": {},
   "etags": {
