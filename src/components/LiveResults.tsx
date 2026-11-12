@@ -222,7 +222,16 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
     userSeatEntries.some((seat) => seat.seatNum === entry.peg && seat.pondId === entry.pondId);
   const userPegs = userSeatEntries.map((entry) => entry.seatNum);
 
-  const myRankedEntries = rankedLb.filter(isUserEntry);
+  // Records outside the competition's min/max stay saved but are not ranked. Still show the
+  // user their own, marked "Tidak Layak", so they don't think the scan was lost.
+  const myUnqualified = liveScores
+    .filter((e) => Number.isFinite(Number(e.weight)) && !isWeightRankable(e.weight, displayComp)
+      && isUserEntry({ peg: e.seatNum, pondId: e.pondId }))
+    .map((e) => ({ id: e.id || `${e.pondId}:${e.seatNum}:${e.weight}`, peg: e.seatNum, pondId: e.pondId, weight: Number(e.weight), rank: null as number | null }));
+  const myEntries = [
+    ...rankedLb.filter(isUserEntry).map((e) => ({ id: e.id, peg: e.peg, pondId: e.pondId, weight: e.weight, rank: e.rank as number | null })),
+    ...myUnqualified,
+  ];
 
   // ── Past results (ended competitions) ───────────────────────────────────
   const endedComps = useMemo(
@@ -439,14 +448,14 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
             {/* Pinned my-result bar — always shown for logged-in users. Shows a
                 placeholder until their weight has been recorded. */}
             {user && (
-              <div className={`kl-myresult ${myRankedEntries.length ? '' : 'empty'}`} style={{ alignItems: myRankedEntries.length > 1 ? 'stretch' : undefined }}>
+              <div className={`kl-myresult ${myEntries.length ? '' : 'empty'}`} style={{ alignItems: myEntries.length > 1 ? 'stretch' : undefined }}>
                 <div className="kl-myresult-user">
                   <small>Keputusan Saya</small>
                   <strong>{user.name}</strong>
                 </div>
-                {myRankedEntries.length ? (
+                {myEntries.length ? (
                   <div style={{ display: 'grid', gap: 8, flex: 1 }}>
-                    {myRankedEntries.map((entry) => {
+                    {myEntries.map((entry) => {
                       const pond = ponds.find(p => p.id === entry.pondId);
                       return (
                         <div
@@ -457,7 +466,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                             gap: 10,
                             alignItems: 'center',
                             padding: '8px 0',
-                            borderTop: myRankedEntries.length > 1 ? '1px solid rgba(255,255,255,0.12)' : undefined,
+                            borderTop: myEntries.length > 1 ? '1px solid rgba(255,255,255,0.12)' : undefined,
                           }}
                         >
                           <div style={{ minWidth: 0 }}>
@@ -470,7 +479,7 @@ const LiveResults: React.FC<LiveResultsProps> = ({ comp, competitions, ponds, bo
                           </div>
                           <div className="kl-mini rank">
                             <small>Rank</small>
-                            <strong>#{entry.rank}</strong>
+                            <strong style={entry.rank == null ? { color: '#ff7a86' } : undefined}>{entry.rank == null ? 'Tidak Layak' : `#${entry.rank}`}</strong>
                           </div>
                         </div>
                       );
