@@ -499,6 +499,8 @@ export const createCompetition = async (data: Partial<Competition>) => {
     eventDate: data.startDate || new Date().toISOString(),
     endDate: data.endDate || data.startDate || new Date().toISOString(),
     topN: data.topN || 20,
+    ...(typeof data.minWeightKg === 'number' && data.minWeightKg > 0 ? { minWeightKg: data.minWeightKg } : {}),
+    ...(typeof data.maxWeightKg === 'number' && data.maxWeightKg > 0 ? { maxWeightKg: data.maxWeightKg } : {}),
     prizes: data.prizes || [],
     pricePerPeg: typeof data.pricePerPeg === 'number' ? data.pricePerPeg : 100,
     maxPegsPerBooking: typeof data.maxPegsPerBooking === 'number' ? data.maxPegsPerBooking : 20,

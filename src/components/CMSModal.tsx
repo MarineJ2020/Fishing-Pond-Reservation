@@ -139,6 +139,8 @@ const EMPTY_COMP_CREATE = {
   activePondIds: [] as string[],
   pricePerPeg: 100 as number,
   topN: 20 as number,
+  minWeightKg: null as number | null,
+  maxWeightKg: null as number | null,
   status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
 };
 
@@ -1026,6 +1028,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       window.alert('Tarikh tutup tempahan mesti selepas tarikh buka.');
       return;
     }
+    const { minWeightKg, maxWeightKg } = compCreate;
+    if (minWeightKg != null && maxWeightKg != null && maxWeightKg > 0 && minWeightKg > maxWeightKg) {
+      window.alert('Berat minimum tidak boleh melebihi berat maksimum.');
+      return;
+    }
     setSaving(true);
     try {
       const newId = await createCompetitionFirestore({
@@ -1034,6 +1041,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         startDate: startIso,
         endDate: endIso,
         topN: compCreate.topN,
+        minWeightKg: compCreate.minWeightKg,
+        maxWeightKg: compCreate.maxWeightKg,
         prizes: [],
         pricePerPeg: Number.isFinite(compCreate.pricePerPeg) ? compCreate.pricePerPeg : 100,
         activePondIds: compCreate.activePondIds,
@@ -3330,6 +3339,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="form-group"><label className="form-label">Tarikh &amp; Masa Tutup Tempahan</label><DateTimeField value={compCreate.bookingCloseAt} onChange={(v: string) => setCompCreate({ ...compCreate, bookingCloseAt: v })} /></div>
                     <div className="form-group"><label className="form-label">Harga Pancang (RM)</label><input className="form-input" type="number" min="1" value={compCreate.pricePerPeg} onChange={e => setCompCreate({ ...compCreate, pricePerPeg: Number(e.target.value) })} /></div>
                     <div className="form-group"><label className="form-label">Jumlah Kedudukan Dipaparkan</label><input className="form-input" type="number" min="1" value={compCreate.topN} onChange={e => setCompCreate({ ...compCreate, topN: Number(e.target.value) })} /></div>
+                    <div className="form-group"><label className="form-label">Berat Minimum Papan Markah (kg)</label><input className="form-input" type="number" min="0" step="0.01" placeholder="Tiada had" value={compCreate.minWeightKg ?? ''} onChange={e => setCompCreate({ ...compCreate, minWeightKg: e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0) })} /></div>
+                    <div className="form-group"><label className="form-label">Berat Maksimum Papan Markah (kg)</label><input className="form-input" type="number" min="0" step="0.01" placeholder="Tiada had" value={compCreate.maxWeightKg ?? ''} onChange={e => setCompCreate({ ...compCreate, maxWeightKg: e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0) })} /></div>
                     <div className="form-group"><label className="form-label">Teks Hadiah di Laman Utama</label><input className="form-input" maxLength={120} value={compCreate.prizeHighlight} onChange={e => setCompCreate({ ...compCreate, prizeHighlight: e.target.value })} placeholder="Contoh: Cabutan bertuah & hadiah lumayan" /></div>
                   </div>
                   <div className="form-group" style={{ marginTop: 14 }}>
@@ -3361,7 +3372,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               <div className="card">
                 <div className="card-header"><div className="card-title">Senarai Pertandingan</div></div>
                 <div className="card-body"><div className="table-wrap"><table>
-                  <thead><tr><th>Nama Pertandingan</th><th>Tarikh &amp; Masa Mula</th><th>Tarikh &amp; Masa Tamat</th><th>Tarikh &amp; Masa Buka Tempahan</th><th>Tarikh &amp; Masa Tutup Tempahan</th><th>Kolam Terbuka</th><th>Harga Pancang</th><th>Status</th><th>Tindakan</th></tr></thead>
+                  <thead><tr><th>Nama Pertandingan</th><th>Tarikh &amp; Masa Mula</th><th>Tarikh &amp; Masa Tamat</th><th>Tarikh &amp; Masa Buka Tempahan</th><th>Tarikh &amp; Masa Tutup Tempahan</th><th>Kolam Terbuka</th><th>Harga Pancang</th><th>Berat Min (kg)</th><th>Berat Maks (kg)</th><th>Status</th><th>Tindakan</th></tr></thead>
                   <tbody>
                     {sortCompetitionsLatestFirst(competitionsForCms).map((competition) => (
                       <tr key={competition.id || competition.name}>
@@ -3372,13 +3383,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         <td>{fmtDateTime(competition.bookingCloseAt)}</td>
                         <td>{pondNames(competition)}</td>
                         <td>{competition.pricePerPeg != null ? `RM ${competition.pricePerPeg}` : '-'}</td>
+                        <td>{competition.minWeightKg ?? '-'}</td>
+                        <td>{competition.maxWeightKg ?? '-'}</td>
                         <td>{(() => { const meta = getCompetitionCmsStatusMeta(competition, nowTick); return <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>; })()}</td>
                         <td>
                           <button className="btn btn-sm btn-ghost" onClick={() => { setCompEditIsNew(false); setCompEdit({ ...competition }); setCompetitionEditorOpen(true); }}>Urus</button>
                         </td>
                       </tr>
                     ))}
-                    {competitionsForCms.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada pertandingan lagi.</td></tr>}
+                    {competitionsForCms.length === 0 && <tr><td colSpan={11} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada pertandingan lagi.</td></tr>}
                   </tbody>
                 </table></div></div>
               </div>
