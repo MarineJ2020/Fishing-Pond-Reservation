@@ -60,6 +60,7 @@ import { buildDashboardStats, dashboardRangeBounds, DashboardFilter, DashboardRa
 import { useBooking } from '../context/BookingContext';
 import { RECENT_COMPETITION_DAYS } from '../lib/firestore';
 import { formatSeat, formatSeatList, pondDisplayName, pondRange, chainStarts } from '../utils/seatLabel';
+import { formatPeg, formatPegList } from '../utils/pegZone';
 import { parseQrPayload, buildSeatQrValue, decodeQr, openQrCameraStream } from '../utils/qr';
 import { downloadQrCard } from '../utils/qrDownload';
 import { printQrTiles } from '../utils/qrPrint';
@@ -1534,7 +1535,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             b.status === 'rejected' ? 'Dibatalkan' : 'Disahkan',
             total,
             entry.pondName || bookingPondList(b),
-            entry.seatNum ? formatSeat(pondCode, entry.seatNum) : bookingSeatList(b),
+            entry.seatNum ? formatPeg(entry.seatNum) : bookingSeatList(b),
             seatEntries.length,
             '',
           ];
@@ -3065,10 +3066,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Seat list for a booking, using the pond's alphabet code (e.g. "A-1, A-23").
   const bookingSeatList = (b: Booking) => {
     const selections = b.pondSelections?.length ? b.pondSelections : [{ pondId: b.pondId, pondCode: b.pondCode, seats: b.seats }];
-    return selections.map((selection) => formatSeatList(
-      selection.pondCode || ponds.find((pond) => pond.id === selection.pondId)?.code,
-      selection.seats,
-    )).filter(Boolean).join(', ');
+    return selections.map((selection) => formatPegList(selection.seats)).filter(Boolean).join(', ');
   };
   const bookingPondList = (b: Booking) => b.pondSelections?.length
     ? Array.from(new Set(b.pondSelections.map((selection) => selection.pondName))).join(', ')
@@ -4175,7 +4173,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Rujukan</span><span className="checkin-detail-val">{checkinResult.bookingRef || checkinResult.id}</span></div>
                       <div className="checkin-detail-row"><span className="checkin-detail-key">Nama</span><span className="checkin-detail-val">{checkinResult.userName}</span></div>
                       {scannedEntries.length > 0 ? (
-                        <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{scannedEntries.map((entry) => `${entry.pondName} · ${formatSeat(entry.pondCode, entry.seatNum)}`).join(', ')}</span></div>
+                        <div className="checkin-detail-row"><span className="checkin-detail-key">Tempat</span><span className="checkin-detail-val">{scannedEntries.map((entry) => `${entry.pondName} · ${formatPeg(entry.seatNum)}`).join(', ')}</span></div>
                       ) : (
                         <>
                           <div className="checkin-detail-row"><span className="checkin-detail-key">Kolam</span><span className="checkin-detail-val">{bookingPondList(checkinResult)}</span></div>
@@ -4191,7 +4189,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                               const seatCheckedIn = isBookingSeatCheckedIn(checkinResult, entry);
                               const isScanned = checkinScannedSeat === entry.seatNum
                                 && (checkinScannedPondId == null || checkinScannedPondId === entry.pondId);
-                              const seatLabel = formatSeat(entry.pondCode, entry.seatNum);
+                              const seatLabel = formatPeg(entry.seatNum);
                               return (
                                 <div
                                   key={entry.key}
@@ -4261,7 +4259,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             const checked = isBookingSeatCheckedIn(booking, entry);
                             const checkedAt = bookingSeatCheckInTime(booking, entry);
                             const payment = checkinPaymentMeta(booking);
-                            const seatLabel = formatSeat(entry.pondCode, entry.seatNum);
+                            const seatLabel = formatPeg(entry.seatNum);
                             return (
                               <tr key={`${booking.id}-${entry.key}`}>
                                 <td className="td-name">
@@ -6657,7 +6655,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 const qrDate = qrComp?.startDate ? formatDate(qrComp.startDate, { time: true }) : '';
                 const qrRef = qrPreviewBooking.bookingRef || qrPreviewBooking.id.slice(0, 8).toUpperCase();
                 const cardLines = (entry: BookingSeatEntry) => [
-                  `No Pancang ${formatSeat(entry.pondCode, entry.seatNum)}`,
+                  `No Pancang ${formatPeg(entry.seatNum)}`,
                   qrCompName,
                   ...(qrDate ? [qrDate] : []),
                   `Kolam ${entry.pondName}`,
@@ -6707,7 +6705,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             <button type="button" onClick={() => setEnlargedQrSeat(entry)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'zoom-in' }} aria-label="Besarkan QR">
                               <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, entry.seatNum, entry.pondId)} size={150} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
                             </button>
-                            <span className="seat-pill">{formatSeat(entry.pondCode, entry.seatNum)}</span>
+                            <span className="seat-pill">{formatPeg(entry.seatNum)}</span>
                             <div className="qr-print-details">
                               <strong>{qrCompName}</strong>
                               {qrDate && <span>{qrDate}</span>}
@@ -6745,7 +6743,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         >
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', background: '#fff', padding: '28px', borderRadius: '18px' }}>
             <QRCodeSVG value={buildSeatQrValue(qrPreviewBooking.id, enlargedQrSeat.seatNum, enlargedQrSeat.pondId)} size={280} level="M" marginSize={2} bgColor="#ffffff" fgColor="#112a41" />
-            <span className="seat-pill">{formatSeat(enlargedQrSeat.pondCode, enlargedQrSeat.seatNum)}</span>
+            <span className="seat-pill">{formatPeg(enlargedQrSeat.seatNum)}</span>
           </div>
         </div>,
         document.body,

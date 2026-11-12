@@ -1,4 +1,5 @@
 import { adminDb } from './auth-utils.js';
+import { loadPegZones } from './peg-zones.js';
 import {
     renderBalanceReminderEmail,
     renderBookingApprovedEmail,
@@ -128,15 +129,18 @@ export const queuePasswordResetMail = ({ uid, email, link, name, requestWindow }
 
 // Competition doc for the booking emails' schedule line. The booking stores
 // competitionId as a string or (legacy) reference; a missing doc just shows '-'.
+// The result also carries `pegZones` (pond peg ranges) so the templates can print
+// "123 (Zon A)"; it is not a stored field.
 export const loadBookingCompetition = async (booking) => {
+    const pegZones = await loadPegZones(adminDb);
     const id = booking?.competitionId?.id ?? booking?.competitionId;
-    if (typeof id !== 'string' || !id || id.includes('/')) return null;
+    if (typeof id !== 'string' || !id || id.includes('/')) return { pegZones };
     try {
         const snap = await adminDb.collection('competitions').doc(id).get();
-        return snap.exists ? snap.data() : null;
+        return { ...(snap.exists ? snap.data() : {}), pegZones };
     } catch (error) {
         console.error(`Could not load competition ${id} for booking email:`, error);
-        return null;
+        return { pegZones };
     }
 };
 

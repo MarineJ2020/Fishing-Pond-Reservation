@@ -6,7 +6,7 @@ import { formatDate } from '../utils';
 import { buildSeatQrValue } from '../utils/qr';
 import { downloadQrCard } from '../utils/qrDownload';
 import { printQrTiles } from '../utils/qrPrint';
-import { formatSeat } from '../utils/seatLabel';
+import { formatPeg } from '../utils/pegZone';
 import { formatWeight } from '../utils/weight';
 import { getScoresForCompetition } from '../lib/firestore';
 import BalanceReceiptUpload from './BalanceReceiptUpload';
@@ -83,7 +83,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
     if (!svg) return;
     setQrDownloadError(null);
     try {
-      await downloadQrCard(svg as SVGSVGElement, qrCardLines(pondName, peg), `QR-${qrRef}-${peg}.png`);
+      await downloadQrCard(svg as SVGSVGElement, qrCardLines(pondName, peg), `QR-${qrRef}-${peg.replace(/[^A-Za-z0-9]+/g, '-').replace(/-+$/, '')}.png`);
     } catch {
       setQrDownloadError('QR tidak dapat dimuat turun. Sila ambil tangkapan skrin. / Could not download the QR; please take a screenshot.');
     }
@@ -217,7 +217,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                 : 'Pertandingan ini telah tamat. / This competition has ended.'}
             </span>
             <span className="qr-disabled-pegs">
-              {seatEntries.map((entry) => formatSeat(entry.pondCode, entry.seatNum)).join(', ')}
+              {seatEntries.map((entry) => formatPeg(entry.seatNum)).join(', ')}
             </span>
           </div>
         ) : (
@@ -249,7 +249,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
             >
               {seatEntries.map((entry) => {
                 const checkedIn = isBookingSeatCheckedIn(booking, entry);
-                const peg = formatSeat(entry.pondCode, entry.seatNum);
+                const peg = formatPeg(entry.seatNum);
                 return (
                   <div
                     key={entry.key}
@@ -345,7 +345,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                   const seatEntry = seatEntries.find((seat) => seat.seatNum === entry.seatNum && seat.pondId === entry.pondId);
                   return (
                     <tr key={entry.id || `${entry.pondId}-${entry.seatNum}`}>
-                      <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>{formatSeat(seatEntry?.pondCode, entry.seatNum)}</td>
+                      <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>{formatPeg(entry.seatNum)}</td>
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right', fontWeight: 800 }}>{formatWeight(entry.weight, decimalPlaces)} kg</td>
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', color: 'var(--text-muted)' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}</td>
                       {!resultsHidden && <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>#{entry.rank}</td>}
@@ -405,7 +405,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
               {group.pondDate && <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginBottom: '8px' }}>{group.pondDate}</div>}
               <div className="selected-pills">
                 {group.seats.map((seatNum) => (
-                  <span key={`${group.pondId}-${seatNum}`} className="seat-pill">{formatSeat(group.pondCode, seatNum)}</span>
+                  <span key={`${group.pondId}-${seatNum}`} className="seat-pill">{formatPeg(seatNum)}</span>
                 ))}
               </div>
             </div>

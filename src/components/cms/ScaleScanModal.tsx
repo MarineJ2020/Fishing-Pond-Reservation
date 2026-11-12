@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CropRectOverlay, { NormRect } from './CropRectOverlay';
 import { scanWeight, prewarmOcr, ScanResult, formatScannedWeight } from '../../utils/scaleOcr';
 import { formatSeat, formatSeatList } from '../../utils/seatLabel';
+import { formatPeg, formatPegList } from '../../utils/pegZone';
 import { parseQrPayload, decodeQr, openQrCameraStream } from '../../utils/qr';
 import { weightSanityWarning } from '../../utils/weight';
 import { detectDisplayInBitmap } from '../../utils/displayDetect';
@@ -936,7 +937,7 @@ const ScaleScanModal: React.FC<Props> = ({
               <span>✓</span>
               <strong>{confirmedBooking.anglerName}</strong>
               <span style={{ opacity: 0.7 }}>·</span>
-              <span>{confirmedBooking.pondName} · {confirmedBooking.pondCode ? formatSeat(confirmedBooking.pondCode, confirmedBooking.seatNum) : `Peg #${confirmedBooking.seatNum}`}</span>
+              <span>{confirmedBooking.pondName} · {formatPeg(confirmedBooking.seatNum)}</span>
               <button
                 className="btn btn-ghost btn-sm"
                 onClick={handleResetIdentify}
@@ -1076,7 +1077,7 @@ const ScaleScanModal: React.FC<Props> = ({
                         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                           {groupedSeats.map((entries) => {
                             const first = entries[0];
-                            return `${first.pondName} · ${first.pondCode ? formatSeatList(first.pondCode, entries.map((entry) => entry.seatNum)) : `Peg ${entries.map((entry) => `#${entry.seatNum}`).join(', ')}`}`;
+                            return `${first.pondName} · ${formatPegList(entries.map((entry) => entry.seatNum))}`;
                           }).join('  |  ')}
                         </div>
                       </div>
@@ -1107,7 +1108,7 @@ const ScaleScanModal: React.FC<Props> = ({
                     onClick={() => handleSeatPicked(entry)}
                     style={{ padding: '12px 8px', fontWeight: 700, flexDirection: 'column', gap: 3 }}
                   >
-                    <span>{entry.pondCode ? formatSeat(entry.pondCode, entry.seatNum) : `#${entry.seatNum}`}</span>
+                    <span>{formatPeg(entry.seatNum)}</span>
                     <small style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{entry.pondName}</small>
                   </button>
                 ))}
@@ -1147,7 +1148,7 @@ const ScaleScanModal: React.FC<Props> = ({
                 <div>
                   <div style={{ fontWeight: 700 }}>{confirmedBooking.anglerName}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {confirmedBooking.pondName} · {confirmedBooking.pondCode ? formatSeat(confirmedBooking.pondCode, confirmedBooking.seatNum) : `Peg #${confirmedBooking.seatNum}`}
+                    {confirmedBooking.pondName} · {formatPeg(confirmedBooking.seatNum)}
                   </div>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>

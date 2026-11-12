@@ -20,6 +20,7 @@ import { useCountdown } from './hooks/useCountdown';
 import { useSEO } from './hooks/useSEO';
 import { fmt, formatDate } from './utils';
 import { formatSeat, pondDisplayName } from './utils/seatLabel';
+import { formatPeg } from './utils/pegZone';
 import { countOutstanding, outstandingBalance } from './utils/booking';
 import { trackEvent } from './utils/analytics';
 import { isCompetitionEnded, isBookingOpen, bookingWindowLabel, getBookingWindowState } from './utils/competition';
@@ -60,7 +61,7 @@ const bookingPancangList = (booking: Booking): string => {
     ? booking.pondSelections
     : [{ pondCode: booking.pondCode, seats: booking.seats }];
   return selections.flatMap((selection) => selection.seats.map(
-    (seatNum) => formatSeat(selection.pondCode, seatNum),
+    (seatNum) => formatPeg(seatNum),
   )).join(', ');
 };
 
@@ -348,7 +349,7 @@ const AppContent: React.FC = () => {
     return seats.map((seatNum) => ({
       pondId: pond.id,
       seatNum,
-      label: formatSeat(pond.code, seatNum),
+      label: formatPeg(seatNum),
       pondName: pondDisplayName(pond),
     }));
   }), [db.ponds, selectedPondSeats]);

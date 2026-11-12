@@ -26,7 +26,7 @@ const QrCardPage: React.FC = () => {
   const svgBox = useRef<HTMLDivElement>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
-  const filename = `QR-${params.get('r') || 'tempahan'}-${peg || 'peg'}.png`;
+  const filename = `QR-${params.get('r') || 'tempahan'}-${(peg || 'peg').replace(/[^A-Za-z0-9]+/g, '-').replace(/-+$/, '')}.png`;
 
   useEffect(() => {
     if (!valid) return;

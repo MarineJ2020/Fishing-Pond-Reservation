@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import { setPegZones } from '../utils/pegZone';
 import { receiptUploadFolder } from '../utils/receiptStorage';
 import { DB, User, Pond, Booking, BookingPondSelection, Settings } from '../types';
 import { emptyDB, setDB } from '../data';
@@ -106,6 +107,8 @@ export const BookingProvider: React.FC<{ children: ReactNode }> = ({ children })
     const settings = bootstrapSettings();
     return settings ? { ...emptyDB, settings } : emptyDB;
   });
+  // Register peg ranges synchronously (before children render) so every booking view can show "123 (Zon A)".
+  useMemo(() => setPegZones(db.ponds), [db.ponds]);
   const [user, setUser] = useState<User | null>(null);
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
   const [selectedPond, setSelectedPond] = useState<number | null>(null);

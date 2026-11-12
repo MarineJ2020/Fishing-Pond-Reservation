@@ -1,3 +1,5 @@
+import { zoneForPeg } from './peg-zones.js';
+
 const BRAND_RED = '#b91c1c';
 const BRAND_NAVY = '#112a41';
 
@@ -57,7 +59,11 @@ const competitionSchedule = (competition) => {
 };
 
 // Peg numbers are plain, globally unique numbers (the legacy pond letter is ignored).
-const seatLabel = (seat) => `${seat}`;
+// With the pond peg ranges (`competition.pegZones`, see peg-zones.js) it reads "123 (Zon A)".
+const seatLabel = (seat, _pondCode, zones) => {
+    const zone = zoneForPeg(zones, Number(seat));
+    return zone ? `${seat} (Zon ${zone})` : `${seat}`;
+};
 
 const selectionList = (booking) => {
     if (Array.isArray(booking.pondSelections) && booking.pondSelections.length) {
@@ -87,7 +93,7 @@ const summaryRows = (booking, competition) => [
     ['Pertandingan', booking.competitionName || competition?.name || '-'],
     ['Tarikh & Masa Pertandingan', competitionSchedule(competition)],
     ['Kolam & No. Pancang', selectionList(booking).map((selection) => {
-        const seats = selection.seats.map((seat) => seatLabel(seat, selection.pondCode)).join(', ') || '-';
+        const seats = selection.seats.map((seat) => seatLabel(seat, selection.pondCode, competition?.pegZones)).join(', ') || '-';
         return `${selection.pondName}: ${seats}`;
     })],
 ];
@@ -219,7 +225,7 @@ const qrTable = ({ bookingId, booking, competition, appUrl }) => {
     const competitionName = competition?.name || booking.competitionName || '';
     const start = toDate(competition?.eventDate ?? competition?.startDate);
     const cells = selectionList(booking).flatMap((selection) => selection.seats.map((seat) => {
-        const label = seatLabel(seat, selection.pondCode);
+        const label = seatLabel(seat, selection.pondCode, competition?.pegZones);
         const pondQuery = selection.pondId != null
             ? `&pond=${encodeURIComponent(String(selection.pondId?.id ?? selection.pondId))}`
             : '';
