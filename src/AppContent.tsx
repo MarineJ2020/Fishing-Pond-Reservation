@@ -9,7 +9,7 @@ import SecondaryMobileNav from './components/SecondaryMobileNav';
 import SeatMap from './components/SeatMap';
 import BookingForm from './components/BookingForm';
 import BookingChoiceModal from './components/BookingChoiceModal';
-import ZoomableImage from './components/ZoomableImage';
+import ImageZoomModal from './components/ImageZoomModal';
 import Toast from './components/Toast';
 import Footer from './components/Footer';
 import { BookingSubmitStage, useBooking } from './context/BookingContext';
@@ -2190,47 +2190,17 @@ const AppContent: React.FC = () => {
 
       {/* Pond map popup */}
       {pondMapOpen && db.settings.pondMapImg && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 9998,
-            background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(6px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: '1rem', animation: 'fadeIn 0.18s ease',
-          }}
-          onClick={() => setPondMapOpen(false)}
-        >
-          <div
-            style={{
-              background: 'var(--surface, #1a1a2e)', borderRadius: '1rem',
-              maxWidth: '900px', width: '100%',
-              boxShadow: '0 25px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)',
-              animation: 'slideUp 0.22s cubic-bezier(0.34,1.56,0.64,1)',
-              overflow: 'hidden',
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-              <div style={{ fontWeight: 700, fontSize: '1rem' }}>🗺 Susunan Kolam</div>
-              <button
-                onClick={() => setPondMapOpen(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted, #aaa)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}
-                aria-label="Tutup"
-              >
-                ×
-              </button>
-            </div>
-            <div style={{ padding: '1.25rem', textAlign: 'center' }}>
-              <ZoomableImage src={db.settings.pondMapImg} alt="Susunan kolam" height="72dvh" />
-            </div>
-          </div>
-        </div>
+        <ImageZoomModal title="🗺 Susunan Kolam" images={[db.settings.pondMapImg]} onClose={() => setPondMapOpen(false)} />
       )}
 
-      {pegPdfPreview && (
+      {/* Peg number PDF: zoomable page images (rendered at upload); old uploads without pages fall back to the PDF viewer */}
+      {pegPdfPreview && (db.settings.pegNumberPdfPages?.length ? (
+        <ImageZoomModal title={db.settings.pegPdfCtaLabel || 'No. Pancang Setiap Kolam'} images={db.settings.pegNumberPdfPages} downloadUrl={pegPdfPreview} onClose={() => setPegPdfPreview(null)} />
+      ) : (
         <Suspense fallback={null}>
           <DocPreviewModal url={pegPdfPreview} title={db.settings.pegPdfCtaLabel || 'No. Pancang Setiap Kolam'} onClose={() => setPegPdfPreview(null)} />
         </Suspense>
-      )}
+      ))}
 
       {/* Syarat & Peraturan PDF — in-app popup instead of a new tab */}
       {rulesPdfPreview && (

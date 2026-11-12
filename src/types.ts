@@ -387,6 +387,8 @@ export interface Settings {
   rulesPdfUrl?: string;
   /** Uploaded PDF of peg numbers for each pond, shown from the homepage intro button. */
   pegNumberPdfUrl?: string;
+  /** Page images rendered from the peg number PDF at upload time (what the popup shows). */
+  pegNumberPdfPages?: string[];
   /** Label of the homepage button that opens the peg number PDF. */
   pegPdfCtaLabel?: string;
   /** Google Maps embed URL used in the Lokasi section. If absent, derived from `location`. */

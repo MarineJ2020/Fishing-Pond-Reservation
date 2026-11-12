@@ -41,6 +41,7 @@ import {
 } from '../lib/firestore';
 import { compressBlobToWebp, compressBlobToJpeg, uploadImageToFirebaseStorage } from '../utils/imageStorage';
 import { normalizePdfUrl, uploadPdfToFirebaseStorage } from '../utils/pdfStorage';
+import { renderPdfToPngFiles } from '../utils/pdfPages';
 import { asset, LANDING_ASSETS } from '../config/landingAssets';
 import { LANDING_SECTION_KEYS, LANDING_SECTION_LABELS } from '../config/landingSections';
 import { sanitizeLandingHtml } from '../utils/landingHtml';
@@ -1963,6 +1964,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         rules: settingsEdit.rules || [],
         rulesPdfUrl: settingsEdit.rulesPdfUrl || '',
         pegNumberPdfUrl: settingsEdit.pegNumberPdfUrl || '',
+        pegNumberPdfPages: settingsEdit.pegNumberPdfPages || [],
         pegPdfCtaLabel: settingsEdit.pegPdfCtaLabel || '',
         lokasiEyebrow: settingsEdit.lokasiEyebrow || '',
         lokasiTitle: settingsEdit.lokasiTitle || '',
@@ -2235,8 +2237,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setPegPdfUploading(true);
     try {
       const url = await uploadPdfToFirebaseStorage(file, 'fishing-pond-maps', file.name);
-      setSettingsEdit(s => ({ ...s, pegNumberPdfUrl: url }));
-      await updateSettingsFirestore({ pegNumberPdfUrl: url });
+      // Page images (what the public popup shows, with zoom); the PDF itself stays for download.
+      const pageFiles = await renderPdfToPngFiles(file);
+      const pages = await Promise.all(pageFiles.map((f) => uploadImageToFirebaseStorage(f, 'fishing-pond-maps', f.name)));
+      setSettingsEdit(s => ({ ...s, pegNumberPdfUrl: url, pegNumberPdfPages: pages }));
+      await updateSettingsFirestore({ pegNumberPdfUrl: url, pegNumberPdfPages: pages });
       await reloadDB();
       await logAuditEvent({
         action: 'settings.peg_pdf', actionLabel: 'Muat Naik PDF No. Pancang', entityType: 'settings',
@@ -5285,8 +5290,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                             <button
                               className="btn btn-sm btn-ghost"
                               onClick={async () => {
-                                setSettingsEdit(s => ({ ...s, pegNumberPdfUrl: '' }));
-                                await updateSettingsFirestore({ pegNumberPdfUrl: '' });
+                                setSettingsEdit(s => ({ ...s, pegNumberPdfUrl: '', pegNumberPdfPages: [] }));
+                                await updateSettingsFirestore({ pegNumberPdfUrl: '', pegNumberPdfPages: [] });
                                 await reloadDB();
                               }}
                             >Padam PDF</button>
