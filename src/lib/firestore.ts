@@ -531,7 +531,7 @@ export const getActiveCompetitionOrPlaceholder = async (
   const now = new Date().toISOString();
   return {
     id: '',
-    name: 'Tiada pertandingan',
+    name: 'Tiada pertandingan lagi',
     startDate: now,
     endDate: now,
     topN: 20,
