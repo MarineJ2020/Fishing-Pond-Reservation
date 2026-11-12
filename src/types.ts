@@ -385,6 +385,8 @@ export interface Settings {
   rules?: { title: string; body: string }[];
   /** Uploaded PDF URL for Syarat & Peraturan. */
   rulesPdfUrl?: string;
+  /** Uploaded PDF of peg numbers for each pond, shown from the homepage intro button. */
+  pegNumberPdfUrl?: string;
   /** Google Maps embed URL used in the Lokasi section. If absent, derived from `location`. */
   mapEmbedUrl?: string;
   /** External map/directions deep links shown as quick-link buttons */

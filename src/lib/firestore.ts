@@ -241,6 +241,7 @@ const normalizeSettings = (data: any): Settings => ({
   introCopy: data.introCopy || '',
   rules: Array.isArray(data.rules) ? data.rules : [],
   rulesPdfUrl: data.rulesPdfUrl || '',
+  pegNumberPdfUrl: data.pegNumberPdfUrl || '',
   wazeUrl: data.wazeUrl || '',
   googleMapsUrl: data.googleMapsUrl || '',
   mapEmbedUrl: data.mapEmbedUrl || '',

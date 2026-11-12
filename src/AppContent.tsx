@@ -165,6 +165,7 @@ const AppContent: React.FC = () => {
   };
   const [choiceOpen, setChoiceOpen] = useState(false);
   const [rulesPdfPreview, setRulesPdfPreview] = useState<string | null>(null);
+  const [pegPdfPreview, setPegPdfPreview] = useState<string | null>(null);
   const [bookingPhase, setBookingPhase] = useState<'seats' | 'details'>('seats');
   const [holdBusy, setHoldBusy] = useState(false);
   // Booking-flow problems (peg taken/held, limits, missing receipt…) are shown
@@ -1142,6 +1143,9 @@ const AppContent: React.FC = () => {
           </div>
           <div className="kks-intro-cta">
             <button className="btn btn-navy" onClick={() => (settings.pondMapImg ? setPondMapOpen(true) : goToBook())}>{settings.aboutCtaLabel}</button>
+            {settings.pegNumberPdfUrl && (
+              <button className="btn btn-navy" onClick={() => setPegPdfPreview(normalizePdfUrl(settings.pegNumberPdfUrl || ''))}>No. Pancang Setiap Kolam</button>
+            )}
           </div>
         </div>}
       </section>
@@ -2223,6 +2227,12 @@ const AppContent: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {pegPdfPreview && (
+        <Suspense fallback={null}>
+          <DocPreviewModal url={pegPdfPreview} title="No. Pancang Setiap Kolam" onClose={() => setPegPdfPreview(null)} />
+        </Suspense>
       )}
 
       {/* Syarat & Peraturan PDF — in-app popup instead of a new tab */}

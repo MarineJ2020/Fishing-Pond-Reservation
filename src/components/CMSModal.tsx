@@ -455,6 +455,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [pondMapUploading, setPondMapUploading] = useState(false);
   const [qrImgUploading, setQrImgUploading] = useState(false);
   const [rulesPdfUploading, setRulesPdfUploading] = useState(false);
+  const [pegPdfUploading, setPegPdfUploading] = useState(false);
   const [landingImageUploading, setLandingImageUploading] = useState<Partial<Record<keyof typeof LANDING_ASSETS, boolean>>>({});
   const [ogImageUploading, setOgImageUploading] = useState<string | null>(null);
   // Users page search query (narrows the currently-loaded page only).
@@ -1961,6 +1962,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         rulesCtaLabel: settingsEdit.rulesCtaLabel || '',
         rules: settingsEdit.rules || [],
         rulesPdfUrl: settingsEdit.rulesPdfUrl || '',
+        pegNumberPdfUrl: settingsEdit.pegNumberPdfUrl || '',
         lokasiEyebrow: settingsEdit.lokasiEyebrow || '',
         lokasiTitle: settingsEdit.lokasiTitle || '',
         contactName: settingsEdit.contactName || '',
@@ -2226,6 +2228,24 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const rules = [...(settingsEdit.rules || [])];
     rules.splice(idx, 1);
     setSettingsEdit({ ...settingsEdit, rules });
+  };
+
+  const handlePegPdfUpload = async (file: File) => {
+    setPegPdfUploading(true);
+    try {
+      const url = await uploadPdfToFirebaseStorage(file, 'fishing-pond-maps', file.name);
+      setSettingsEdit(s => ({ ...s, pegNumberPdfUrl: url }));
+      await updateSettingsFirestore({ pegNumberPdfUrl: url });
+      await reloadDB();
+      await logAuditEvent({
+        action: 'settings.peg_pdf', actionLabel: 'Muat Naik PDF No. Pancang', entityType: 'settings',
+        actorUid: user?.uid, actorEmail: user?.email, actorName: user?.name,
+      });
+    } catch (err) {
+      console.error('Failed to upload peg number PDF:', err);
+      window.alert('Gagal memuat naik PDF. Sila cuba lagi.');
+    }
+    setPegPdfUploading(false);
   };
 
   const handleRulesPdfUpload = async (file: File) => {
@@ -5391,6 +5411,47 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="form-group"><label className="form-label">Waze URL</label><input className="form-input" value={settingsEdit.wazeUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, wazeUrl: e.target.value })} placeholder="https://waze.com/ul?ll=..." /></div>
                     <div className="form-group"><label className="form-label">Google Maps URL</label><input className="form-input" value={settingsEdit.googleMapsUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, googleMapsUrl: e.target.value })} placeholder="https://maps.google.com/?q=..." /></div>
                   </div>}
+                </div>
+              </div>
+
+              <div className="card" style={{ marginTop: '12px' }}>
+                <div className="card-header"><div className="card-title">PDF No. Pancang Setiap Kolam</div></div>
+                <div className="card-body">
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    Butang &quot;No. Pancang Setiap Kolam&quot; di halaman utama akan memaparkan PDF ini. Butang hanya muncul selepas PDF dimuat naik.
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <label
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '8px',
+                        padding: '8px 16px', borderRadius: '8px', cursor: pegPdfUploading ? 'not-allowed' : 'pointer',
+                        background: 'var(--green)', color: '#fff', fontSize: '0.85rem', fontWeight: 600,
+                        opacity: pegPdfUploading ? 0.65 : 1,
+                      }}
+                    >
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        style={{ display: 'none' }}
+                        disabled={pegPdfUploading}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handlePegPdfUpload(f); e.target.value = ''; }}
+                      />
+                      {pegPdfUploading ? 'Memuat naik...' : (settingsEdit.pegNumberPdfUrl ? '🔄 Tukar PDF' : '⬆ Muat Naik PDF')}
+                    </label>
+                    {settingsEdit.pegNumberPdfUrl && (
+                      <>
+                        <a className="btn btn-sm btn-ghost" href={normalizePdfUrl(settingsEdit.pegNumberPdfUrl)} target="_blank" rel="noopener noreferrer">Buka PDF</a>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={async () => {
+                            setSettingsEdit(s => ({ ...s, pegNumberPdfUrl: '' }));
+                            await updateSettingsFirestore({ pegNumberPdfUrl: '' });
+                            await reloadDB();
+                          }}
+                        >Padam PDF</button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 

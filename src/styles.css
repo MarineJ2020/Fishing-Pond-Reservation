@@ -3620,7 +3620,7 @@ nav.kks-legacy-v3-nav::before {
   margin: 0 0 12px; text-transform: uppercase; color: var(--navy);
 }
 .kks-feature p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
-.kks-intro-cta { margin-top: 28px; }
+.kks-intro-cta { margin-top: 28px; display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 
 /* ===== COMPETITION (#competitions) ===== */
 .kks-competition { color: #fff; background-size: cover; background-position: center; }
