@@ -1835,7 +1835,25 @@ const AppContent: React.FC = () => {
         );
       }
       case 'live':
-        return <LiveResults decimalPlaces={db.settings.ocrDecimalPlaces} comp={selectedCompetition || db.comp} competitions={db.competitions?.length ? db.competitions : [db.comp]} scores={db.scores} ponds={db.ponds} bookings={db.bookings} availability={db.availability} user={user} />;
+        if (!db.competitions?.length) {
+          return (
+            <div className="kl-page">
+              <section className="kl-hero">
+                <div className="kl-hero-inner">
+                  <div className="kl-hero-copy">
+                    <div className="kl-eyebrow">Live Ranking</div>
+                    <h1>Keputusan <span>Langsung</span></h1>
+                    <p>Belum ada rekod pertandingan untuk dipaparkan. Keputusan akan muncul di sini apabila pertandingan bermula.</p>
+                  </div>
+                </div>
+              </section>
+              <div className="kl-no-data" style={{ margin: '32px auto', maxWidth: 720, textAlign: 'center' }}>
+                Tiada rekod pertandingan lagi.
+              </div>
+            </div>
+          );
+        }
+        return <LiveResults decimalPlaces={db.settings.ocrDecimalPlaces} comp={selectedCompetition || db.comp} competitions={db.competitions} scores={db.scores} ponds={db.ponds} bookings={db.bookings} availability={db.availability} user={user} />;
       case 'mybookings':
         if (!authReady) {
           return (
