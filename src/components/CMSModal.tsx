@@ -1963,6 +1963,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         rules: settingsEdit.rules || [],
         rulesPdfUrl: settingsEdit.rulesPdfUrl || '',
         pegNumberPdfUrl: settingsEdit.pegNumberPdfUrl || '',
+        pegPdfCtaLabel: settingsEdit.pegPdfCtaLabel || '',
         lokasiEyebrow: settingsEdit.lokasiEyebrow || '',
         lokasiTitle: settingsEdit.lokasiTitle || '',
         contactName: settingsEdit.contactName || '',
@@ -5254,6 +5255,45 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="form-group"><label className="form-label">Tajuk</label><textarea className="form-textarea" rows={2} value={settingsEdit.aboutTitle || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, aboutTitle: e.target.value })} placeholder="Bukan *Kolam* Biasa" /></div>
                     <div className="form-group form-span"><label className="form-label">Penerangan Ringkas (Intro)</label><textarea className="form-textarea" rows={4} value={settingsEdit.introCopy || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, introCopy: e.target.value })} placeholder="Kolam Keli Sayang dibuka untuk pertandingan sahaja..." /></div>
                     <div className="form-group"><label className="form-label">Label Butang CTA</label><input className="form-input" value={settingsEdit.aboutCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, aboutCtaLabel: e.target.value })} placeholder="Semak Layout Kolam" /></div>
+                    <div className="form-group"><label className="form-label">Label Butang PDF No. Pancang</label><input className="form-input" value={settingsEdit.pegPdfCtaLabel || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, pegPdfCtaLabel: e.target.value })} placeholder="No. Pancang Setiap Kolam" /></div>
+                    <div className="form-group form-span">
+                      <label className="form-label">PDF No. Pancang Setiap Kolam</label>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        Butang di sebelah &quot;{settingsEdit.aboutCtaLabel || 'Semak Layout Kolam'}&quot; akan memaparkan PDF ini. Butang hanya muncul selepas PDF dimuat naik.
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <label
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '8px',
+                            padding: '8px 16px', borderRadius: '8px', cursor: pegPdfUploading ? 'not-allowed' : 'pointer',
+                            background: 'var(--green)', color: '#fff', fontSize: '0.85rem', fontWeight: 600,
+                            opacity: pegPdfUploading ? 0.65 : 1,
+                          }}
+                        >
+                          <input
+                            type="file"
+                            accept="application/pdf"
+                            style={{ display: 'none' }}
+                            disabled={pegPdfUploading}
+                            onChange={e => { const f = e.target.files?.[0]; if (f) handlePegPdfUpload(f); e.target.value = ''; }}
+                          />
+                          {pegPdfUploading ? 'Memuat naik...' : (settingsEdit.pegNumberPdfUrl ? '🔄 Tukar PDF' : '⬆ Muat Naik PDF')}
+                        </label>
+                        {settingsEdit.pegNumberPdfUrl && (
+                          <>
+                            <a className="btn btn-sm btn-ghost" href={normalizePdfUrl(settingsEdit.pegNumberPdfUrl)} target="_blank" rel="noopener noreferrer">Buka PDF</a>
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              onClick={async () => {
+                                setSettingsEdit(s => ({ ...s, pegNumberPdfUrl: '' }));
+                                await updateSettingsFirestore({ pegNumberPdfUrl: '' });
+                                await reloadDB();
+                              }}
+                            >Padam PDF</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   </>}
                 </div>
@@ -5411,47 +5451,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     <div className="form-group"><label className="form-label">Waze URL</label><input className="form-input" value={settingsEdit.wazeUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, wazeUrl: e.target.value })} placeholder="https://waze.com/ul?ll=..." /></div>
                     <div className="form-group"><label className="form-label">Google Maps URL</label><input className="form-input" value={settingsEdit.googleMapsUrl || ''} onChange={(e) => setSettingsEdit({ ...settingsEdit, googleMapsUrl: e.target.value })} placeholder="https://maps.google.com/?q=..." /></div>
                   </div>}
-                </div>
-              </div>
-
-              <div className="card" style={{ marginTop: '12px' }}>
-                <div className="card-header"><div className="card-title">PDF No. Pancang Setiap Kolam</div></div>
-                <div className="card-body">
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                    Butang &quot;No. Pancang Setiap Kolam&quot; di halaman utama akan memaparkan PDF ini. Butang hanya muncul selepas PDF dimuat naik.
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    <label
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '8px',
-                        padding: '8px 16px', borderRadius: '8px', cursor: pegPdfUploading ? 'not-allowed' : 'pointer',
-                        background: 'var(--green)', color: '#fff', fontSize: '0.85rem', fontWeight: 600,
-                        opacity: pegPdfUploading ? 0.65 : 1,
-                      }}
-                    >
-                      <input
-                        type="file"
-                        accept="application/pdf"
-                        style={{ display: 'none' }}
-                        disabled={pegPdfUploading}
-                        onChange={e => { const f = e.target.files?.[0]; if (f) handlePegPdfUpload(f); e.target.value = ''; }}
-                      />
-                      {pegPdfUploading ? 'Memuat naik...' : (settingsEdit.pegNumberPdfUrl ? '🔄 Tukar PDF' : '⬆ Muat Naik PDF')}
-                    </label>
-                    {settingsEdit.pegNumberPdfUrl && (
-                      <>
-                        <a className="btn btn-sm btn-ghost" href={normalizePdfUrl(settingsEdit.pegNumberPdfUrl)} target="_blank" rel="noopener noreferrer">Buka PDF</a>
-                        <button
-                          className="btn btn-sm btn-ghost"
-                          onClick={async () => {
-                            setSettingsEdit(s => ({ ...s, pegNumberPdfUrl: '' }));
-                            await updateSettingsFirestore({ pegNumberPdfUrl: '' });
-                            await reloadDB();
-                          }}
-                        >Padam PDF</button>
-                      </>
-                    )}
-                  </div>
                 </div>
               </div>
 

@@ -1145,7 +1145,7 @@ const AppContent: React.FC = () => {
           <div className="kks-intro-cta">
             <button className="btn btn-navy" onClick={() => (settings.pondMapImg ? setPondMapOpen(true) : goToBook())}>{settings.aboutCtaLabel}</button>
             {settings.pegNumberPdfUrl && (
-              <button className="btn btn-navy" onClick={() => setPegPdfPreview(normalizePdfUrl(settings.pegNumberPdfUrl || ''))}>No. Pancang Setiap Kolam</button>
+              <button className="btn btn-navy" onClick={() => setPegPdfPreview(normalizePdfUrl(settings.pegNumberPdfUrl || ''))}>{settings.pegPdfCtaLabel || 'No. Pancang Setiap Kolam'}</button>
             )}
           </div>
         </div>}
@@ -2228,7 +2228,7 @@ const AppContent: React.FC = () => {
 
       {pegPdfPreview && (
         <Suspense fallback={null}>
-          <DocPreviewModal url={pegPdfPreview} title="No. Pancang Setiap Kolam" onClose={() => setPegPdfPreview(null)} />
+          <DocPreviewModal url={pegPdfPreview} title={db.settings.pegPdfCtaLabel || 'No. Pancang Setiap Kolam'} onClose={() => setPegPdfPreview(null)} />
         </Suspense>
       )}
 

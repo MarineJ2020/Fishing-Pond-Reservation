@@ -242,6 +242,7 @@ const normalizeSettings = (data: any): Settings => ({
   rules: Array.isArray(data.rules) ? data.rules : [],
   rulesPdfUrl: data.rulesPdfUrl || '',
   pegNumberPdfUrl: data.pegNumberPdfUrl || '',
+  pegPdfCtaLabel: data.pegPdfCtaLabel || '',
   wazeUrl: data.wazeUrl || '',
   googleMapsUrl: data.googleMapsUrl || '',
   mapEmbedUrl: data.mapEmbedUrl || '',
