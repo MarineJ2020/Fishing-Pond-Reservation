@@ -519,37 +519,25 @@ export const createCompetition = async (data: Partial<Competition>) => {
   return docRef.id;
 };
 
-export const getOrCreateDefaultCompetition = async (
+// Placeholder shown when no competition exists. It is never written to Firestore
+// (an old version auto-created a real "Fishing Competition 2026" doc, which
+// reappeared after every data reset) and has an empty id so no booking or score
+// logic can attach to it.
+export const getActiveCompetitionOrPlaceholder = async (
   preFetched?: { active: Competition | null }
 ): Promise<Competition> => {
   const comp = preFetched ? preFetched.active : await getActiveCompetition();
   if (comp) return comp;
-  
-  // Create default competition if none exists
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const competitionsRef = collection(db, 'competitions');
-  const docRef = await addDoc(competitionsRef, {
-    name: 'Fishing Competition 2026',
-    eventDate: tomorrow.toISOString(),
-    endDate: tomorrow.toISOString(),
+  const now = new Date().toISOString();
+  return {
+    id: '',
+    name: 'Tiada pertandingan',
+    startDate: now,
+    endDate: now,
     topN: 20,
-    prizes: [{rank: 1, label: 'Champion', prize: 'RM 5,000'}],
-    pricePerPeg: 100,
-    status: 'ACTIVE',
-    createdAt: serverTimestamp(),
-  });
-  
-  const newComp: Competition = {
-    id: docRef.id,
-    name: 'Fishing Competition 2026',
-    startDate: tomorrow.toISOString(),
-    endDate: tomorrow.toISOString(),
-    topN: 20,
-    prizes: [{rank: 1, label: 'Champion', prize: 'RM 5,000'}],
-    pricePerPeg: 100,
+    prizes: [],
+    pricePerPeg: 0,
   };
-  return newComp;
 };
 
 // Seats are derived from each pond's totalSeats/pricePerSeat/seatLayout instead
@@ -805,7 +793,7 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void, opts: { fresh
     const ponds = await getPondsWithSeats({ pondDocs });
     const competitions = await getCompetitions(competitionSnapshot.docs);
     const activeComp = await getActiveCompetition(competitionSnapshot.docs);
-    const competition = await getOrCreateDefaultCompetition({ active: activeComp });
+    const competition = await getActiveCompetitionOrPlaceholder({ active: activeComp });
 
     // Fetch all bookings (not just for one competition) — reuse the ponds/seats/bookings
     // already fetched above instead of re-querying them.
@@ -839,7 +827,7 @@ export const loadAppDB = async (onCoreLoaded?: (core: DB) => void, opts: { fresh
       bookings,
       scores: {},
       comp: competition,
-      competitions: competitions.length ? competitions : [competition],
+      competitions,
       settings,
       users: [],
       bookingScope: visible.scope,
