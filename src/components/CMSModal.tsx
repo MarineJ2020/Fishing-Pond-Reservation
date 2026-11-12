@@ -5,7 +5,6 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useSearchParams } from 'react-router-dom';
 import { User, Pond, Competition, Prize, Settings, ScoreEntry, Booking, AuditEntry, LandingSectionKey, PrizeClaim } from '../types';
 import { gs } from '../data';
-import PondEditor from './PondEditor';
 import DateTimeField from './DateTimeField';
 import { fastestRecords, mostRecordRanking } from '../utils/specialPrizes';
 import { CANCEL_TYPE_OPTIONS, bookingPaidAmount, cancelMoneyLabel, isRefundPending, type CancelType } from '../utils/cancellation';
@@ -828,17 +827,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const handlePondUpdate = async (pond: Pond) => {
     setPondSaveError(null);
 
-    // 1. Seat count enforcement for polygon view
-    // Kolam always uses the legacy pond view now (toggle removed).
-    const hasPolygon = false && (pond.shape?.length ?? 0) > 2;
-    const seatsWithPos = pond.seats.filter(s => s.px !== undefined && s.py !== undefined);
-    const target = pond.maxSeats;
-    if (hasPolygon && seatsWithPos.length > 0 && target !== undefined && seatsWithPos.length !== target) {
-      setPondSaveError(`Letakkan tepat ${target} pancang pada peta (kini ${seatsWithPos.length}/${target}).`);
-      return;
-    }
-
-    // 2. Peg range: numbers chain on from the pond before, so only the count is edited.
+    // 1. Peg range: numbers chain on from the pond before, so only the count is edited.
     const pondDocKey = pond._docId || pond.id.toString();
     const nextList = ponds.map((p) => ((p._docId || p.id.toString()) === pondDocKey ? pond : p));
     const myIndex = nextList.findIndex((p) => (p._docId || p.id.toString()) === pondDocKey);
@@ -857,7 +846,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       return;
     }
 
-    // 3. Numbering is locked once the pond has bookings (start / Kiri / Kanan counts).
+    // 2. Numbering is locked once the pond has bookings (start / Kiri / Kanan counts).
     const original = ponds.find((p) => (p._docId || p.id.toString()) === pondDocKey);
     if (original && pondHasActiveBookings(pond.id)) {
       const before = pondRange(original);
@@ -873,14 +862,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const safePrice = pond.seats[0]?.price || 100;
       const effectiveMaxSeats = range.total;
 
-      // Build seatLayout: positions + active flag for each seat
-      const seatLayout = pond.seats.map(s => ({
-        num: s.num,
-        px: s.px ?? 50,
-        py: s.py ?? 50,
-        active: s.active !== false,
-      }));
-
       await updatePondFirestore(pondDocId, {
         name: pond.name,
         description: pond.desc,
@@ -890,8 +871,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         leftCount: range.left,
         leftZone: pond.leftZone === 'B' ? 'B' : 'A',
         pricePerSeat: safePrice,
-        shape: pond.shape ?? [],
-        seatLayout,
       } as any);
       await syncPondSeatsFirestore(pondDocId, effectiveMaxSeats, safePrice, range.start, range.left, pond.leftZone === 'B' ? 'B' : 'A');
       await applyPondShifts(shifted);
@@ -6157,12 +6136,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
           const isEdit = !!editingPond.id;
           const curMaxSeats = isEdit ? (editingPond.maxSeats ?? editingPond.seats.length ?? 30) : newPondMaxSeats;
           const curSeats = isEdit ? (editingPond.seats ?? []) : (newPond.seats ?? []);
-          const curShape = isEdit ? (editingPond.shape ?? []) : ((newPond as any).shape ?? []);
-          // Kolam always uses the legacy pond view now (toggle removed).
-          const isLegacy = true;
-          const seatsPlaced = curSeats.filter(s => s.px !== undefined).length;
-          const hasPolygon = !isLegacy && curShape.length > 2;
-          const seatCountOk = !hasPolygon || seatsPlaced === 0 || seatsPlaced === curMaxSeats;
           const editingKey = isEdit ? (editingPond._docId || editingPond.id.toString()) : '';
           const formList: Pond[] = isEdit
             ? ponds.map((p) => ((p._docId || p.id.toString()) === editingKey ? editingPond : p))
@@ -6251,33 +6224,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   </div>
                 </div>
 
-                {/* ── Pond visual editor (polygon mode only) ── */}
-                {!isLegacy && (
-                  <div style={{ marginTop: '20px' }}>
-                    <div className="form-label" style={{ marginBottom: '8px', display: 'block' }}>
-                      Reka Bentuk Kolam &amp; Susunan Pancang
-                      {hasPolygon && seatsPlaced > 0 && (
-                        <span style={{ marginLeft: 8, fontSize: '0.78rem', color: seatCountOk ? 'var(--green)' : '#facc15' }}>
-                          {seatsPlaced}/{curMaxSeats} pancang diletakkan{seatCountOk ? ' ✓' : ` — perlu tepat ${curMaxSeats}`}
-                        </span>
-                      )}
-                    </div>
-                    <PondEditor
-                      shape={curShape}
-                      seats={curSeats}
-                      maxSeats={curMaxSeats}
-                      onChange={(newShape, newSeats) => {
-                        setPondSaveError(null);
-                        if (isEdit) {
-                          setEditingPond({ ...editingPond, shape: newShape, seats: newSeats });
-                        } else {
-                          setNewPond({ ...newPond, shape: newShape as any, seats: newSeats });
-                        }
-                      }}
-                    />
-                  </div>
-                )}
-
                 {/* ── Save error ── */}
                 {pondSaveError && (
                   <div style={{ marginTop: '12px', padding: '10px 14px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '8px', color: '#f87171', fontSize: '0.84rem' }}>
@@ -6289,27 +6235,14 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {isEdit ? (<>
                     <button type="button" className="btn btn-danger" style={{ marginRight: 'auto' }} disabled={saving} onClick={() => handleDeletePond(editingPond)}>Padam Kolam</button>
                     <button className="btn btn-ghost" onClick={closePondModal}>Batal</button>
-                    <button className="btn btn-primary" disabled={saving || !seatCountOk} onClick={() => handlePondUpdate(editingPond)}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
+                    <button className="btn btn-primary" disabled={saving} onClick={() => handlePondUpdate(editingPond)}>{saving ? 'Menyimpan...' : 'Simpan'}</button>
                   </>) : (<>
                     <button className="btn btn-ghost" onClick={closePondModal}>Batal</button>
-                    <button className="btn btn-primary" disabled={saving || !seatCountOk} onClick={async () => {
+                    <button className="btn btn-primary" disabled={saving} onClick={async () => {
                       if (newPond.name) {
-                        // Conflict check for new pond: no existing bookings, so just count check
-                        if (!isLegacy && hasPolygon && seatsPlaced > 0 && seatsPlaced !== newPondMaxSeats) {
-                          setPondSaveError(`Letakkan tepat ${newPondMaxSeats} pancang pada peta (kini ${seatsPlaced}/${newPondMaxSeats}).`);
-                          return;
-                        }
                         setSaving(true);
                         try {
-                          const effectiveMax = isLegacy ? newPondMaxSeats : ((newPond.seats ?? []).length || newPondMaxSeats);
-                          const newDocId = await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: effectiveMax, startNumber: rng.start, leftCount: rng.left, leftZone, pricePerSeat: 100 } as any);
-                          // Save shape + seatLayout if present (polygon mode)
-                          const shape = (newPond as any).shape ?? [];
-                          const seats = newPond.seats ?? [];
-                          if (!isLegacy && (shape.length > 0 || seats.length > 0)) {
-                            const seatLayout = seats.map((s: any) => ({ num: s.num, px: s.px ?? 50, py: s.py ?? 50, active: s.active !== false }));
-                            await updatePondFirestore(newDocId, { shape, seatLayout } as any);
-                          }
+                          const newDocId = await createPondFirestore({ name: newPond.name, desc: newPond.desc || '', open: true, totalSeats: newPondMaxSeats, startNumber: rng.start, leftCount: rng.left, leftZone, pricePerSeat: 100 } as any);
                           await reloadDB();
                           await logAuditEvent({
                             action: 'pond.create', actionLabel: 'Cipta Kolam', entityType: 'pond',
