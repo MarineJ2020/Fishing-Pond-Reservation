@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Booking, ScoreEntry, Settings } from '../types';
 import { bookingSeatEntries, isBookingSeatCheckedIn, outstandingBalance, receiptBankReference } from '../utils/booking';
-import { formatDate } from '../utils';
+import { formatDate, isWeightRankable } from '../utils';
 import { buildSeatQrValue } from '../utils/qr';
 import { downloadQrCard } from '../utils/qrDownload';
 import { printQrTiles } from '../utils/qrPrint';
@@ -20,6 +20,8 @@ interface Props {
   /** Competition hides rankings on the public site: weights show, ranks don't. */
   resultsHidden?: boolean;
   decimalPlaces?: Settings['ocrDecimalPlaces'];
+  /** Competition leaderboard weight limits: weights outside them show "Tidak Layak" and are not ranked. */
+  rankLimits?: { minWeightKg?: number | null; maxWeightKg?: number | null } | null;
   /** When true, hides the close button (rendered as a page, not a modal). */
   inPage?: boolean;
   onClose?: () => void;
@@ -53,7 +55,7 @@ const rankWeight = (entry: ScoreEntry, decimalPlaces: Settings['ocrDecimalPlaces
   return Number(entry.weight.toFixed(decimalPlaces));
 };
 
-const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, competitionDateLabel, resultsHidden, decimalPlaces, inPage, onClose, onReceiptSubmitted }) => {
+const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, competitionDateLabel, resultsHidden, decimalPlaces, rankLimits, inPage, onClose, onReceiptSubmitted }) => {
   const [docPreview, setDocPreview] = useState<string | null>(null);
   const [docPreviewTitle, setDocPreviewTitle] = useState('Slip Bayaran');
   const [scoreEntries, setScoreEntries] = useState<ScoreEntry[]>([]);
@@ -141,11 +143,15 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
     return () => { cancelled = true; };
   }, [booking.competitionId]);
 
+  // Weights outside the competition's min/max stay recorded but are not ranked (and must not push others down).
   const rankedScores = [...scoreEntries]
+    .filter((entry) => isWeightRankable(entry.weight, rankLimits))
     .sort((a, b) => (rankWeight(b, decimalPlaces) - rankWeight(a, decimalPlaces)) || (scoreTime(b) - scoreTime(a)))
     .map((entry, index) => ({ ...entry, rank: index + 1 }));
-  const bookingScores = rankedScores
+  const rankOf = new Map(rankedScores.map((entry) => [entry.id, entry.rank]));
+  const bookingScores = scoreEntries
     .filter((entry) => entry.bookingId === booking.id)
+    .map((entry) => ({ ...entry, rank: rankOf.get(entry.id) ?? null }))
     .sort((a, b) => a.seatNum - b.seatNum);
 
   return (
@@ -348,7 +354,7 @@ const BookingDetailContent: React.FC<Props> = ({ booking, competitionEnded, comp
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>{formatPeg(entry.seatNum)}</td>
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right', fontWeight: 800 }}>{formatWeight(entry.weight, decimalPlaces)} kg</td>
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', color: 'var(--text-muted)' }}>{formatDate(entry.capturedAt, { time: true }) || '-'}</td>
-                      {!resultsHidden && <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>#{entry.rank}</td>}
+                      {!resultsHidden && <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)', fontWeight: 800 }}>{entry.rank == null ? <span style={{ color: 'var(--red)' }}>Tidak Layak</span> : `#${entry.rank}`}</td>}
                       <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--line)' }}>
                         {entry.photoUrl ? (
                           <button

@@ -8,10 +8,11 @@ interface BookingDetailsModalProps {
   competitionEnded?: boolean;
   competitionDateLabel?: string;
   resultsHidden?: boolean;
+  rankLimits?: { minWeightKg?: number | null; maxWeightKg?: number | null } | null;
   onClose: () => void;
 }
 
-const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booking, competitionEnded, competitionDateLabel, resultsHidden, onClose }) => {
+const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booking, competitionEnded, competitionDateLabel, resultsHidden, rankLimits, onClose }) => {
   if (!isOpen || !booking) return null;
 
   return (
@@ -26,6 +27,7 @@ const BookingDetailsModal: React.FC<BookingDetailsModalProps> = ({ isOpen, booki
           competitionEnded={competitionEnded}
           competitionDateLabel={competitionDateLabel}
           resultsHidden={resultsHidden}
+          rankLimits={rankLimits}
           onClose={onClose}
         />
       </div>
