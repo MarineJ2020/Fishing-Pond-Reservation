@@ -9,6 +9,7 @@ import SecondaryMobileNav from './components/SecondaryMobileNav';
 import SeatMap from './components/SeatMap';
 import BookingForm from './components/BookingForm';
 import BookingChoiceModal from './components/BookingChoiceModal';
+import ZoomableImage from './components/ZoomableImage';
 import Toast from './components/Toast';
 import Footer from './components/Footer';
 import { BookingSubmitStage, useBooking } from './context/BookingContext';
@@ -2219,11 +2220,7 @@ const AppContent: React.FC = () => {
               </button>
             </div>
             <div style={{ padding: '1.25rem', textAlign: 'center' }}>
-              <img
-                src={db.settings.pondMapImg}
-                alt="Susunan kolam"
-                style={{ maxWidth: '100%', maxHeight: '75dvh', objectFit: 'contain', borderRadius: '8px' }}
-              />
+              <ZoomableImage src={db.settings.pondMapImg} alt="Susunan kolam" height="72dvh" />
             </div>
           </div>
         </div>
