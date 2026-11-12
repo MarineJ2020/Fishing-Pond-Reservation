@@ -258,7 +258,6 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
     );
   }
 
-  const av           = pond.seats.filter(s => s.status === 'available').length;
   const hasShape     = (pond.shape?.length ?? 0) > 2;
   const posSeatsList = pond.seats.filter(s => s.px !== undefined && s.py !== undefined);
   const showCanvas   = !useLegacyView && hasShape && posSeatsList.length > 0;
@@ -296,7 +295,6 @@ const SeatMap: React.FC<SeatMapProps> = ({ pond, selectedSeats, onToggleSeat, us
         <div className="seat-map-header">
           <div>
             <div className="seat-map-title">{pond.name}</div>
-            <div className="seat-map-subtitle">{pond.date} — {av} pancang tersedia</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             {showCanvas && (
