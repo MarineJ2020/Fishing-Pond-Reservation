@@ -4,6 +4,7 @@ import { LiveScoresProvider } from './context/LiveScoresContext';
 import { UIProvider } from './context/UIContext';
 import AppContent from './AppContent';
 import QrCardPage from './components/QrCardPage';
+import UpdateWatcher from './components/UpdateWatcher';
 
 const App: React.FC = () => {
   // Email "Muat turun QR" landing page: standalone, so skip loading app data.
@@ -13,6 +14,7 @@ const App: React.FC = () => {
       <LiveScoresProvider>
         <UIProvider>
           <AppContent />
+          <UpdateWatcher />
         </UIProvider>
       </LiveScoresProvider>
     </BookingProvider>

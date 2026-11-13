@@ -30,6 +30,21 @@ function validateProductionEnv(env) {
   }
 }
 
+// Unique per build. Baked into the bundle (__APP_BUILD_ID__) and published as
+// /version.json, so open tabs can notice a newer deploy and reload themselves
+// (src/components/UpdateWatcher.tsx).
+const buildId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+
+function emitVersionFile() {
+  return {
+    name: 'kks-version-file',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: buildId }) })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   if (mode === 'production') {
@@ -40,8 +55,10 @@ export default defineConfig(({ mode }) => {
     // Honour a PORT env var (used by the preview harness) so the dev server binds
     // to the assigned port instead of auto-incrementing past an in-use 5173.
     server: process.env.PORT ? { port: Number(process.env.PORT) } : undefined,
+    define: { __APP_BUILD_ID__: JSON.stringify(buildId) },
     plugins: [
       react(),
+      emitVersionFile(),
       // Mirror onnxruntime-web's WASM blobs next to the bundle so the runtime
       // can fetch them as same-origin static files at /ort/*.wasm.
       viteStaticCopy({
