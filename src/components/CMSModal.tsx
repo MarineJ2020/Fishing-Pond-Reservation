@@ -188,7 +188,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // Inline "Tambah Pertandingan" quick-create form (raw input strings; combined on save).
   const [compCreate, setCompCreate] = useState({ ...EMPTY_COMP_CREATE });
   const [compEdit, setCompEdit] = useState<Competition>(comp);
-  const [compList, setCompList] = useState<Competition[]>(competitions.length ? competitions : (comp.name ? [comp] : []));
+  const [compList, setCompList] = useState<Competition[]>(competitions.length ? competitions : (comp.id ? [comp] : []));
   // Every competition filter opens on the latest event (live, else next
   // upcoming, else most recently ended); Rekod Hadiah uses the latest ended.
   const latestCompId = latestCompetition(compList.length ? compList : competitions)?.id || '';
@@ -772,7 +772,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   }, [page]);
 
   useEffect(() => {
-    setCompList(competitions.length ? competitions : (comp.name ? [comp] : []));
+    setCompList(competitions.length ? competitions : (comp.id ? [comp] : []));
     // Only re-seed the working copy when no competition editor is open. reloadDB()
     // hands back fresh comp/competitions references, so resetting unconditionally
     // would re-point compEdit (id included) at the active competition mid-edit —
@@ -2646,7 +2646,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       (seatNum) => (seatConflictMap.get(`${b.competitionId || ''}-${selection.pondId}-${seatNum}`) ?? []).length > 1,
     ));
   };
-  const competitionsForCms = compList.length ? compList : (comp.name ? [comp] : []);
+  const competitionsForCms = compList.length ? compList : (comp.id ? [comp] : []);
   const dashboardCompetitions = competitionsForCms
     .filter((competition) => {
       const phase = getCompetitionPhase(competition);

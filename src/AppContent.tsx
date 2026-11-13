@@ -191,7 +191,7 @@ const AppContent: React.FC = () => {
 
   const competitions = useMemo(() => {
     if (db.competitions?.length) return db.competitions;
-    return db.comp?.name ? [db.comp] : [];
+    return db.comp?.id ? [db.comp] : [];
   }, [db.comp, db.competitions]);
 
   // Competitions shown on the public booking page. Ended ("tamat") events and
