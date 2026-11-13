@@ -231,6 +231,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
   // Semua Tempahan — everything already decided (confirmed/rejected).
   const [bookingSearch, setBookingSearch] = useState('');
+  // While a search term is typed, the table searches ALL bookings of the filter (every page),
+  // not just the 50 rows on screen. `null` = no active search.
+  const [bookingPegSearch, setBookingPegSearch] = useState('');
+  const [approvalPegSearch, setApprovalPegSearch] = useState('');
+  const [allSearchPool, setAllSearchPool] = useState<Booking[] | null>(null);
+  const [approvalSearchPool, setApprovalSearchPool] = useState<Booking[] | null>(null);
+  const [searchPoolLoading, setSearchPoolLoading] = useState(false);
+  const [searchNonce, setSearchNonce] = useState(0);
+  const searchPoolCache = useRef<{ key: string; items: Booking[] } | null>(null);
   const [allStatus, setAllStatus] = useState<'all' | 'confirmed' | 'cancelled'>('all');
   const [allCompFilter, setAllCompFilter] = useState('');
   // Opens on the current competition: "Semua pertandingan" has to load every
@@ -1457,11 +1466,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const q = bookingSearch.trim().toLowerCase();
       const filteredRows = exportRows
         .filter((b) => !allPondFilter || String(b.pondId) === allPondFilter)
+        .filter((b) => bookingHasPeg(b, bookingPegSearch))
         .filter((b) => {
           if (!q) return true;
           const haystack = [
             b.id, b.bookingRef, b.userName, b.userId, b.userEmail, b.userPhone, b.bookingPhone,
-            b.pondName, b.competitionName, bookingSeatList(b),
+            b.pondName, b.competitionName,
           ].filter(Boolean).join(' ').toLowerCase();
           return haystack.includes(q);
         })
@@ -1541,12 +1551,60 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, allStatus, allSortField, allSortOrder, allCompFilter]);
 
+  // Search across every page: fetch all matching-status bookings (200 per read) once the admin
+  // pauses typing, then filter them client-side. Without this, a booking on page 2+ never matched.
+  useEffect(() => {
+    const isAll = page === 'all-bookings';
+    const isApprovals = page === 'approvals';
+    const term = (isAll ? bookingSearch + bookingPegSearch : isApprovals ? approvalSearch + approvalPegSearch : '').trim();
+    if ((!isAll && !isApprovals) || !term) {
+      setAllSearchPool(null);
+      setApprovalSearchPool(null);
+      setSearchPoolLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const statuses = isApprovals ? ['PENDING_APPROVAL'] : allBookingFetchParams().statuses;
+    const compId = (isApprovals ? approvalCompFilter : allCompFilter) || undefined;
+    // Same status/competition/refresh as the last search: reuse what was already read (no new reads).
+    const cacheKey = `${page}|${statuses.join(',')}|${compId || ''}|${searchNonce}`;
+    const cached = searchPoolCache.current;
+    if (cached && cached.key === cacheKey) {
+      if (isApprovals) setApprovalSearchPool(cached.items); else setAllSearchPool(cached.items);
+      setSearchPoolLoading(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSearchPoolLoading(true);
+      try {
+        const items: Booking[] = [];
+        let cursor: any = null;
+        let hasMore = true;
+        while (hasMore && !cancelled) {
+          const result = await getBookingsPage({ statuses, competitionId: compId, sortField: 'createdAt', sortDir: 'desc', pageSize: 200, cursor, competitions });
+          items.push(...result.items);
+          cursor = result.lastDoc;
+          hasMore = result.hasMore && !!cursor;
+        }
+        if (cancelled) return;
+        searchPoolCache.current = { key: cacheKey, items };
+        if (isApprovals) setApprovalSearchPool(items); else setAllSearchPool(items);
+      } catch (err) {
+        console.error('Failed to search all bookings:', err);
+      }
+      if (!cancelled) setSearchPoolLoading(false);
+    }, 450);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, bookingSearch, approvalSearch, bookingPegSearch, approvalPegSearch, allStatus, allCompFilter, approvalCompFilter, searchNonce]);
+
   // Refetch whichever list is currently on-screen after a mutation — the
   // OTHER list (if the booking just moved between them) picks up the change
   // naturally next time the admin navigates to it (see the filter/page effects).
   // Refreshes the visible paginated table and patches the changed booking into
   // the full list the Dashboard counts come from (one doc read, not all bookings).
   const refetchCurrentBookingList = async (bookingId?: string) => {
+    setSearchNonce((n) => n + 1);
     await Promise.all([
       page === 'approvals' ? fetchKelulusanPage(kelulusanCursors[kelulusanPage] ?? null, kelulusanPage)
         : page === 'all-bookings' ? fetchAllTempahanPage(allCursors[allPage] ?? null, allPage)
@@ -3047,6 +3105,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     const selections = b.pondSelections?.length ? b.pondSelections : [{ pondId: b.pondId, pondCode: b.pondCode, seats: b.seats }];
     return selections.map((selection) => formatPegList(selection.seats)).filter(Boolean).join(', ');
   };
+  // Peg search: matches the start of any peg number of the booking ("1668" finds peg 1668).
+  const bookingHasPeg = (b: Booking, query: string) => {
+    const q = query.trim().replace(/^#/, '');
+    if (!q) return true;
+    return (bookingSeatList(b).match(/\d+/g) || []).some((n) => n.startsWith(q));
+  };
   const bookingPondList = (b: Booking) => b.pondSelections?.length
     ? Array.from(new Set(b.pondSelections.map((selection) => selection.pondName))).join(', ')
     : b.pondName;
@@ -3752,8 +3816,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const aq = approvalSearch.trim().toLowerCase();
             // Server query only scopes status===pending; competition/payment
             // filters and search narrow the currently-loaded page client-side.
-            const filteredEntries = kelulusanEntries
+            const filteredEntries = ((aq || approvalPegSearch.trim()) && approvalSearchPool ? approvalSearchPool : kelulusanEntries)
               .filter((b) => !approvalCompFilter || (b.competitionId || '') === approvalCompFilter)
+              .filter((b) => bookingHasPeg(b, approvalPegSearch))
               .filter((b) => {
                 if (!aq) return true;
                 const hay = [b.id, b.bookingRef, b.userName, b.userEmail, b.userPhone, b.bookingPhone, b.pondName, b.competitionName].filter(Boolean).join(' ').toLowerCase();
@@ -3782,9 +3847,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
 
               <div className="cms-filter-row">
-                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, no slip bayaran..." value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} /></div>
+                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, no slip bayaran..." value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} />{(approvalSearch.trim() || approvalPegSearch.trim()) && searchPoolLoading && <small>Mencari dalam semua tempahan…</small>}</div>
+                <div className="field"><label>No. Pancang</label><input className="form-input" type="search" inputMode="numeric" placeholder="cth: 1668" value={approvalPegSearch} onChange={e => setApprovalPegSearch(e.target.value)} /></div>
                 <div className="field"><label>Pertandingan</label><select className="form-input" value={approvalCompFilter} onChange={e => setApprovalCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
-                <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalSearch(''); setApprovalCompFilter(latestCompId); }}>Reset</button></div>
+                <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalSearch(''); setApprovalPegSearch(''); setApprovalCompFilter(latestCompId); }}>Reset</button></div>
               </div>
 
               <div className="card"><div className="card-body"><div className="table-wrap"><table>
@@ -3890,14 +3956,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const q = bookingSearch.trim().toLowerCase();
             // Server query scopes decided bookings by status; competition,
             // pond, and search filters narrow the currently-loaded page.
-            const filteredEntries = allEntries
+            const filteredEntries = ((q || bookingPegSearch.trim()) && allSearchPool ? allSearchPool : allEntries)
               .filter(b => !allCompFilter || (b.competitionId || '') === allCompFilter)
               .filter(b => !allPondFilter || String(b.pondId) === allPondFilter)
+              .filter(b => bookingHasPeg(b, bookingPegSearch))
               .filter(b => {
                 if (!q) return true;
                 const haystack = [
                   b.id, b.bookingRef, b.userName, b.userId, b.userEmail, b.userPhone, b.bookingPhone,
-                  b.pondName, b.competitionName, bookingSeatList(b),
+                  b.pondName, b.competitionName,
                 ].filter(Boolean).join(' ').toLowerCase();
                 return haystack.includes(q);
               });
@@ -3943,14 +4010,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
 
               <div className="cms-filter-row">
-                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, nombor seat..." value={bookingSearch} onChange={e => setBookingSearch(e.target.value)} /></div>
+                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, telefon..." value={bookingSearch} onChange={e => setBookingSearch(e.target.value)} />{(bookingSearch.trim() || bookingPegSearch.trim()) && searchPoolLoading && <small>Mencari dalam semua tempahan…</small>}</div>
+                <div className="field"><label>No. Pancang</label><input className="form-input" type="search" inputMode="numeric" placeholder="cth: 1668" value={bookingPegSearch} onChange={e => setBookingPegSearch(e.target.value)} /></div>
                 <div className="field"><label>Pertandingan</label><select className="form-input" value={allCompFilter} onChange={e => setAllCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
                 <div className="field"><label>Kolam</label><select className="form-input" value={allPondFilter} onChange={e => setAllPondFilter(e.target.value)}><option value="">Semua kolam</option>{ponds.map(p => <option key={p.id} value={String(p.id)}>{pondDisplayName(p)}</option>)}</select></div>
                 <div className="cms-filter-actions">
                   <button className="btn btn-primary btn-sm" disabled={!allCompFilter || allExporting} onClick={handleExportAllBookingsCsv}>
                     {allExporting ? 'Export...' : 'Export CSV'}
                   </button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setAllCompFilter(latestCompId); setAllPondFilter(''); }}>Reset</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setBookingPegSearch(''); setAllCompFilter(latestCompId); setAllPondFilter(''); }}>Reset</button>
                 </div>
               </div>
 
