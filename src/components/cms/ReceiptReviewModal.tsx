@@ -122,6 +122,7 @@ const ReceiptReviewModal: React.FC<ReceiptReviewModalProps> = ({ booking, saving
             <div style={{ fontWeight: 700 }}>{booking.userName}</div>
             <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{booking.pondName} · {booking.competitionName || '-'}</div>
             <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Ref: {booking.bookingRef || booking.id}</div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', overflowWrap: 'anywhere' }}>E-mel: {booking.userEmail || '—'}</div>
             {/* Booking-level reference = the reference keyed in with the first
                 (deposit) receipt. Each later receipt carries its own, shown below. */}
             <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>No. Rujukan Bank (slip bayaran pertama): {booking.bankReference || '-'}</div>

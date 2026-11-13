@@ -3811,6 +3811,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <td className="td-name">
                         {b.userName}
                         {b.createdByStaff && <span style={{ marginLeft: 5, fontSize: '0.68rem', background: 'rgba(250,204,21,0.18)', color: 'var(--gold)', border: '1px solid rgba(250,204,21,0.3)', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.5px' }}>(Ditempah oleh {b.createdByName || 'Admin'})</span>}
+                        {b.userEmail && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: '2px', overflowWrap: 'anywhere' }}>{b.userEmail}</div>}
                       </td>
                       <td>
                         {b.userPhone || '—'}
