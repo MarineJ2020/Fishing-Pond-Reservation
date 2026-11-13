@@ -31,7 +31,12 @@ service cloud.firestore {
     // Public browsing collections.
     match /competitions/{competitionId} {
       allow read: if true;
-      allow create, update: if isAdmin();
+      // The CMS (createCompetition) always sets updatedAt. A pre-2026-11-13 client
+      // bundle auto-created a fake "Fishing Competition 2026" without it whenever no
+      // competition existed (a stale admin tab did so on 2026-11-13 and customers
+      // booked it), so creates lacking updatedAt are refused.
+      allow create: if isAdmin() && 'updatedAt' in request.resource.data;
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 

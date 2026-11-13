@@ -128,6 +128,13 @@ test('forged creates and financial/receipt edits are denied, existing CMS checks
     await assertSucceeds(getDoc(doc(firestoreFor(guest), 'competitions', 'past')));
 });
 
+test('admins create competitions only via the CMS shape; the old auto-created placeholder is refused', async () => {
+    const legacy = { name: 'Fishing Competition 2026', eventDate: '2026-11-14T00:00:00.000Z', endDate: '2026-11-14T00:00:00.000Z', topN: 20, prizes: [{ rank: 1, label: 'Champion', prize: 'RM 5,000' }], pricePerPeg: 100, status: 'ACTIVE', createdAt: serverTimestamp() };
+    await assertFails(setDoc(doc(firestoreFor(admin), 'competitions', 'legacy-auto'), legacy));
+    await assertSucceeds(setDoc(doc(firestoreFor(admin), 'competitions', 'cms-made'), { ...legacy, name: 'Real event', updatedAt: serverTimestamp() }));
+    await assertFails(setDoc(doc(firestoreFor(staff), 'competitions', 'staff-made'), { ...legacy, updatedAt: serverTimestamp() }));
+});
+
 test('new receipts are scoped and immutable; staff review and old receipt previews work', async () => {
     const path = 'fishing-pond-receipts/owner/proof.jpg';
     await assertSucceeds(uploadBytes(ref(owner.storage(), path), imageBytes, { contentType: 'image/jpeg' }));
