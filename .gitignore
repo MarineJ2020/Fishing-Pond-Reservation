@@ -53,3 +53,5 @@ firebase.staging.json
 
 # Previous builds' hashed assets, re-deployed for a few days (scripts/keep-previous-assets.mjs)
 /.cache/
+functions/staging-dist
+functions/.env.kolamkelisayang-staging

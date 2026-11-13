@@ -21,7 +21,8 @@
         "firebase-debug.*.log",
         "*.local",
         "lib",
-        "**/*.bak"
+        "**/*.bak",
+        "staging-dist"
       ]
     }
   ],

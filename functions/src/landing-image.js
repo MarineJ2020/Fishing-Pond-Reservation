@@ -1,6 +1,7 @@
 import { adminAuth } from './auth-utils.js'; // ensures admin.initializeApp() has run
 import admin from 'firebase-admin';
 import { regional } from './regions.js';
+import { gated } from './ip-allowlist.js';
 
 void adminAuth;
 
@@ -11,7 +12,7 @@ void adminAuth;
 // Object names are timestamp-unique (see imageStorage.ts) so a long TTL is safe.
 const PREFIX = 'fishing-pond-landing/';
 
-export const landingImage = regional.runWith({ maxInstances: 10 }).https.onRequest(async (req, res) => {
+export const landingImage = regional.runWith({ maxInstances: 10 }).https.onRequest(gated(async (req, res) => {
     const name = String(req.query.o || '');
     if (!name.startsWith(PREFIX) || name.includes('..') || name.length > 300) {
         res.status(400).send('Bad request');
@@ -45,4 +46,4 @@ export const landingImage = regional.runWith({ maxInstances: 10 }).https.onReque
         console.error('landingImage failed', err);
         res.status(500).send('Error');
     }
-});
+}));

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { adminDb } from './auth-utils.js';
 import { browserFacingWith } from './regions.js';
+import { gated } from './ip-allowlist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -211,7 +212,7 @@ function sendSitemap(res, seo, updatedAt) {
     res.status(200).send(xml);
 }
 
-export const seoRender = browserFacingWith({ maxInstances: 50 }).https.onRequest(async (req, res) => {
+export const seoRender = browserFacingWith({ maxInstances: 50 }).https.onRequest(gated(async (req, res) => {
     const raw = (await getSettings()) || {};
     const seo = mergeSeo(raw.seo);
 
@@ -228,4 +229,4 @@ export const seoRender = browserFacingWith({ maxInstances: 50 }).https.onRequest
 
     res.set('Cache-Control', CACHE_CONTROL);
     res.status(200).send(html);
-});
+}));

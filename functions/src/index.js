@@ -25,8 +25,11 @@ import { ADMIN_ROLES, ALLOWED_ROLES, normalizeRole, roleChangeBlockReason } from
 import { ensureClaims, registerBookingRoutes, releaseClaims } from './booking-service.js';
 import { occupiesSeats } from './booking-policy.js';
 import { browserFacing, browserFacingWith, regional } from './regions.js';
+import { ipGate } from './ip-allowlist.js';
 
 const app = express();
+// Staging only (no-op unless ALLOWED_IPS is set): reject visitors outside the allowlist.
+app.use(ipGate);
 app.use(cors({ origin: true }));
 app.use(express.json());
 // Hosting rewrites /api/** here (so public GETs can be CDN-cached) and keeps the
@@ -1089,3 +1092,6 @@ export const retryFailedTransactionalEmails = regional.pubsub
         console.log(`retryFailedTransactionalEmails: requested ${retried} retry/retries.`);
         return null;
     });
+
+// Staging only: serves the site behind the IP allowlist (defined only when STAGING_GATE=1, see staging-gate.js).
+export { stagingGate } from './staging-gate.js';
