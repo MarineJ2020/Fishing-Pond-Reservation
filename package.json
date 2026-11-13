@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "cleanup:deposit-bookings": "node scripts/delete-deposit-bookings-and-weights.mjs",
     "build:staging": "vite build --mode staging && node scripts/copy-seo-template.mjs",
-    "deploy:staging": "node scripts/make-staging-config.mjs && npx -y firebase-tools deploy --config firebase.staging.json --project kolamkelisayang-staging --only hosting,functions"
+    "deploy:staging": "node scripts/make-staging-config.mjs && npx -y firebase-tools deploy --config firebase.staging.json --project kolamkelisayang-staging --only hosting && npx -y firebase-tools deploy --config firebase.staging.json --project kolamkelisayang-staging --only functions"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
