@@ -32,18 +32,23 @@ Production builds fail on purpose if the `VITE_FIREBASE_*` vars in `.env.local` 
 missing or malformed (`vite.config.mjs`), to avoid deploying a blank site.
 
 ## Build & deploy
-- **Always deploy `hosting` and `functions` together** (never `--only hosting`
-  alone). `/`, `/book`, `/live`, `/confirmed` are rendered by the `seoRender`
-  Cloud Function from a bundled `functions/src/template.html` that carries the
-  build's hashed asset names. A hosting-only deploy leaves that template pointing
-  at a JS bundle hosting has replaced → `/` goes blank with a `MIME type
-  "text/html"` module error. `firebase` skips unchanged functions, so this is cheap.
-- Preferred command: `firebase deploy --only "hosting,functions" --project kolamkelisayang`
-  (add `,firestore,storage` when rules changed). If the CLI fails, retry with
-  `npx firebase deploy ...`. The repo-root **`build and deploy.bat`** does the full
-  build + combined deploy in one step; if that deploy fails part-way (Google
-  sometimes returns an HTML error page), it publishes hosting at once and retries
-  functions twice.
+- **Always deploy `hosting` and `functions`, hosting first, as two commands** (never
+  hosting alone, never functions first or both in one `--only "hosting,functions"`).
+  `/`, `/book`, `/live`, `/confirmed` are rendered by the `seoRender` Cloud Function
+  from a bundled `functions/src/template.html` that carries the build's hashed asset
+  names. If that HTML names a JS file hosting doesn't have (functions deployed
+  before/without hosting), hosting answers with `app.html` (200, text/html) and
+  Cloudflare caches it under the `/assets/**` immutable header → blank site with a
+  `MIME type "text/html"` module error that persists until a new bundle hash ships
+  (happened 2026-11-12 and 2026-11-13 with combined deploys). `npm run build` keeps
+  the last 3 days of builds' assets in `dist/assets` (`scripts/keep-previous-assets.mjs`,
+  store in `.cache/hosted-assets/`), so hosting-first is safe for the old HTML too.
+- Commands: `npx -y firebase-tools deploy --only hosting --project kolamkelisayang`, then
+  `npx -y firebase-tools deploy --only functions --project kolamkelisayang` (add
+  `firestore,storage` rules separately when changed). The repo-root
+  **`build and deploy.bat`** does build + hosting + functions in that order with retries,
+  then releases hosting once more: Firebase purges its CDN (incl. cached `seoRender`
+  pages, s-maxage 600) only on a hosting release, so this makes the new HTML show at once.
 - `scripts/copy-seo-template.mjs` (run by `npm run build`) copies `dist/index.html`
   to `functions/src/template.html` and then **renames it to `dist/app.html`**, so the
   `/` rewrite reaches `seoRender` instead of being shadowed by a static index.html.

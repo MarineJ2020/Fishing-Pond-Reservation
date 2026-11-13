@@ -6,7 +6,7 @@ REM ============================================================================
 REM  Kolam Keli Sayang - one-click build and deploy
 REM  Double-click this file to build the site and publish it.
 REM
-REM  WHY HOSTING **AND** FUNCTIONS MUST DEPLOY TOGETHER
+REM  WHY HOSTING **AND** FUNCTIONS MUST BOTH DEPLOY (HOSTING FIRST)
 REM  --------------------------------------------------
 REM  The "/", "/book", "/live" and "/confirmed" routes are rendered by the
 REM  seoRender Cloud Function, which serves a BUNDLED copy of the built HTML
@@ -16,7 +16,7 @@ REM  template must be redeployed with hosting. If you deploy hosting alone,
 REM  "/" keeps serving an HTML shell that points at a JS file hosting has
 REM  already replaced, so the browser aborts with a blank page and a
 REM  "MIME type text/html" module-script error. This script therefore always
-REM  deploys hosting AND functions in one go.
+REM  deploys hosting and then functions (see step 3 for why that order).
 REM ============================================================================
 
 set "PROJECT=kolamkelisayang"
@@ -33,47 +33,53 @@ if not errorlevel 1 (
 )
 
 echo(
-echo === [1/3] Building app bundle (vite) ===
+echo === [1/5] Building app bundle (vite) ===
 REM Mirrors `npm run build` step 1, called directly to sidestep missing npm shims.
 "%NODE_CMD%" ".\node_modules\vite\bin\vite.js" build
 if errorlevel 1 goto :fail
 
 echo(
-echo === [2/3] Syncing SEO template (index.html -^> app.html + functions template) ===
+echo === [2/5] Syncing SEO template (index.html -^> app.html + functions template) ===
 REM Mirrors `npm run build` step 2.
 "%NODE_CMD%" ".\scripts\copy-seo-template.mjs"
 if errorlevel 1 goto :fail
 
 echo(
-echo === [3/3] Deploying hosting + functions ===
-call ".\scripts\firebase-cli.cmd" deploy --only "hosting,functions" --project %PROJECT%
-if not errorlevel 1 goto :done
-
-REM Recovery. Google's deploy API sometimes answers with an HTML error page
-REM ("Unable to parse JSON ... <!DOCTYPE"). The CLI then stops after functions
-REM and never uploads hosting, while seoRender may already point at the new
-REM bundles -> blank "/". So: publish hosting at once, then retry functions
-REM (unchanged functions are skipped, so a retry only redoes what failed).
-echo(
-echo *** Deploy did not finish (often a temporary Google error). Recovering... ***
-echo(
-echo === [recovery 1/2] Deploying hosting ===
+echo === [3/5] Deploying hosting (new + recent old JS files) ===
+REM Hosting goes FIRST. Since keep-previous-assets.mjs re-uploads recent
+REM builds' JS, the old seoRender HTML still finds its files, and the new JS
+REM is online before the new seoRender HTML starts pointing at it. Deploying
+REM functions first (or both at once) leaves a gap where the new HTML asks
+REM for JS hosting doesn't have yet; hosting answers with app.html and
+REM Cloudflare caches that as the JS file -> blank site.
 call ".\scripts\firebase-cli.cmd" deploy --only hosting --project %PROJECT%
-if not errorlevel 1 goto :retry_functions
-echo Hosting deploy failed, trying once more...
+if not errorlevel 1 goto :functions
+echo Hosting deploy failed (often a temporary Google error), trying once more...
 call ".\scripts\firebase-cli.cmd" deploy --only hosting --project %PROJECT%
 if errorlevel 1 goto :fail_hosting
 
-:retry_functions
+:functions
 echo(
-echo === [recovery 2/2] Retrying functions (attempt 1 of 2) ===
+echo === [4/5] Deploying functions (attempt 1 of 3) ===
 call ".\scripts\firebase-cli.cmd" deploy --only functions --project %PROJECT%
-if not errorlevel 1 goto :done
+if not errorlevel 1 goto :refresh
 echo(
-echo === [recovery 2/2] Retrying functions (attempt 2 of 2) ===
+echo === [4/5] Retrying functions (attempt 2 of 3) ===
 call ".\scripts\firebase-cli.cmd" deploy --only functions --project %PROJECT%
-if not errorlevel 1 goto :done
+if not errorlevel 1 goto :refresh
+echo(
+echo === [4/5] Retrying functions (attempt 3 of 3) ===
+call ".\scripts\firebase-cli.cmd" deploy --only functions --project %PROJECT%
+if not errorlevel 1 goto :refresh
 goto :fail_functions
+
+:refresh
+echo(
+echo === [5/5] Re-releasing hosting (clears cached pages made by the old seoRender) ===
+REM Firebase clears its CDN cache only on a hosting release, and step 3 ran
+REM before the new seoRender existed. Old pages still work (their JS is kept),
+REM this just makes the new version show at once. Failure here is harmless.
+call ".\scripts\firebase-cli.cmd" deploy --only hosting --project %PROJECT%
 
 :done
 echo(
@@ -87,14 +93,14 @@ exit /b 0
 
 :fail_hosting
 echo(
-echo *** HOSTING COULD NOT BE PUBLISHED - the home page may be blank right now. ***
-echo     Run this file again as soon as possible.
+echo *** HOSTING COULD NOT BE PUBLISHED. Functions were NOT touched, so the ***
+echo     site keeps running the previous version. Run this file again later.
 pause
 exit /b 1
 
 :fail_functions
 echo(
-echo *** Hosting is live, but some Cloud Functions failed to update twice. ***
+echo *** Hosting is live, but some Cloud Functions failed to update three times. ***
 echo     The site keeps working on the previous code for those functions.
 echo     Wait a few minutes, then run this file again.
 pause

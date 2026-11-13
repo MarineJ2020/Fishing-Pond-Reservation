@@ -50,3 +50,6 @@ backups/
 
 # Generated for staging deploys (scripts/make-staging-config.mjs)
 firebase.staging.json
+
+# Previous builds' hashed assets, re-deployed for a few days (scripts/keep-previous-assets.mjs)
+/.cache/

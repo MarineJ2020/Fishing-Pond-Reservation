@@ -14,6 +14,7 @@
 import { copyFileSync, existsSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { keepPreviousAssets } from './keep-previous-assets.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -31,3 +32,7 @@ console.log(`copy-seo-template: copied ${src} -> ${dest}`);
 
 renameSync(src, renamed);
 console.log(`copy-seo-template: renamed ${src} -> ${renamed} (keeps "/" from shadowing the seoRender rewrite)`);
+
+// Old hashed JS/CSS stay hosted for a few days so pages still holding the
+// previous HTML don't get app.html for their scripts (see that file).
+keepPreviousAssets();
