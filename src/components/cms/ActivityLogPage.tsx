@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
-import { ACTIVITY_CATEGORIES, getActivityLogPage, getUsersPage } from '../../lib/firestore';
+import { ACTIVITY_CATEGORIES, countActivityLog, getActivityLogPage, getUsersPage } from '../../lib/firestore';
 import { AuditEntry, Booking, User } from '../../types';
 import { formatDate } from '../../utils';
+import { TABLE_PAGE_SIZE, TablePager, TableTotal } from './TablePager';
 
 const STAFF_ROLES = ['STAFF', 'COUNTER_STAFF', 'ADMIN', 'SUPER_ADMIN'];
-const PAGE_SIZE = 50;
+const PAGE_SIZE = TABLE_PAGE_SIZE;
 
 interface ActivityLogPageProps {
   /** Bookings already loaded in the CMS; used to resolve a ref / player name to a booking id. */
@@ -26,7 +27,10 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ bookings }) => {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const cursor = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
+  // startAfter cursor for each page (index 0 = first page); 50 rows per page.
+  const cursors = useRef<(QueryDocumentSnapshot<DocumentData> | null)[]>([null]);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState<number | null>(null);
   // Drops results of a superseded request when filters change mid-load.
   const requestId = useRef(0);
 
@@ -47,40 +51,50 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ bookings }) => {
       .slice(0, 12);
   }, [bookings, playerQuery]);
 
-  const load = async (append: boolean) => {
+  const filterOpts = () => ({
+    category: category || undefined,
+    actorUid: actorUid || undefined,
+    bookingId: bookingId || undefined,
+    from: fromDate ? new Date(`${fromDate}T00:00:00`) : undefined,
+    to: toDate ? new Date(`${toDate}T23:59:59.999`) : undefined,
+  });
+
+  const load = async (pageIndex: number) => {
     const id = ++requestId.current;
     setLoading(true);
     setError('');
     try {
-      const res = await getActivityLogPage({
-        category: category || undefined,
-        actorUid: actorUid || undefined,
-        bookingId: bookingId || undefined,
-        from: fromDate ? new Date(`${fromDate}T00:00:00`) : undefined,
-        to: toDate ? new Date(`${toDate}T23:59:59.999`) : undefined,
-        pageSize: PAGE_SIZE,
-        cursor: append ? cursor.current : null,
-      });
+      const res = await getActivityLogPage({ ...filterOpts(), pageSize: PAGE_SIZE, cursor: cursors.current[pageIndex] ?? null });
       if (id !== requestId.current) return;
-      cursor.current = res.lastDoc;
+      cursors.current[pageIndex + 1] = res.lastDoc;
+      setPage(pageIndex);
       setHasMore(res.hasMore);
-      setEntries((prev) => (append ? [...prev, ...res.items] : res.items));
+      setEntries(res.items);
     } catch (err: any) {
       if (id !== requestId.current) return;
       console.error('Failed to load activity log:', err);
       setError(err?.code === 'failed-precondition'
         ? 'Indeks pangkalan data sedang disediakan. Cuba lagi dalam beberapa minit.'
         : 'Log aktiviti gagal dimuatkan. Sila cuba lagi.');
-      if (!append) setEntries([]);
+      setEntries([]);
       setHasMore(false);
     } finally {
       if (id === requestId.current) setLoading(false);
     }
   };
 
+  const reload = () => {
+    cursors.current = [null];
+    void load(0);
+    setTotal(null);
+    const id = requestId.current;
+    countActivityLog(filterOpts())
+      .then((count) => { if (id === requestId.current) setTotal(count); })
+      .catch((err) => console.warn('Activity count failed:', err));
+  };
+
   useEffect(() => {
-    cursor.current = null;
-    void load(false);
+    reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, actorUid, bookingId, fromDate, toDate]);
 
@@ -162,6 +176,7 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ bookings }) => {
           )}
         </div>
         <div className="card-body">
+          <TableTotal total={total} loading={loading} page={page} />
           <div className="table-wrap">
             <table>
               <thead><tr><th>Waktu</th><th>Staf</th><th>Kategori</th><th>Tindakan</th><th>Butiran</th></tr></thead>
@@ -186,14 +201,14 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ bookings }) => {
               </tbody>
             </table>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 4px 4px', gap: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{entries.length} aktiviti dipaparkan</span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-sm btn-ghost" disabled={loading} onClick={() => { cursor.current = null; void load(false); }}>🔄 Muat Semula</button>
-              <button className="btn btn-sm btn-primary" disabled={!hasMore || loading} onClick={() => void load(true)}>
-                {loading && entries.length > 0 ? 'Memuat...' : 'Muat Lagi'}
-              </button>
-            </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-sm btn-ghost" disabled={loading} onClick={reload}>🔄 Muat Semula</button>
+            <TablePager
+              page={page}
+              pageCount={total != null ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : null}
+              hasNext={hasMore}
+              onPage={(p) => { if (!loading) void load(p); }}
+            />
           </div>
         </div>
       </div>

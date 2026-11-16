@@ -754,6 +754,18 @@ export const getBookingsPage = async (opts: BookingsPageOptions): Promise<Bookin
   };
 };
 
+/**
+ * Number of bookings matching the same filters as getBookingsPage, via a
+ * count aggregation (billed ~1 read per 1000 index entries, no docs downloaded).
+ */
+export const getBookingsCount = async (opts: Pick<BookingsPageOptions, 'statuses' | 'competitionId' | 'balanceStage'>): Promise<number> => {
+  const clauses: ReturnType<typeof where>[] = [where('status', 'in', opts.statuses)];
+  if (opts.balanceStage) clauses.push(where('balanceStage', '==', opts.balanceStage));
+  if (opts.competitionId) clauses.push(where('competitionId', 'in', [opts.competitionId, doc(db, 'competitions', opts.competitionId)]));
+  const snap = await getCountFromServer(query(collection(db, 'bookings'), ...clauses));
+  return snap.data().count;
+};
+
 /** Just the seat occupancy + peg holds, from the CDN-cached route (cheap enough to poll). */
 export const loadAvailabilityOnly = async (): Promise<{ availability: any[]; holds: any[] } | null> => {
   try {
@@ -1521,6 +1533,14 @@ export const getScoreEntriesPage = async (opts: ScoreEntriesPageOptions = {}): P
   };
 };
 
+/** Count of weigh-in records for the same filters (count aggregation, no docs read). */
+export const countScoreEntries = async (opts: Pick<ScoreEntriesPageOptions, 'competitionId' | 'pondName'> = {}): Promise<number> => {
+  const clauses: ReturnType<typeof where>[] = [];
+  if (opts.competitionId) clauses.push(where('competitionId', '==', opts.competitionId));
+  if (opts.pondName) clauses.push(where('pondName', '==', opts.pondName));
+  return (await getCountFromServer(query(collection(db, 'eventResults'), ...clauses))).data().count;
+};
+
 /**
  * `id` makes the save idempotent: the weigh-in modal reuses one id per reading,
  * so retrying after a timeout cannot create a second record.
@@ -1670,6 +1690,21 @@ export interface ActivityLogPageResult {
  * flat 200-entry Log Audit. Needs the auditLog composite indexes in
  * firestore.indexes.json (action/actorUid/bookingId + createdAt).
  */
+const activityLogClauses = (opts: ActivityLogPageOptions) => {
+  const clauses: any[] = [];
+  const category = ACTIVITY_CATEGORIES.find((c) => c.id === opts.category);
+  if (category) clauses.push(where('action', 'in', [...category.actions]));
+  if (opts.actorUid) clauses.push(where('actorUid', '==', opts.actorUid));
+  if (opts.bookingId) clauses.push(where('bookingId', '==', opts.bookingId));
+  if (opts.from) clauses.push(where('createdAt', '>=', Timestamp.fromDate(opts.from)));
+  if (opts.to) clauses.push(where('createdAt', '<=', Timestamp.fromDate(opts.to)));
+  return clauses;
+};
+
+/** Number of activity-log entries for the same filters (count aggregation). */
+export const countActivityLog = async (opts: ActivityLogPageOptions = {}): Promise<number> =>
+  (await getCountFromServer(query(collection(db, 'auditLog'), ...activityLogClauses(opts)))).data().count;
+
 export const getActivityLogPage = async (opts: ActivityLogPageOptions = {}): Promise<ActivityLogPageResult> => {
   const pageSize = opts.pageSize ?? 50;
   const clauses: any[] = [];
@@ -1755,7 +1790,19 @@ const deriveReceiptsFromBooking = (booking: any): any[] => {
   return [];
 };
 
+// Legacy `seats` doc sync, best-effort. Rules let only admins write `seats`
+// (pegs are really held by bookingSeatClaims), so for COUNTER_STAFF this threw
+// AFTER the booking/payment was saved: manual payment approval showed "Gagal"
+// and skipped its audit entry. Never let it fail the staff action.
 const setSeatStatusForBooking = async (bookingData: any, nextStatus: 'booked' | 'pending' | 'available') => {
+  try {
+    await writeLegacySeatStatus(bookingData, nextStatus);
+  } catch (err) {
+    console.warn('Legacy seat status sync skipped:', err);
+  }
+};
+
+const writeLegacySeatStatus = async (bookingData: any, nextStatus: 'booked' | 'pending' | 'available') => {
   const rawSeatIds: string[] = Array.isArray(bookingData?.seatIds)
     ? bookingData.seatIds
         .map((ref: any) => (typeof ref === 'string' ? ref : ref?.id || ref?.path?.split('/').pop() || null))

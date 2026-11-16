@@ -418,6 +418,14 @@
   white-space: nowrap;
 }
 .cms-v5 .cms-pagination-mobile { display: none; }
+.cms-table-total {
+  font-size: 13px;
+  color: var(--cv-soft, var(--text-muted));
+  padding: 0 4px 8px;
+  text-align: left;
+  min-height: 1em;
+}
+.cms-table-total strong { color: var(--cv-text, inherit); font-weight: 800; }
 
 .cms-v5 .cms-notice-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 14px;

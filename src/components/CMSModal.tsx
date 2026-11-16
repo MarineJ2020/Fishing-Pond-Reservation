@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { receiptUploadFolder } from '../utils/receiptStorage';
+import { TABLE_PAGE_SIZE, TablePager, TableTotal, makeTablePaging } from './cms/TablePager';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { useSearchParams } from 'react-router-dom';
@@ -34,7 +35,9 @@ import {
   logAuditEvent,
   getAuditLog,
   getScoreEntriesPage,
+  countScoreEntries,
   getBookingsPage,
+  getBookingsCount,
   addStaffRemark,
   deriveBalanceStage,
 } from '../lib/firestore';
@@ -263,6 +266,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [allHasMore, setAllHasMore] = useState(false);
   const [allError, setAllError] = useState<string | null>(null);
   const [allExporting, setAllExporting] = useState(false);
+  // Server-side record counts (Firestore count aggregation: ~1 read per 1000 rows).
+  const [kelulusanTotal, setKelulusanTotal] = useState<number | null>(null);
+  const [allTotal, setAllTotal] = useState<number | null>(null);
+  // Client-side page of every other CMS table, keyed by table id (50 rows per page).
+  const [tablePages, setTablePages] = useState<Record<string, { page: number; sig: string }>>({});
+  const pageTable = makeTablePaging(tablePages, setTablePages);
 
   // Shared receipt-review popup (Kelulusan's first receipt, Semua Tempahan's balance receipt).
   const [reviewTarget, setReviewTarget] = useState<Booking | null>(null);
@@ -318,6 +327,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [emailLogCursors, setEmailLogCursors] = useState<(string | null)[]>([null]);
   const [emailLogPage, setEmailLogPage] = useState(0);
   const [emailLogHasMore, setEmailLogHasMore] = useState(false);
+  const [emailLogTotal, setEmailLogTotal] = useState<number | null>(null);
   const [emailResendingId, setEmailResendingId] = useState<string | null>(null);
 
   const fetchEmailLogPage = async (cursor: string | null, pageIndex: number) => {
@@ -327,6 +337,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const result = await getEmailLogsPage(cursor, 50);
       setEmailLogEntries(result.items);
       setEmailLogHasMore(result.hasMore);
+      if (typeof result.total === 'number') setEmailLogTotal(result.total);
       setEmailLogCursors((previous) => {
         const next = [...previous];
         next[pageIndex + 1] = result.nextCursor;
@@ -374,6 +385,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   const [allWeighCompId, setAllWeighCompId] = useState<string>('');
   const [allWeighPond, setAllWeighPond] = useState<string>('');
   const [allWeighAngler, setAllWeighAngler] = useState('');
+  const [allWeighTotal, setAllWeighTotal] = useState<number | null>(null);
+  const [allWeighPool, setAllWeighPool] = useState<ScoreEntry[] | null>(null);
+  const [allWeighPoolLoading, setAllWeighPoolLoading] = useState(false);
+  const allWeighPoolCache = useRef<{ key: string; items: ScoreEntry[] } | null>(null);
 
   // Results / Live page state
   const [resultsCompId, setResultsCompId] = useState<string>('');
@@ -579,6 +594,39 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     });
     return () => { active = false; };
   }, [isOpen, page, isAdmin, roleUpdatingUid, userRefreshTick]);
+
+  // Name/email search covers every page: read the tab's accounts once (200 per
+  // read, cached per tab/sort/refresh) and page the matches in memory.
+  const [userPool, setUserPool] = useState<User[] | null>(null);
+  const [userPoolLoading, setUserPoolLoading] = useState(false);
+  const userPoolCache = useRef<{ key: string; items: User[] } | null>(null);
+  useEffect(() => {
+    if (!isOpen || page !== 'users' || !isAdmin || userTab === 'guests' || !userSearch.trim()) { setUserPool(null); return; }
+    const key = `${userTab}|${userSortOrder}|${userRefreshTick}|${roleUpdatingUid || ''}`;
+    if (userPoolCache.current?.key === key) { setUserPool(userPoolCache.current.items); return; }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setUserPoolLoading(true);
+      try {
+        const roles = USER_TAB_ROLES[userTab];
+        const items: User[] = [];
+        let cursor: any = null;
+        let hasMore = true;
+        while (hasMore && !cancelled) {
+          const result = await getUsersPage({ sortDir: userSortOrder, pageSize: 200, cursor, ...(roles ? { roles } : {}) });
+          items.push(...result.items);
+          cursor = result.lastDoc;
+          hasMore = result.hasMore && !!cursor;
+        }
+        if (!cancelled) { userPoolCache.current = { key, items }; setUserPool(items); }
+      } catch (err) {
+        console.error('User search failed:', err);
+      }
+      if (!cancelled) setUserPoolLoading(false);
+    }, 450);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, page, isAdmin, userTab, userSearch, userSortOrder, userRefreshTick, roleUpdatingUid]);
 
   // Reorder state for the ponds CMS.
   const [pondReordering, setPondReordering] = useState(false);
@@ -1398,6 +1446,17 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     fetchAllTempahanPage(allCursors[prevPage] ?? null, prevPage);
   };
 
+  // Filtered views page the cached search pool in memory, so they sort client-side
+  // the same way the server query would.
+  const sortBookingRows = (rows: Booking[], field: 'createdAt' | 'userName' | 'totalAmount', dir: 'asc' | 'desc') => {
+    const sign = dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      if (field === 'userName') return sign * (a.userName || '').localeCompare(b.userName || '', 'ms', { sensitivity: 'base' });
+      if (field === 'totalAmount') return sign * ((a.totalAmount ?? a.amount ?? 0) - (b.totalAmount ?? b.amount ?? 0));
+      return sign * (new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+    });
+  };
+
   const allBookingFetchParams = () => {
     const statuses = allStatus === 'cancelled'
       ? ['REJECTED']
@@ -1575,7 +1634,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   useEffect(() => {
     const isAll = page === 'all-bookings';
     const isApprovals = page === 'approvals';
-    const term = (isAll ? bookingSearch + bookingPegSearch + allSourceFilter : isApprovals ? approvalSearch + approvalPegSearch : '').trim();
+    const term = (isAll ? bookingSearch + bookingPegSearch + allSourceFilter + allPondFilter : isApprovals ? approvalSearch + approvalPegSearch : '').trim();
     if ((!isAll && !isApprovals) || !term) {
       setAllSearchPool(null);
       setApprovalSearchPool(null);
@@ -1615,7 +1674,23 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }, 450);
     return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, bookingSearch, approvalSearch, bookingPegSearch, approvalPegSearch, allSourceFilter, allStatus, allCompFilter, approvalCompFilter, searchNonce]);
+  }, [page, bookingSearch, approvalSearch, bookingPegSearch, approvalPegSearch, allSourceFilter, allPondFilter, allStatus, allCompFilter, approvalCompFilter, searchNonce]);
+
+  // Total records of the unfiltered server-paged lists (count aggregation, no docs read).
+  useEffect(() => {
+    if (page !== 'approvals' && page !== 'all-bookings') return;
+    let active = true;
+    const isApprovals = page === 'approvals';
+    (isApprovals ? setKelulusanTotal : setAllTotal)(null);
+    getBookingsCount({
+      statuses: isApprovals ? ['PENDING_APPROVAL'] : allBookingFetchParams().statuses,
+      competitionId: (isApprovals ? approvalCompFilter : allCompFilter) || undefined,
+    })
+      .then((count) => { if (active) (isApprovals ? setKelulusanTotal : setAllTotal)(count); })
+      .catch((err) => console.warn('Booking count failed:', err));
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, allStatus, allCompFilter, approvalCompFilter, searchNonce]);
 
   // Refetch whichever list is currently on-screen after a mutation — the
   // OTHER list (if the booking just moved between them) picks up the change
@@ -2802,8 +2877,42 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     setAllWeighPage(0);
     setAllWeighCursors([null]);
     fetchWeighPage(null, 0);
+    setAllWeighTotal(null);
+    let active = true;
+    countScoreEntries({ competitionId: allWeighCompId || undefined, pondName: allWeighPond || undefined })
+      .then((count) => { if (active) setAllWeighTotal(count); })
+      .catch((err) => console.warn('Weigh-in count failed:', err));
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, allWeighCompId, allWeighPond]);
+
+  // Angler-name search covers every page: read the competition/pond's weigh-ins
+  // once (200 per read, cached per filter) and page the matches in memory.
+  useEffect(() => {
+    if (page !== 'all-weigh-ins' || !allWeighAngler.trim()) { setAllWeighPool(null); return; }
+    const key = `${allWeighCompId}|${allWeighPond}`;
+    if (allWeighPoolCache.current?.key === key) { setAllWeighPool(allWeighPoolCache.current.items); return; }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setAllWeighPoolLoading(true);
+      try {
+        const items: ScoreEntry[] = [];
+        let cursor: any = null;
+        let hasMore = true;
+        while (hasMore && !cancelled) {
+          const result = await getScoreEntriesPage({ competitionId: allWeighCompId || undefined, pondName: allWeighPond || undefined, pageSize: 200, cursor });
+          items.push(...result.items);
+          cursor = result.lastDoc;
+          hasMore = result.hasMore && !!cursor;
+        }
+        if (!cancelled) { allWeighPoolCache.current = { key, items }; setAllWeighPool(items); }
+      } catch (err) {
+        console.error('Weigh-in search failed:', err);
+      }
+      if (!cancelled) setAllWeighPoolLoading(false);
+    }, 450);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [page, allWeighAngler, allWeighCompId, allWeighPond]);
 
   type PrizeRecordRow = ScoreEntry & {
     rank: number;
@@ -3308,10 +3417,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>Jumlah {formatRM(pendingRefunds.reduce((sum, b) => sum + (Number(b.refundAmount) || 0), 0))} · semua tarikh</div>
                     </div>
                   </div>
-                  <div className="card-body"><div className="table-wrap"><table>
+                  <div className="card-body">{pageTable('dash-refunds', pendingRefunds).totalEl}<div className="table-wrap"><table>
                     <thead><tr><th>Tempahan</th><th>Pelanggan</th><th>Dibatalkan</th><th>Jumlah</th><th></th></tr></thead>
                     <tbody>
-                      {pendingRefunds.map((b) => (
+                      {pageTable('dash-refunds', pendingRefunds).rows.map((b) => (
                         <tr key={b.id}>
                           <td className="td-name">{b.bookingRef || b.id.slice(0, 8)}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{b.competitionName || ''}</div></td>
                           <td>{b.userName}<div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{b.bookingPhone || b.userPhone || b.userEmail || ''}</div></td>
@@ -3321,17 +3430,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </tr>
                       ))}
                     </tbody>
-                  </table></div></div>
+                  </table></div>{pageTable('dash-refunds', pendingRefunds).pagerEl}</div>
                 </div>
               )}
               <div className="card" style={{ marginBottom: '1rem' }}>
                 <div className="card-header"><div className="card-title">Tempahan & Hasil Mengikut Pertandingan</div></div>
                 <div className="card-body">
+                  {pageTable('dash-comps', dashStats.byCompetition).totalEl}
                   <div className="table-wrap">
                     <table>
                       <thead><tr><th>Pertandingan</th><th>Tempahan</th><th>Disahkan</th><th>Menunggu</th><th>Dibatalkan</th><th>Pancang</th><th>Hasil</th></tr></thead>
                       <tbody>
-                        {dashStats.byCompetition.map((row) => (
+                        {pageTable('dash-comps', dashStats.byCompetition).rows.map((row) => (
                           <tr key={row.competitionId || 'none'}>
                             <td className="td-name">
                               {row.name}
@@ -3354,6 +3464,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </tbody>
                     </table>
                   </div>
+                  {pageTable('dash-comps', dashStats.byCompetition).pagerEl}
                 </div>
               </div>
               <div className="two-col">
@@ -3499,10 +3610,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
               <div className="card">
                 <div className="card-header"><div className="card-title">Senarai Pertandingan</div></div>
-                <div className="card-body"><div className="table-wrap"><table>
+                <div className="card-body">{pageTable('competitions', competitionsForCms).totalEl}<div className="table-wrap"><table>
                   <thead><tr><th>Nama Pertandingan</th><th>Tarikh &amp; Masa Mula</th><th>Tarikh &amp; Masa Tamat</th><th>Tarikh &amp; Masa Buka Tempahan</th><th>Tarikh &amp; Masa Tutup Tempahan</th><th>Kolam Terbuka</th><th>Harga Pancang</th><th>Berat Min (kg)</th><th>Berat Maks (kg)</th><th>Status</th><th>Tindakan</th></tr></thead>
                   <tbody>
-                    {sortCompetitionsLatestFirst(competitionsForCms).map((competition) => (
+                    {pageTable('competitions', sortCompetitionsLatestFirst(competitionsForCms)).rows.map((competition) => (
                       <tr key={competition.id || competition.name}>
                         <td className="td-name">{competition.name}</td>
                         <td>{fmtDateTime(competition.startDate)}</td>
@@ -3521,7 +3632,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     ))}
                     {competitionsForCms.length === 0 && <tr><td colSpan={11} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada pertandingan lagi.</td></tr>}
                   </tbody>
-                </table></div></div>
+                </table></div>{pageTable('competitions', competitionsForCms).pagerEl}</div>
               </div>
             </div>
             );
@@ -3877,7 +3988,11 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const aq = approvalSearch.trim().toLowerCase();
             // Server query only scopes status===pending; competition/payment
             // filters and search narrow the currently-loaded page client-side.
-            const filteredEntries = ((aq || approvalPegSearch.trim()) && approvalSearchPool ? approvalSearchPool : kelulusanEntries)
+            // Filtered: page the (cached, read-once) search pool in memory, 50 per page.
+            // Unfiltered: the server pages 50 at a time; the total is a count query.
+            const approvalFiltered = !!(aq || approvalPegSearch.trim());
+            const usePool = approvalFiltered && !!approvalSearchPool;
+            const matchedEntries = (usePool ? sortBookingRows(approvalSearchPool!, approvalSortField, approvalsSortOrder) : kelulusanEntries)
               .filter((b) => !approvalCompFilter || (b.competitionId || '') === approvalCompFilter)
               .filter((b) => bookingHasPeg(b, approvalPegSearch))
               .filter((b) => {
@@ -3885,6 +4000,19 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 const hay = [b.id, b.bookingRef, b.userName, b.userEmail, b.userPhone, b.bookingPhone, b.pondName, b.competitionName].filter(Boolean).join(' ').toLowerCase();
                 return hay.includes(aq);
               });
+            const poolPage = pageTable('approvals', matchedEntries, [aq, approvalPegSearch, approvalCompFilter, approvalSortField, approvalsSortOrder].join('|'));
+            const filteredEntries = usePool ? poolPage.rows : matchedEntries;
+            const approvalsTotal = usePool ? poolPage.total : approvalFiltered ? null : kelulusanTotal;
+            const approvalsPager = usePool
+              ? poolPage.pagerEl
+              : approvalFiltered ? null : (
+                <TablePager
+                  page={kelulusanPage}
+                  pageCount={kelulusanTotal != null ? Math.max(1, Math.ceil(kelulusanTotal / TABLE_PAGE_SIZE)) : null}
+                  hasNext={kelulusanHasMore}
+                  onPage={(p) => (p > kelulusanPage ? handleKelulusanNext() : handleKelulusanPrev())}
+                />
+              );
             return (
             <div className="page active">
               <div className="page-header">
@@ -3914,6 +4042,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="cms-filter-actions"><button className="btn btn-ghost btn-sm" onClick={() => { setApprovalSearch(''); setApprovalPegSearch(''); setApprovalCompFilter(latestCompId); }}>Reset</button></div>
               </div>
 
+              <TableTotal total={approvalsTotal} loading={kelulusanLoading || searchPoolLoading} page={usePool ? poolPage.page : kelulusanPage} />
               <div className="card"><div className="card-body"><div className="table-wrap"><table>
                 <thead><tr>
                   <th>Ref</th>
@@ -3963,10 +4092,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {!kelulusanLoading && filteredEntries.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan menunggu keputusan</td></tr>}
                 </tbody>
               </table></div></div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '0 4px 4px' }}>
-                <button className="btn btn-sm btn-ghost" disabled={kelulusanPage === 0} onClick={handleKelulusanPrev}>← Sebelum</button>
-                <button className="btn btn-sm btn-ghost" disabled={!kelulusanHasMore} onClick={handleKelulusanNext}>Seterus →</button>
-              </div>
+              {approvalsPager}
               </div>
             </div>
             );
@@ -4017,7 +4143,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const q = bookingSearch.trim().toLowerCase();
             // Server query scopes decided bookings by status; competition,
             // pond, and search filters narrow the currently-loaded page.
-            const filteredEntries = ((q || bookingPegSearch.trim() || allSourceFilter) && allSearchPool ? allSearchPool : allEntries)
+            // Any filter (search, peg, source, pond): page the cached search pool in
+            // memory, 50 per page (was: every match on one page). No filter: the
+            // server pages 50 at a time and the total comes from a count query.
+            const allFiltered = !!(q || bookingPegSearch.trim() || allSourceFilter || allPondFilter);
+            const usePool = allFiltered && !!allSearchPool;
+            const matchedEntries = (usePool ? sortBookingRows(allSearchPool!, allSortField, allSortOrder) : allEntries)
               .filter(b => !allCompFilter || (b.competitionId || '') === allCompFilter)
               .filter(b => !allPondFilter || String(b.pondId) === allPondFilter)
               .filter(b => bookingMatchesSource(b, allSourceFilter))
@@ -4030,6 +4161,18 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 ].filter(Boolean).join(' ').toLowerCase();
                 return haystack.includes(q);
               });
+            const poolPage = pageTable('all-bookings', matchedEntries, [q, bookingPegSearch, allSourceFilter, allPondFilter, allCompFilter, allStatus, allSortField, allSortOrder].join('|'));
+            const filteredEntries = usePool ? poolPage.rows : matchedEntries;
+            // While the pool is still loading for a new filter, the count is unknown.
+            const allTotalShown = usePool ? poolPage.total : allFiltered ? null : allTotal;
+            const allPagerProps = usePool
+              ? { page: poolPage.page, pageCount: poolPage.pageCount, onPage: poolPage.onPage }
+              : {
+                page: allPage,
+                pageCount: allTotal != null ? Math.max(1, Math.ceil(allTotal / TABLE_PAGE_SIZE)) : null,
+                hasNext: allHasMore,
+                onPage: (p: number) => (p > allPage ? handleAllNext() : handleAllPrev()),
+              };
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Semua Tempahan</div><div className="page-sub">Tempahan yang telah dibuat keputusan — disahkan atau ditolak</div></div></div>
@@ -4048,7 +4191,6 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
 
               <div className="cms-queue-toolbar">
-                <span className="cms-queue-counter">{filteredEntries.length} rekod dipaparkan</span>
                 <div className="cms-queue-groups">
                   <div className="cms-filter-block">
                     <span className="cms-filter-label">Status</span>
@@ -4072,7 +4214,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
 
               <div className="cms-filter-row">
-                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, telefon..." value={bookingSearch} onChange={e => setBookingSearch(e.target.value)} />{(bookingSearch.trim() || bookingPegSearch.trim() || allSourceFilter) && searchPoolLoading && <small>Mencari dalam semua tempahan…</small>}</div>
+                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, telefon..." value={bookingSearch} onChange={e => setBookingSearch(e.target.value)} />{allFiltered && searchPoolLoading && <small>Mencari dalam semua tempahan…</small>}</div>
                 <div className="field"><label>No. Pancang</label><input className="form-input" type="search" inputMode="numeric" placeholder="cth: 1668" value={bookingPegSearch} onChange={e => setBookingPegSearch(e.target.value)} /></div>
                 <div className="field"><label>Pertandingan</label><select className="form-input" value={allCompFilter} onChange={e => setAllCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
                 <div className="field"><label>Sumber Tempahan</label><select className="form-input" value={allSourceFilter} onChange={e => setAllSourceFilter(e.target.value)}>
@@ -4090,12 +4232,9 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 </div>
               </div>
 
-              <div className="cms-pagination cms-pagination-mobile">
-                <button className="btn btn-sm btn-ghost" disabled={allPage === 0} onClick={handleAllPrev}>← Sebelum</button>
-                <span>Halaman {allPage + 1}</span>
-                <button className="btn btn-sm btn-ghost" disabled={!allHasMore} onClick={handleAllNext}>Seterus →</button>
-              </div>
+              <TablePager {...allPagerProps} className="cms-pagination-mobile" />
 
+              <TableTotal total={allTotalShown} loading={allLoading || searchPoolLoading} page={allPagerProps.page} />
               <div className="card">
                 <div className="card-body"><div className="table-wrap"><table className="cms-all-bookings-table">
                   <thead><tr>
@@ -4189,11 +4328,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     {!allLoading && filteredEntries.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan sepadan</td></tr>}
                   </tbody>
                 </table></div></div>
-                <div className="cms-pagination">
-                  <button className="btn btn-sm btn-ghost" disabled={allPage === 0} onClick={handleAllPrev}>← Sebelum</button>
-                  <span>Halaman {allPage + 1}</span>
-                  <button className="btn btn-sm btn-ghost" disabled={!allHasMore} onClick={handleAllNext}>Seterus →</button>
-                </div>
+                <TablePager {...allPagerProps} />
               </div>
             </div>
             );
@@ -4367,11 +4502,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       ))}
                     </select>
                   </div>
+                  {pageTable('checkin', checkinRows, checkinCompetitionId).totalEl}
                   <div className="table-wrap">
                     <table>
                       <thead><tr><th>Info Peserta</th><th>No. Pancang</th><th>Masa Check in</th><th>Status</th><th>Tindakan</th></tr></thead>
                       <tbody>
-                        {checkinRows.map(({ booking, entry }) => {
+                        {pageTable('checkin', checkinRows, checkinCompetitionId).rows.map(({ booking, entry }) => {
                             const checked = isBookingSeatCheckedIn(booking, entry);
                             const checkedAt = bookingSeatCheckInTime(booking, entry);
                             const payment = checkinPaymentMeta(booking);
@@ -4431,6 +4567,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       </tbody>
                     </table>
                   </div>
+                  {pageTable('checkin', checkinRows, checkinCompetitionId).pagerEl}
                 </div>
               </div>
             </div>
@@ -4708,6 +4845,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     </div>
                   </div>
                   <div className="card-body">
+                    {pageTable('scores', sortedEntries, [scorePegFilter, scoreNameFilter, scorePondFilter].join('|')).totalEl}
                     <div className="table-wrap">
                       <table>
                         <thead>
@@ -4723,7 +4861,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                           </tr>
                         </thead>
                         <tbody>
-                          {sortedEntries.map((e) => (
+                          {pageTable('scores', sortedEntries, [scorePegFilter, scoreNameFilter, scorePondFilter].join('|')).rows.map((e) => (
                             <tr key={e.id}>
                               <td>
                                 {e.rank === 0 ? (
@@ -4777,6 +4915,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </tbody>
                       </table>
                     </div>
+                    {pageTable('scores', sortedEntries, [scorePegFilter, scoreNameFilter, scorePondFilter].join('|')).pagerEl}
                   </div>
                 </div>
               </div>
@@ -4799,7 +4938,23 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             // Competition/pond are now server-side filters (see fetchWeighPage); only
             // the free-text angler search narrows the currently-loaded page.
             const anglerQ = allWeighAngler.trim().toLowerCase();
-            const filtered = allWeighEntries.filter((e) => !anglerQ || e.anglerName.toLowerCase().includes(anglerQ));
+            // Angler search: page the cached all-pages pool (50 per page). No search:
+            // the server pages 50 at a time and the total is a count query.
+            const weighUsePool = !!anglerQ && !!allWeighPool;
+            const weighMatched = (weighUsePool ? allWeighPool! : allWeighEntries).filter((e) => !anglerQ || e.anglerName.toLowerCase().includes(anglerQ));
+            const weighPoolPage = pageTable('weigh-ins', weighMatched, [anglerQ, allWeighCompId, allWeighPond].join('|'));
+            const filtered = weighUsePool ? weighPoolPage.rows : weighMatched;
+            const weighTotal = weighUsePool ? weighPoolPage.total : anglerQ ? null : allWeighTotal;
+            const weighPager = weighUsePool
+              ? weighPoolPage.pagerEl
+              : anglerQ ? null : (
+                <TablePager
+                  page={allWeighPage}
+                  pageCount={allWeighTotal != null ? Math.max(1, Math.ceil(allWeighTotal / TABLE_PAGE_SIZE)) : null}
+                  hasNext={allWeighHasMore}
+                  onPage={(p) => (p > allWeighPage ? handleWeighNext() : handleWeighPrev())}
+                />
+              );
             return (
             <div className="page active">
               <div className="page-header"><div><div className="page-title">Rekod Timbangan</div><div className="page-sub">Sejarah timbangan merentas semua pertandingan</div></div></div>
@@ -4831,14 +4986,15 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   <div className="form-group" style={{ minWidth: 200, flex: 1 }}>
                     <label className="form-label">Peserta</label>
                     <input className="form-input" placeholder="Cari nama peserta…" value={allWeighAngler} onChange={(e) => setAllWeighAngler(e.target.value)} />
+                    {anglerQ && allWeighPoolLoading && <small>Mencari dalam semua rekod…</small>}
                   </div>
                   <button className="btn btn-sm" onClick={() => fetchWeighPage(allWeighCursors[allWeighPage] ?? null, allWeighPage)}>🔄 Muat Semula</button>
                 </div>
               </div>
 
               <div className="card">
-                <div className="card-header"><div className="card-title">{filtered.length} rekod</div></div>
-                <div className="card-body"><div className="table-wrap">
+                <div className="card-header"><div className="card-title">Rekod Timbangan</div></div>
+                <div className="card-body"><TableTotal total={weighTotal} loading={allWeighLoading || allWeighPoolLoading} page={weighUsePool ? weighPoolPage.page : allWeighPage} /><div className="table-wrap">
                   <table>
                     <thead>
                       <tr>
@@ -4885,10 +5041,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     </tbody>
                   </table>
                 </div></div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 4px 4px' }}>
-                  <button className="btn btn-sm btn-ghost" disabled={allWeighPage === 0} onClick={handleWeighPrev}>← Sebelum</button>
-                  <button className="btn btn-sm btn-ghost" disabled={!allWeighHasMore} onClick={handleWeighNext}>Seterus →</button>
-                </div>
+                {weighPager}
               </div>
             </div>
             );
@@ -5099,10 +5252,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
 
                 <div className="card">
                   <div className="card-header cms-prize-record-header">
-                    <div className="card-title">{filteredRows.length} rekod hadiah</div>
+                    <div className="card-title">Rekod Hadiah</div>
                     <button className="btn btn-sm btn-primary" disabled={filteredRows.length === 0} onClick={exportPrizeRows}>Export CSV</button>
                   </div>
-                  <div className="card-body"><div className="table-wrap cms-prize-table-wrap">
+                  <div className="card-body">{pageTable('prize-records', filteredRows, `${q}|${prizeScanBooking?.id || ''}`).totalEl}<div className="table-wrap cms-prize-table-wrap">
                     <table className="cms-prize-record-table">
                       <thead>
                         <tr>
@@ -5117,7 +5270,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredRows.map((row) => {
+                        {pageTable('prize-records', filteredRows, `${q}|${prizeScanBooking?.id || ''}`).rows.map((row) => {
                           const claimStatus = row.claim?.status === 'claimed' ? 'claimed' : 'pending';
                           const scanned = scannedRows.some((scanRow) => scanRow.id === row.id);
                           const savingKey = prizeClaimKey(prizeRecordCompId, row.rank);
@@ -5184,7 +5337,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                         )}
                       </tbody>
                     </table>
-                  </div></div>
+                  </div>{pageTable('prize-records', filteredRows, `${q}|${prizeScanBooking?.id || ''}`).pagerEl}</div>
                 </div>
               </div>
             );
@@ -5762,9 +5915,25 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const emailOf = (b: Booking) =>
               b.userEmail || (b.userId && b.userId.includes('@') ? b.userId : '');
             const q = userSearch.trim().toLowerCase();
-            // Accounts table is server-paginated; search narrows the loaded page only.
-            const filteredAccounts = userEntries.filter(u =>
-              !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+            // No search: server-paginated (50/page), total from the tab count.
+            // Search: page the cached all-accounts pool in memory, 50/page.
+            const userUsePool = !!q && !!userPool;
+            const matchedAccounts = (userUsePool ? userPool! : userEntries).filter(u =>
+              !q || (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q));
+            const userPoolPage = pageTable('users', matchedAccounts, `${userTab}|${q}|${userSortOrder}`);
+            const filteredAccounts = userUsePool ? userPoolPage.rows : matchedAccounts;
+            const tabCount = userTab === 'guests' ? null : userCounts[userTab];
+            const usersTotal = userUsePool ? userPoolPage.total : q ? null : (typeof tabCount === 'number' ? tabCount : null);
+            const usersPager = userUsePool
+              ? userPoolPage.pagerEl
+              : q ? null : (
+                <TablePager
+                  page={userPage}
+                  pageCount={usersTotal != null ? Math.max(1, Math.ceil(usersTotal / TABLE_PAGE_SIZE)) : null}
+                  hasNext={userHasMore}
+                  onPage={(p) => (p > userPage ? handleUserNext() : handleUserPrev())}
+                />
+              );
             // Booking counts per account, computed in-memory from the already-loaded
             // global bookings list (no extra Firestore reads). Staff-created proxy
             // bookings (no linked account) are counted separately below instead.
@@ -5910,7 +6079,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               )}
               {userTab !== 'guests' && (
               <div className="card">
-                <div className="card-body"><div className="table-wrap"><table>
+                <div className="card-body"><TableTotal total={usersTotal} loading={userLoading || userPoolLoading} page={userUsePool ? userPoolPage.page : userPage} /><div className="table-wrap"><table>
                 <thead><tr><th></th>{sortableTh('Nama', 'name', 'name', userSortOrder, handleUserSort)}<th>Email</th><th>Peranan</th><th>Tempahan</th>{isAdmin && <th>Tindakan</th>}</tr></thead>
                 <tbody>
                   {userLoading && <tr><td colSpan={isAdmin ? 6 : 5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
@@ -5948,10 +6117,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                   {!userLoading && filteredAccounts.length === 0 && <tr><td colSpan={isAdmin ? 6 : 5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada akaun sepadan</td></tr>}
                 </tbody>
               </table></div></div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 4px 4px' }}>
-                  <button className="btn btn-sm btn-ghost" disabled={userPage === 0} onClick={handleUserPrev}>← Sebelum</button>
-                  <button className="btn btn-sm btn-ghost" disabled={!userHasMore} onClick={handleUserNext}>Seterus →</button>
-                </div>
+                {usersPager}
               </div>
 
               )}
@@ -5959,10 +6125,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               {userTab === 'guests' && (
               <div className="card">
                 <div className="card-header"><div className="card-title">Tempahan Manual Tanpa Akaun</div></div>
-                <div className="card-body"><div className="table-wrap"><table>
+                <div className="card-body">{pageTable('guests', guestRows, q).totalEl}<div className="table-wrap"><table>
                   <thead><tr><th>Nama</th><th>Email / Rujukan</th><th>Telefon</th><th>Tempahan</th></tr></thead>
                   <tbody>
-                    {guestRows.map(g => (
+                    {pageTable('guests', guestRows, q).rows.map(g => (
                       <tr key={g.email + g.name}>
                         <td className="td-name">{g.name}</td>
                         <td>{g.email}</td>
@@ -5972,7 +6138,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     ))}
                     {guestRows.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Tiada tempahan manual</td></tr>}
                   </tbody>
-                </table></div></div>
+                </table></div>{pageTable('guests', guestRows, q).pagerEl}</div>
               </div>
               )}
             </div>
@@ -6035,7 +6201,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     </div>
                     <button className="btn btn-sm btn-ghost" disabled={emailLogLoading} onClick={() => fetchEmailLogPage(emailLogCursors[emailLogPage] ?? null, emailLogPage)}>Muat Semula</button>
                   </div>
-                  <div className="card-body"><div className="table-wrap"><table>
+                  <div className="card-body">
+                    {q
+                      // Searching reads no extra emails (the mail log can be large), so it filters the page on screen.
+                      ? <div className="cms-table-total">Jumlah <strong>{filtered.length}</strong> rekod sepadan dalam halaman ini</div>
+                      : <TableTotal total={emailLogTotal} loading={emailLogLoading} page={emailLogPage} />}
+                    <div className="table-wrap"><table>
                     <thead><tr><th>Tarikh Dicetuskan</th><th>Penerima</th><th>Jenis E-mel</th><th>Status</th><th>Percubaan</th><th></th></tr></thead>
                     <tbody>
                       {emailLogLoading && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Memuat...</td></tr>}
@@ -6086,10 +6257,12 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                       )}
                     </tbody>
                   </table></div></div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '10px 4px 4px' }}>
-                    <button className="btn btn-sm btn-ghost" disabled={emailLogPage === 0 || emailLogLoading} onClick={handleEmailLogPrev}>← Sebelum</button>
-                    <button className="btn btn-sm btn-ghost" disabled={!emailLogHasMore || emailLogLoading} onClick={handleEmailLogNext}>Seterus →</button>
-                  </div>
+                  <TablePager
+                    page={emailLogPage}
+                    pageCount={emailLogTotal != null ? Math.max(1, Math.ceil(emailLogTotal / TABLE_PAGE_SIZE)) : null}
+                    hasNext={emailLogHasMore}
+                    onPage={(p) => { if (emailLogLoading) return; if (p > emailLogPage) handleEmailLogNext(); else handleEmailLogPrev(); }}
+                  />
                 </div>
               </div>
             );
@@ -6127,10 +6300,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     )}
                   </div>
                 </div>
-                <div className="card-body"><div className="table-wrap"><table>
+                <div className="card-body">{pageTable('audit-log', filtered, `${q}|${auditLogFilter}`).totalEl}<div className="table-wrap"><table>
                   <thead><tr><th>Waktu</th><th>Staf</th><th>Tindakan</th><th>Butiran</th></tr></thead>
                   <tbody>
-                    {filtered.map(e => (
+                    {pageTable('audit-log', filtered, `${q}|${auditLogFilter}`).rows.map(e => (
                       <tr key={e.id}>
                         <td style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(e.createdAt)}</td>
                         <td className="td-name">{e.actorName || e.actorEmail || e.actorUid || '—'}</td>
@@ -6140,7 +6313,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                     ))}
                     {filtered.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>{auditLogEntries.length === 0 ? 'Tiada log lagi' : 'Tiada log sepadan dengan carian'}</td></tr>}
                   </tbody>
-                </table></div></div>
+                </table></div>{pageTable('audit-log', filtered, `${q}|${auditLogFilter}`).pagerEl}</div>
               </div>
             </div>
             );

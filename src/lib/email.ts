@@ -16,6 +16,8 @@ export interface EmailLogsPage {
   items: EmailLogEntry[];
   nextCursor: string | null;
   hasMore: boolean;
+  /** Total emails (first page only). */
+  total?: number;
 }
 
 export const getEmailLogsPage = async (cursor: string | null, pageSize = 50): Promise<EmailLogsPage> => {

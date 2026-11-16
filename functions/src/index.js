@@ -884,13 +884,18 @@ export const listEmailLogs = browserFacing.https.onCall(async (data, context) =>
             if (cursorSnap.exists) mailQuery = mailQuery.startAfter(cursorSnap);
         }
 
-        const snapshot = await mailQuery.get();
+        // Total only on the first page (count aggregation: ~1 read per 1000 docs).
+        const [snapshot, countSnap] = await Promise.all([
+            mailQuery.get(),
+            cursorId ? null : adminDb.collection('mail').count().get(),
+        ]);
         const hasMore = snapshot.docs.length > pageSize;
         const docs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
         return {
             items: docs.map((docSnap) => safeMailLogEntry(docSnap.id, docSnap.data())),
             nextCursor: hasMore ? docs[docs.length - 1]?.id || null : null,
             hasMore,
+            ...(countSnap ? { total: countSnap.data().count } : {}),
         };
     } catch (error) {
         if (error instanceof functions.https.HttpsError) throw error;
