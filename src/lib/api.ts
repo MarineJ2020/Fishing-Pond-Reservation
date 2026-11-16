@@ -52,6 +52,12 @@ export const getBookingActivity = async (bookingId: string): Promise<{ entries: 
     createdByName: typeof result?.createdByName === 'string' ? result.createdByName : '',
   };
 };
+/** Who approved / cancelled each booking (from the audit log), keyed by booking id. */
+export const getBookingActors = async (bookingIds: string[]): Promise<Record<string, { approvedBy: string; cancelledBy: string }>> => {
+  if (!bookingIds.length) return {};
+  const result = await bookingRequest('/bookingActors', { bookingIds });
+  return result?.actors && typeof result.actors === 'object' ? result.actors : {};
+};
 export interface PrizeActivityEntry { id: string; rank: number; action: 'prize.claim' | 'prize.unclaim'; actorName: string; reason: string; at: string }
 export const getPrizeActivity = async (competitionId: string): Promise<PrizeActivityEntry[]> => {
   const result = await bookingRequest('/prizeActivity', { competitionId });

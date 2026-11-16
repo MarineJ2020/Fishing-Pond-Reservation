@@ -39,9 +39,27 @@ export interface DashboardStats {
   refundPendingValue: number;
   /** Value of bookings still awaiting approval. */
   pendingValue: number;
+  /** Split by who made the booking: the customer on the website vs staff on their behalf ("manual"). */
+  bySource: { website: SourceSummary; manual: SourceSummary };
+  /** Manual bookings grouped by the staff account that made them. */
+  byStaff: (SourceSummary & { staffKey: string; name: string })[];
   recent: Booking[];
   byCompetition: CompetitionSummary[];
 }
+
+export interface SourceSummary {
+  /** All bookings, including cancelled (same basis as `total`). */
+  total: number;
+  confirmed: number;
+  pending: number;
+  cancelled: number;
+  /** Pegs on confirmed bookings. */
+  pegs: number;
+  /** Same basis as DashboardStats.revenue. */
+  revenue: number;
+}
+
+const emptySource = (): SourceSummary => ({ total: 0, confirmed: 0, pending: 0, cancelled: 0, pegs: 0, revenue: 0 });
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -102,9 +120,33 @@ export function buildDashboardStats(
 
   const competitionById = new Map(competitions.filter((c) => c.id).map((c) => [c.id as string, c]));
   const summaries = new Map<string, CompetitionSummary>();
-  const stats: DashboardStats = { total: 0, confirmed: 0, pending: 0, cancelled: 0, revenue: 0, keptFromCancelled: 0, refundPending: 0, refundPendingValue: 0, pendingValue: 0, recent: [], byCompetition: [] };
+  const stats: DashboardStats = { total: 0, confirmed: 0, pending: 0, cancelled: 0, revenue: 0, keptFromCancelled: 0, refundPending: 0, refundPendingValue: 0, pendingValue: 0, bySource: { website: emptySource(), manual: emptySource() }, byStaff: [], recent: [], byCompetition: [] };
+  const staffRows = new Map<string, SourceSummary & { staffKey: string; name: string }>();
 
   filtered.forEach((booking) => {
+    const targets: SourceSummary[] = [booking.createdByStaff ? stats.bySource.manual : stats.bySource.website];
+    if (booking.createdByStaff) {
+      const staffKey = booking.createdByUid || booking.createdByName || 'unknown';
+      let row = staffRows.get(staffKey);
+      if (!row) {
+        row = { ...emptySource(), staffKey, name: booking.createdByName || 'Staf (nama tidak direkod)' };
+        staffRows.set(staffKey, row);
+      }
+      targets.push(row);
+    }
+    targets.forEach((source) => {
+      source.total += 1;
+      if (booking.status === 'confirmed') {
+        source.confirmed += 1;
+        source.pegs += bookingPegCount(booking);
+        source.revenue += bookingCollected(booking);
+      } else if (booking.status === 'pending') {
+        source.pending += 1;
+      } else {
+        source.cancelled += 1;
+        source.revenue += cancelledKeptAmount(booking);
+      }
+    });
     const key = booking.competitionId || '';
     const competition = competitionById.get(key);
     const summary = summaries.get(key) || {
@@ -141,6 +183,7 @@ export function buildDashboardStats(
     summaries.set(key, summary);
   });
 
+  stats.byStaff = [...staffRows.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ms'));
   stats.recent = [...filtered]
     .sort((a, b) => (createdMs(b) ?? 0) - (createdMs(a) ?? 0))
     .slice(0, 8);

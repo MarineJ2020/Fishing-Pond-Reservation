@@ -8,7 +8,7 @@ import { gs } from '../data';
 import DateTimeField from './DateTimeField';
 import { fastestRecords, mostRecordRanking } from '../utils/specialPrizes';
 import { CANCEL_TYPE_OPTIONS, bookingPaidAmount, cancelMoneyLabel, isRefundPending, type CancelType } from '../utils/cancellation';
-import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt, getPrizeActivity, type PrizeActivityEntry } from '../lib/api';
+import { checkInBooking, cancelBookingCheckIn, acceptBookingReceipt, rejectBookingReceipt, getPrizeActivity, getBookingActors, type PrizeActivityEntry } from '../lib/api';
 import {
   createPond as createPondFirestore,
   deletePond as deletePondFirestore,
@@ -234,6 +234,8 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   // While a search term is typed, the table searches ALL bookings of the filter (every page),
   // not just the 50 rows on screen. `null` = no active search.
   const [bookingPegSearch, setBookingPegSearch] = useState('');
+  // '' = all, 'website', 'manual' (any staff), or 'staff:<uid or name>'.
+  const [allSourceFilter, setAllSourceFilter] = useState('');
   const [approvalPegSearch, setApprovalPegSearch] = useState('');
   const [allSearchPool, setAllSearchPool] = useState<Booking[] | null>(null);
   const [approvalSearchPool, setApprovalSearchPool] = useState<Booking[] | null>(null);
@@ -1467,6 +1469,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
       const filteredRows = exportRows
         .filter((b) => !allPondFilter || String(b.pondId) === allPondFilter)
         .filter((b) => bookingHasPeg(b, bookingPegSearch))
+        .filter((b) => bookingMatchesSource(b, allSourceFilter))
         .filter((b) => {
           if (!q) return true;
           const haystack = [
@@ -1484,14 +1487,20 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
         'Telefon Tempahan',
         'Email',
         'Ref Tempahan',
+        'No Rujukan Bank',
+        'Tarikh Tempahan',
         'Pertandingan',
         'Status',
         'Jumlah',
         'Kolam',
         'No Pancang',
         'Jumlah Pancang Tempahan',
+        'Diluluskan Oleh',
+        'Dibatalkan Oleh',
+        'Sebab Batal',
         'Catatan Manual',
       ];
+      const actors = await getBookingActors(filteredRows.map((b) => b.id));
       const rows = filteredRows.flatMap((b) => {
         const seatEntries = bookingSeatEntries(b)
           .sort((a, b) => {
@@ -1503,32 +1512,42 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             return pondA || a.seatNum - b.seatNum;
           });
         const total = b.totalAmount ?? b.amount ?? 0;
-        const entries = seatEntries.length ? seatEntries : [{
-          key: `${b.pondId}:`,
-          pondId: b.pondId,
-          pondName: b.pondName,
-          pondCode: b.pondCode,
-          pondDate: b.pondDate,
-          seatNum: 0,
-        } as BookingSeatEntry];
-        return entries.map((entry) => {
-          const pondCode = entry.pondCode || ponds.find((pond) => pond.id === entry.pondId)?.code;
-          return [
-            0,
-            b.userName || '',
-            b.userPhone || '',
-            b.bookingPhone || '',
-            b.userEmail || b.userId || '',
-            b.bookingRef || b.id,
-            b.competitionName || comp.name || '',
-            b.status === 'rejected' ? 'Dibatalkan' : 'Disahkan',
-            total,
-            entry.pondName || bookingPondList(b),
-            entry.seatNum ? formatPeg(entry.seatNum) : bookingSeatList(b),
-            seatEntries.length,
-            '',
-          ];
-        });
+        // Every non-rejected receipt's bank reference (deposit + baki), deduplicated.
+        const bankRefs = b.receipts?.length
+          ? b.receipts
+            .map((r, i) => (r.status === 'rejected' ? '' : receiptBankReference(b, r, i)))
+            .filter(Boolean)
+          : [(b.bankReference || '').trim()].filter(Boolean);
+        const bankRefJoined = Array.from(new Set(bankRefs)).join(' / ');
+        // Excel turns long all-digit refs into 1.2E+17 / drops leading zeros; ="..." keeps them as text.
+        const bankRefText = /^\d{8,}$|^0\d+$/.test(bankRefJoined) ? `="${bankRefJoined}"` : bankRefJoined;
+        // One row per booking: all its ponds and pancang combined into single cells.
+        const pondNames = seatEntries.length
+          ? Array.from(new Set(seatEntries.map((entry) => entry.pondName).filter(Boolean))).join(', ')
+          : '';
+        const pegs = seatEntries.length
+          ? seatEntries.map((entry) => formatPeg(entry.seatNum)).join(', ')
+          : bookingSeatList(b);
+        return [[
+          0,
+          b.userName || '',
+          b.userPhone || '',
+          b.bookingPhone || '',
+          b.userEmail || b.userId || '',
+          b.bookingRef || b.id,
+          bankRefText,
+          csvDateTime(b.createdAt),
+          b.competitionName || comp.name || '',
+          b.status === 'rejected' ? 'Dibatalkan' : 'Disahkan',
+          total,
+          pondNames || bookingPondList(b),
+          pegs,
+          seatEntries.length,
+          actors[b.id]?.approvedBy || '',
+          b.status === 'rejected' ? (actors[b.id]?.cancelledBy || '') : '',
+          b.status === 'rejected' ? (b.cancelReason || '') : '',
+          '',
+        ]];
       });
       rows.forEach((row, index) => { row[0] = index + 1; });
 
@@ -1556,7 +1575,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
   useEffect(() => {
     const isAll = page === 'all-bookings';
     const isApprovals = page === 'approvals';
-    const term = (isAll ? bookingSearch + bookingPegSearch : isApprovals ? approvalSearch + approvalPegSearch : '').trim();
+    const term = (isAll ? bookingSearch + bookingPegSearch + allSourceFilter : isApprovals ? approvalSearch + approvalPegSearch : '').trim();
     if ((!isAll && !isApprovals) || !term) {
       setAllSearchPool(null);
       setApprovalSearchPool(null);
@@ -1596,7 +1615,7 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     }, 450);
     return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, bookingSearch, approvalSearch, bookingPegSearch, approvalPegSearch, allStatus, allCompFilter, approvalCompFilter, searchNonce]);
+  }, [page, bookingSearch, approvalSearch, bookingPegSearch, approvalPegSearch, allSourceFilter, allStatus, allCompFilter, approvalCompFilter, searchNonce]);
 
   // Refetch whichever list is currently on-screen after a mutation — the
   // OTHER list (if the booking just moved between them) picks up the change
@@ -3111,6 +3130,23 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
     if (!q) return true;
     return (bookingSeatList(b).match(/\d+/g) || []).some((n) => n.startsWith(q));
   };
+  const bookingMatchesSource = (b: Booking, filter: string) => {
+    if (!filter) return true;
+    if (filter === 'website') return !b.createdByStaff;
+    if (filter === 'manual') return !!b.createdByStaff;
+    return !!b.createdByStaff && `staff:${b.createdByUid || b.createdByName || 'unknown'}` === filter;
+  };
+  // Staff who have made manual bookings (from the bookings already loaded in the CMS).
+  const manualStaffOptions = (() => {
+    const map = new Map<string, string>();
+    effectiveBookings.forEach((b) => {
+      if (!b.createdByStaff) return;
+      if (allCompFilter && (b.competitionId || '') !== allCompFilter) return;
+      const key = `staff:${b.createdByUid || b.createdByName || 'unknown'}`;
+      if (!map.has(key)) map.set(key, b.createdByName || 'Staf (nama tidak direkod)');
+    });
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1], 'ms'));
+  })();
   const bookingPondList = (b: Booking) => b.pondSelections?.length
     ? Array.from(new Set(b.pondSelections.map((selection) => selection.pondName))).join(', ')
     : b.pondName;
@@ -3239,6 +3275,31 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
                 <div className="stat-card stat-accent"><div className="stat-label">Disahkan</div><div className="stat-value">{dashStats.confirmed}</div><div className="stat-change">Diluluskan</div></div>
                 <div className="stat-card stat-accent"><div className="stat-label">Jumlah Hasil</div><div className="stat-value">{formatRM(dashStats.revenue)}</div><div className="stat-change">{dashStats.keptFromCancelled > 0 ? `Termasuk ${formatRM(dashStats.keptFromCancelled)} bayaran hangus / tidak dikembalikan` : 'Disahkan · tolak bayaran balik'}</div></div>
               </div>
+              <div className="card" style={{ marginBottom: '1rem' }}>
+                <div className="card-header"><div className="card-title">Tempahan Website vs Manual</div></div>
+                <div className="card-body"><div className="table-wrap"><table>
+                  <thead><tr><th>Sumber</th><th>Jumlah Tempahan</th><th>Disahkan</th><th>Menunggu</th><th>Dibatalkan</th><th>Pancang (disahkan)</th><th>Hasil</th></tr></thead>
+                  <tbody>
+                    {([['Website (pelanggan sendiri)', dashStats.bySource.website], ['Manual (oleh staf)', dashStats.bySource.manual]] as const).map(([label, s]) => (
+                      <tr key={label}><td className="td-name">{label}</td><td>{s.total}</td><td>{s.confirmed}</td><td>{s.pending}</td><td>{s.cancelled}</td><td>{s.pegs}</td><td style={{ fontWeight: 700 }}>{formatRM(s.revenue)}</td></tr>
+                    ))}
+                    <tr style={{ fontWeight: 700 }}><td className="td-name">Jumlah</td><td>{dashStats.total}</td><td>{dashStats.confirmed}</td><td>{dashStats.pending}</td><td>{dashStats.cancelled}</td><td>{dashStats.bySource.website.pegs + dashStats.bySource.manual.pegs}</td><td>{formatRM(dashStats.revenue)}</td></tr>
+                  </tbody>
+                </table></div></div>
+              </div>
+              {dashStats.byStaff.length > 0 && (
+                <div className="card" style={{ marginBottom: '1rem' }}>
+                  <div className="card-header"><div className="card-title">Tempahan Manual mengikut Staf</div></div>
+                  <div className="card-body"><div className="table-wrap"><table>
+                    <thead><tr><th>Staf</th><th>Jumlah Tempahan</th><th>Disahkan</th><th>Menunggu</th><th>Dibatalkan</th><th>Pancang (disahkan)</th><th>Hasil</th></tr></thead>
+                    <tbody>
+                      {dashStats.byStaff.map((s) => (
+                        <tr key={s.staffKey}><td className="td-name">{s.name}</td><td>{s.total}</td><td>{s.confirmed}</td><td>{s.pending}</td><td>{s.cancelled}</td><td>{s.pegs}</td><td style={{ fontWeight: 700 }}>{formatRM(s.revenue)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table></div></div>
+                </div>
+              )}
               {pendingRefunds.length > 0 && (
                 <div className="card" style={{ marginBottom: '1rem', borderColor: 'var(--red)' }}>
                   <div className="card-header">
@@ -3956,9 +4017,10 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
             const q = bookingSearch.trim().toLowerCase();
             // Server query scopes decided bookings by status; competition,
             // pond, and search filters narrow the currently-loaded page.
-            const filteredEntries = ((q || bookingPegSearch.trim()) && allSearchPool ? allSearchPool : allEntries)
+            const filteredEntries = ((q || bookingPegSearch.trim() || allSourceFilter) && allSearchPool ? allSearchPool : allEntries)
               .filter(b => !allCompFilter || (b.competitionId || '') === allCompFilter)
               .filter(b => !allPondFilter || String(b.pondId) === allPondFilter)
+              .filter(b => bookingMatchesSource(b, allSourceFilter))
               .filter(b => bookingHasPeg(b, bookingPegSearch))
               .filter(b => {
                 if (!q) return true;
@@ -4010,15 +4072,21 @@ const CMSModal: React.FC<CMSModalProps> = ({ isOpen, onClose, onGoToBooking, use
               </div>
 
               <div className="cms-filter-row">
-                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, telefon..." value={bookingSearch} onChange={e => setBookingSearch(e.target.value)} />{(bookingSearch.trim() || bookingPegSearch.trim()) && searchPoolLoading && <small>Mencari dalam semua tempahan…</small>}</div>
+                <div className="field"><label>Carian</label><input className="form-input" type="search" placeholder="Ref, nama, email, telefon..." value={bookingSearch} onChange={e => setBookingSearch(e.target.value)} />{(bookingSearch.trim() || bookingPegSearch.trim() || allSourceFilter) && searchPoolLoading && <small>Mencari dalam semua tempahan…</small>}</div>
                 <div className="field"><label>No. Pancang</label><input className="form-input" type="search" inputMode="numeric" placeholder="cth: 1668" value={bookingPegSearch} onChange={e => setBookingPegSearch(e.target.value)} /></div>
                 <div className="field"><label>Pertandingan</label><select className="form-input" value={allCompFilter} onChange={e => setAllCompFilter(e.target.value)}><option value="">Semua pertandingan</option>{competitionFilterOptions.map(c => <option key={c.id || c.name} value={c.id || ''}>{compOptionLabel(c)}</option>)}</select></div>
+                <div className="field"><label>Sumber Tempahan</label><select className="form-input" value={allSourceFilter} onChange={e => setAllSourceFilter(e.target.value)}>
+                  <option value="">Semua (website + manual)</option>
+                  <option value="website">Website sahaja</option>
+                  <option value="manual">Manual sahaja (semua staf)</option>
+                  {manualStaffOptions.map(([key, name]) => <option key={key} value={key}>Manual: {name}</option>)}
+                </select></div>
                 <div className="field"><label>Kolam</label><select className="form-input" value={allPondFilter} onChange={e => setAllPondFilter(e.target.value)}><option value="">Semua kolam</option>{ponds.map(p => <option key={p.id} value={String(p.id)}>{pondDisplayName(p)}</option>)}</select></div>
                 <div className="cms-filter-actions">
                   <button className="btn btn-primary btn-sm" disabled={!allCompFilter || allExporting} onClick={handleExportAllBookingsCsv}>
                     {allExporting ? 'Export...' : 'Export CSV'}
                   </button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setBookingPegSearch(''); setAllCompFilter(latestCompId); setAllPondFilter(''); }}>Reset</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setAllStatus('all'); setBookingSearch(''); setBookingPegSearch(''); setAllSourceFilter(''); setAllCompFilter(latestCompId); setAllPondFilter(''); }}>Reset</button>
                 </div>
               </div>
 

@@ -1166,7 +1166,18 @@ export const updateBookingStatus = async (
   }, { merge: true });
 
   if (!bookingSnap.exists()) return;
-  const bookingData = bookingSnap.data() as any;
+  // Legacy `seats` doc sync. Pegs are really freed by bookingSeatClaims (released
+  // by a server trigger), and rules let only admins write `seats`, so a
+  // COUNTER_STAFF cancel would throw here AFTER the booking was saved, making the
+  // CMS skip its audit log and show a false "failed" alert. Best-effort only.
+  try {
+    await syncLegacySeatDocs(bookingSnap.data() as any, status);
+  } catch (err) {
+    console.warn('Legacy seat status sync skipped:', err);
+  }
+};
+
+const syncLegacySeatDocs = async (bookingData: any, status: 'pending' | 'confirmed' | 'rejected') => {
   const seatIds: string[] = Array.isArray(bookingData.seatIds)
     ? bookingData.seatIds
         .map((seat: any) => (typeof seat === 'string' ? seat : seat?.id || null))

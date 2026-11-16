@@ -390,10 +390,101 @@ app.post('/bookingActivity', verifyToken, requireStaff, async (req, res) => {
                 at: data.createdAt?.toDate?.().toISOString() || '',
             });
         });
+        // Cancels by COUNTER_STAFF before 2026-11-16 never reached auditLog (the CMS
+        // threw on a legacy seats write first). The booking doc still records who,
+        // when and why, so show the cancel from those fields when no entry exists.
+        const hasCancelEntry = [...entries.values()].some((e) => e.action === 'booking.force_cancel');
+        if (!hasCancelEntry && booking.cancelledAt && String(booking.status || '').toUpperCase() === 'REJECTED') {
+            let actorName = '';
+            if (typeof booking.cancelledBy === 'string' && booking.cancelledBy) {
+                const actor = await adminDb.collection('users').doc(booking.cancelledBy).get();
+                actorName = (actor.exists && (actor.data()?.name || actor.data()?.email)) || '';
+            }
+            const at = booking.cancelledAt?.toDate?.().toISOString() || String(booking.cancelledAt);
+            const typeLabel = { refund: 'Batal – bayaran dikembalikan', no_show_forfeit: 'Tidak hadir – bayaran hangus', no_payment: 'Batal – tiada bayaran' }[booking.cancelType] || '';
+            entries.set('booking-cancel', {
+                id: 'booking-cancel',
+                action: 'booking.force_cancel',
+                actionLabel: 'Batal Paksa Tempahan',
+                details: typeLabel + (booking.cancelType === 'refund' && booking.refundAmount ? ` · RM ${Number(booking.refundAmount).toFixed(2)}` : ''),
+                reason: booking.cancelReason || '',
+                actorName: actorName || 'Staf',
+                at,
+            });
+        }
         return res.json({ entries: [...entries.values()], createdByName });
     } catch (error) {
         console.error('bookingActivity failed:', error);
         return res.status(500).json({ error: 'Log aktiviti tidak dapat dimuatkan.' });
+    }
+});
+
+// Who approved / cancelled each booking, for the Semua Tempahan CSV. auditLog is
+// admin-only in rules, so staff read it here. Approver = first payment-approval
+// entry (staff manual bookings are approved at creation by their creator);
+// canceller = force-cancel entry, else the booking's own cancelledBy.
+const APPROVAL_ACTIONS = new Set(['booking.receipt_accept', 'booking.deposit_manual_approve', 'booking.manual_payment_validation']);
+app.post('/bookingActors', verifyToken, requireStaff, async (req, res) => {
+    const ids = Array.isArray(req.body.bookingIds)
+        ? [...new Set(req.body.bookingIds.filter((id) => typeof id === 'string' && id && !id.includes('/')))]
+        : [];
+    if (ids.length > 3000) return res.status(400).json({ error: 'Terlalu banyak tempahan.' });
+    try {
+        const log = adminDb.collection('auditLog');
+        const chunks = [];
+        for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
+        const snaps = await Promise.all(chunks.flatMap((chunk) => [
+            log.where('bookingId', 'in', chunk).get(),
+            log.where('entityId', 'in', chunk).get(),
+            adminDb.getAll(...chunk.map((id) => adminDb.collection('bookings').doc(id)), { fieldMask: ['createdByStaff', 'createdByName', 'createdByUid', 'cancelledBy', 'cancelledAt'] }),
+        ]));
+        const seen = new Set();
+        const approve = new Map(); // bookingId -> { at, name }
+        const cancel = new Map();
+        const bookings = new Map();
+        snaps.forEach((result) => {
+            if (Array.isArray(result)) { result.forEach((doc) => { if (doc.exists) bookings.set(doc.id, doc.data()); }); return; }
+            result.docs.forEach((doc) => {
+                if (seen.has(doc.id)) return;
+                seen.add(doc.id);
+                const data = doc.data();
+                const bookingId = data.bookingId || data.entityId;
+                const at = data.createdAt?.toMillis?.() || 0;
+                const name = data.actorName || data.actorEmail || '';
+                if (APPROVAL_ACTIONS.has(data.action)) {
+                    const prev = approve.get(bookingId);
+                    if (!prev || at < prev.at) approve.set(bookingId, { at, name });
+                } else if (data.action === 'booking.force_cancel') {
+                    const prev = cancel.get(bookingId);
+                    if (!prev || at > prev.at) cancel.set(bookingId, { at, name });
+                }
+            });
+        });
+        // Resolve names only for bookings that need a fallback.
+        const needUids = new Set();
+        bookings.forEach((b, id) => {
+            if (!cancel.has(id) && b.cancelledAt && typeof b.cancelledBy === 'string' && b.cancelledBy) needUids.add(b.cancelledBy);
+            if (b.createdByStaff && !b.createdByName && typeof b.createdByUid === 'string' && b.createdByUid) needUids.add(b.createdByUid);
+        });
+        const names = new Map();
+        const uidList = [...needUids];
+        for (let i = 0; i < uidList.length; i += 100) {
+            const docs = await adminDb.getAll(...uidList.slice(i, i + 100).map((uid) => adminDb.collection('users').doc(uid)));
+            docs.forEach((doc) => { if (doc.exists) names.set(doc.id, doc.data()?.name || doc.data()?.email || ''); });
+        }
+        const actors = {};
+        ids.forEach((id) => {
+            const b = bookings.get(id) || {};
+            const approvedBy = b.createdByStaff
+                ? (b.createdByName || names.get(b.createdByUid) || 'Staf')
+                : (approve.get(id)?.name || '');
+            const cancelledBy = cancel.get(id)?.name || (b.cancelledAt ? (names.get(b.cancelledBy) || 'Staf') : '');
+            actors[id] = { approvedBy, cancelledBy };
+        });
+        return res.json({ actors });
+    } catch (error) {
+        console.error('bookingActors failed:', error);
+        return res.status(500).json({ error: 'Maklumat staf tidak dapat dimuatkan.' });
     }
 });
 

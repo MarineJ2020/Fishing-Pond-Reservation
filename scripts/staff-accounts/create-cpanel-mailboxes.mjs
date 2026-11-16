@@ -8,21 +8,32 @@
 //   $env:CPANEL_USER = 'your-cpanel-username'
 //   $env:CPANEL_TOKEN = 'the-api-token'
 //   node scripts/staff-accounts/create-cpanel-mailboxes.mjs --confirm
+import readline from 'node:readline/promises';
 import { flag, readSheet, writeSheet } from './sheet.mjs';
 
 const confirmed = flag('--confirm');
-const { CPANEL_HOST, CPANEL_USER, CPANEL_TOKEN } = process.env;
 const QUOTA_MB = 250;
 
-const rows = readSheet();
-console.log(`${rows.length} mailboxes in the sheet. ${confirmed ? 'CREATING' : 'Dry run (add --confirm to create)'}.`);
+const allRows = readSheet();
+// Optional: only accounts numbered 1..N (e.g. --up-to=17 while the host limit allows 17).
+const upToArg = process.argv.find((a) => a.startsWith('--up-to='));
+const upTo = upToArg ? Number(upToArg.split('=')[1]) : Infinity;
+const rows = allRows.filter((r) => Number(r.No) <= upTo);
+console.log(`${rows.length} mailboxes selected. ${confirmed ? 'CREATING' : 'Dry run (add --confirm to create)'}.`);
 
 if (!confirmed) {
   rows.forEach((row) => console.log(`  would create ${row.Email}  [${row['Mailbox cPanel'] || 'not yet'}]`));
   process.exit(0);
 }
-if (!CPANEL_HOST || !CPANEL_USER || !CPANEL_TOKEN) {
-  console.log('Set CPANEL_HOST, CPANEL_USER and CPANEL_TOKEN first (see the top of this file).');
+// Always ask here (ignores any stale environment values) so nothing has to be edited.
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const ask = async (q, fallback = '') => ((await rl.question(q)).trim() || fallback);
+const CPANEL_HOST = await ask('cPanel host [sc171.mschosting.cloud]: ', 'sc171.mschosting.cloud');
+const CPANEL_USER = await ask('cPanel username: ');
+const CPANEL_TOKEN = await ask('cPanel API token (paste, then Enter): ');
+rl.close();
+if (!CPANEL_USER || !CPANEL_TOKEN) {
+  console.log('Username and token are required.');
   process.exit(1);
 }
 
@@ -52,6 +63,6 @@ for (const row of rows) {
     failed += 1;
     console.log(`  FAILED   ${row.Email}  HTTP ${res.status} ${errors || 'no detail'}`);
   }
-  writeSheet(rows);
+  writeSheet(allRows);
 }
 console.log(`Done: ${created} created, ${skipped} skipped, ${failed} failed.`);
